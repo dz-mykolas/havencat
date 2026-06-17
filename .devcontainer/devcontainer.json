@@ -1,0 +1,5 @@
+{
+  "name": "Debian Bookworm Minimal",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "remoteUser": "vscode"
+}
