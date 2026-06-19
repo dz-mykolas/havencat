@@ -1,10 +1,12 @@
-FLUTTER := fvm flutter
-DART := fvm dart
 APP := apps
 FVM_VERSION ?= stable
 DEVICE ?= web-server
 WEB_HOST ?= 0.0.0.0
 WEB_PORT ?= 8080
+
+FLUTTER := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/flutter
+DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
+
 RUN_ARGS := -d $(DEVICE)
 
 ifeq ($(DEVICE),web-server)
