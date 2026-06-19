@@ -30,12 +30,15 @@ class _ChatInputState extends State<ChatInput>
     duration: const Duration(milliseconds: 1600),
   );
 
+  final FocusNode _focusNode = FocusNode();
   bool _hasText = false;
+  bool _focused = false;
 
   @override
   void initState() {
     super.initState();
     widget.textController.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
     _syncAnimation();
   }
 
@@ -63,6 +66,12 @@ class _ChatInputState extends State<ChatInput>
     }
   }
 
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus != _focused) {
+      setState(() => _focused = _focusNode.hasFocus);
+    }
+  }
+
   void _submit() {
     final String text = widget.textController.text;
     if (text.trim().isEmpty || widget.isGenerating) return;
@@ -73,62 +82,78 @@ class _ChatInputState extends State<ChatInput>
   @override
   void dispose() {
     widget.textController.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
     _borderController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _borderController,
-      builder: (BuildContext context, Widget? child) {
-        return CustomPaint(
-          painter: _GradientBorderPainter(
-            progress: _borderController.value,
-            active: widget.isGenerating,
-          ),
-          child: child,
-        );
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(2.5),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(26),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 4, 6, 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Expanded(
-                child: TextField(
-                  controller: widget.textController,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _submit(),
-                  cursorColor: AppTheme.brandViolet,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 15,
-                    height: 1.4,
-                  ),
-                  decoration: const InputDecoration(
-                    isCollapsed: true,
-                    border: InputBorder.none,
-                    hintText: 'Message HavenChat',
-                    hintStyle: TextStyle(color: AppTheme.textSecondary),
-                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+    // On focus the pill grows slightly, with the width increase twice the
+    // height increase (Δscale_x = 2 · Δscale_y). Anchored to the bottom so it
+    // expands upward and outward from where it sits.
+    const double growY = 0.03;
+    const double growX = 2 * growY;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      transformAlignment: Alignment.bottomCenter,
+      transform: _focused
+          ? Matrix4.diagonal3Values(1 + growX, 1 + growY, 1)
+          : Matrix4.identity(),
+      child: AnimatedBuilder(
+        animation: _borderController,
+        builder: (BuildContext context, Widget? child) {
+          return CustomPaint(
+            painter: _GradientBorderPainter(
+              progress: _borderController.value,
+              active: widget.isGenerating,
+            ),
+            child: child,
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(2.5),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(26),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 4, 6, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: widget.textController,
+                    focusNode: _focusNode,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submit(),
+                    cursorColor: AppTheme.brandViolet,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                    decoration: const InputDecoration(
+                      isCollapsed: true,
+                      border: InputBorder.none,
+                      hintText: 'Message HavenChats',
+                      hintStyle: TextStyle(color: AppTheme.textSecondary),
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              _SendButton(
-                enabled: _hasText && !widget.isGenerating,
-                onTap: _submit,
-              ),
-            ],
+                const SizedBox(width: 8),
+                _SendButton(
+                  enabled: _hasText && !widget.isGenerating,
+                  onTap: _submit,
+                ),
+              ],
+            ),
           ),
         ),
       ),
