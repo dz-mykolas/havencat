@@ -5,7 +5,7 @@
     "context": ".."
   },
   "remoteUser": "vscode",
-  "postCreateCommand": "fvm install && fvm flutter pub get && fvm flutter doctor -v",
+  "postCreateCommand": "cd apps && fvm install stable && fvm flutter pub get && fvm flutter doctor -v",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -13,7 +13,7 @@
         "Dart-Code.flutter"
       ],
       "settings": {
-        "dart.flutterSdkPath": ".fvm/flutter_sdk",
+        "dart.flutterSdkPath": "/opt/flutter",
         "dart.checkForSdkUpdates": false,
         "editor.formatOnSave": true
       }

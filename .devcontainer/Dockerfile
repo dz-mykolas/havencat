@@ -11,10 +11,16 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    clang \
+    cmake \
     curl \
     git \
+    libgtk-3-dev \
+    liblzma-dev \
     make \
+    ninja-build \
     openjdk-17-jdk \
+    pkg-config \
     unzip \
     xz-utils \
     zip \
