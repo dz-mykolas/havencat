@@ -3,6 +3,7 @@ FVM_VERSION ?= stable
 DEVICE ?= web-server
 WEB_HOST ?= 0.0.0.0
 WEB_PORT ?= 8080
+SERVE_PORT ?= 8088
 
 FLUTTER := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/flutter
 DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
@@ -11,9 +12,12 @@ RUN_ARGS := -d $(DEVICE)
 
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)
+# In the browser, LLM calls go through the local reverse proxy (CORS). Point
+# the web build at it; run `make proxy` in another terminal alongside this.
+RUN_ARGS += --dart-define=LLM_PROXY=http://localhost:$(SERVE_PORT)/proxy
 endif
 
-.PHONY: install run run-profile run-release check format build-play build-apk build-ios build-web build-desktop clean
+.PHONY: install run run-profile run-release proxy serve check format build-play build-apk build-ios build-web build-desktop clean
 
 # Install the pinned Flutter SDK and project dependencies.
 install:
@@ -56,7 +60,17 @@ build-ios:
 
 # Build web app.
 build-web:
-	cd $(APP) && $(FLUTTER) build web
+	cd $(APP) && $(FLUTTER) build web --dart-define=LLM_PROXY=/proxy
+
+# Self-host the web build: one Dart process serves the app + a same-origin
+# LLM reverse proxy (so the browser isn't blocked by CORS). Builds first.
+serve: build-web
+	cd $(APP) && PORT=$(SERVE_PORT) $(DART) run bin/serve.dart
+
+# Run ONLY the LLM reverse proxy. Use this in a second terminal next to
+# `make run` for hot-reload web development against real providers.
+proxy:
+	cd $(APP) && PORT=$(SERVE_PORT) $(DART) run bin/serve.dart
 
 # Build desktop app for the current OS.
 build-desktop:

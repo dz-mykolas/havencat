@@ -34,4 +34,27 @@ class ProviderAccount {
   final Map<String, Object?> config;
 
   DateTime? createdAt;
+
+  /// Non-secret JSON for persistence. Secrets (API keys, OAuth tokens) are
+  /// deliberately absent — they live in secure storage keyed by [id].
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'kind': kind.name,
+    'displayName': displayName,
+    'config': config,
+    if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+  };
+
+  factory ProviderAccount.fromJson(Map<String, Object?> json) {
+    final Object? created = json['createdAt'];
+    return ProviderAccount(
+      id: json['id'] as String,
+      kind: AdapterKind.values.byName(json['kind'] as String),
+      displayName: json['displayName'] as String,
+      config: Map<String, Object?>.from(
+        (json['config'] as Map?) ?? const <String, Object?>{},
+      ),
+      createdAt: created is String ? DateTime.tryParse(created) : null,
+    );
+  }
 }

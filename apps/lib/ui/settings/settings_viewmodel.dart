@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/provider_account_repository.dart';
 import '../../data/services/auth/chatgpt_oauth_flow.dart';
+import '../../data/services/auth/chatgpt_token_service.dart';
+import '../../domain/models/adapter_kind.dart';
+import '../../domain/models/oauth_tokens.dart';
 import '../../domain/models/provider_account.dart';
 import '../../domain/models/provider_definition.dart';
 import '../../providers.dart';
@@ -18,12 +21,13 @@ import '../../providers.dart';
 /// [ProviderAccount]s directly: [ProviderAccount] has no mutable collections,
 /// so there is nothing to protect the view from.
 class SettingsViewModel extends ChangeNotifier {
-  SettingsViewModel(this._providers, this._chatGptOAuth) {
+  SettingsViewModel(this._providers, this._chatGptOAuth, this._chatGptTokens) {
     _providers.addListener(_relay);
   }
 
   final ProviderAccountRepository _providers;
   final ChatGptOAuthFlow _chatGptOAuth;
+  final ChatGptTokenService _chatGptTokens;
 
   /// All configured accounts (read-only view of the repository's list).
   List<ProviderAccount> get accounts => _providers.accounts;
@@ -87,20 +91,35 @@ class SettingsViewModel extends ChangeNotifier {
     return _providers.addSubscriptionAccount(
       definitionId: 'chatgpt_subscription',
       displayName: displayName,
-      accessToken: result.accessToken,
+      tokens: OAuthTokens(
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: result.expiresAt,
+      ),
       config: <String, Object?>{
         if (result.accountId != null) 'accountId': result.accountId,
         if (result.planType != null) 'planType': result.planType,
-        if (result.refreshToken != null) 'refreshToken': result.refreshToken,
-        if (result.expiresAt != null)
-          'tokenExpiresAt': result.expiresAt!.toIso8601String(),
       },
     );
   }
 
   void setActive(String accountId) => _providers.setActive(accountId);
 
-  Future<void> remove(String accountId) => _providers.remove(accountId);
+  /// Removes an account. For subscription accounts we best-effort revoke the
+  /// OAuth tokens server-side before deleting them locally.
+  Future<void> remove(String accountId) async {
+    ProviderAccount? account;
+    for (final ProviderAccount a in _providers.accounts) {
+      if (a.id == accountId) {
+        account = a;
+        break;
+      }
+    }
+    if (account != null && account.kind == AdapterKind.subscription) {
+      await _chatGptTokens.revoke(accountId);
+    }
+    await _providers.remove(accountId);
+  }
 
   void _relay() => notifyListeners();
 
@@ -117,5 +136,6 @@ final settingsViewModelProvider = ChangeNotifierProvider<SettingsViewModel>((
   return SettingsViewModel(
     ref.watch(providerAccountRepositoryProvider),
     ref.watch(chatGptOAuthFlowProvider),
+    ref.watch(chatGptTokenServiceProvider),
   );
 });

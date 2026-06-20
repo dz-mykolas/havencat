@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/llm_model.dart';
 import '../../../../domain/models/provider_account.dart';
 import '../llm_adapter.dart';
 import '../llm_event.dart';
@@ -34,6 +35,19 @@ class MockLlmAdapter implements LlmAdapter {
 
   @override
   AdapterKind get kind => AdapterKind.mock;
+
+  @override
+  Future<List<LlmModel>> listModels({
+    required ProviderAccount account,
+    required String? secret,
+  }) async {
+    // No network — a small canned catalog so the picker works out of the box.
+    return const <LlmModel>[
+      LlmModel(id: 'mock-small', displayName: 'Mock Small'),
+      LlmModel(id: 'mock-large', displayName: 'Mock Large'),
+      LlmModel(id: 'mock-reasoning', displayName: 'Mock Reasoning'),
+    ];
+  }
 
   @override
   Stream<LlmEvent> stream({

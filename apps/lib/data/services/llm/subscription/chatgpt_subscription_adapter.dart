@@ -4,29 +4,56 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/llm_model.dart';
 import '../../../../domain/models/provider_account.dart';
 import '../../auth/chatgpt_oauth_flow.dart';
 import '../llm_adapter.dart';
+import '../llm_endpoint.dart';
 import '../llm_event.dart';
 import '../openai_compatible/sse_client.dart';
+import 'codex_protocol.dart';
+import 'codex_version.dart';
 
-/// Calls the ChatGPT backend API (`chatgpt.com/backend-api`) using a stored
-/// OAuth access token from [ChatGptOAuthFlow].
+/// Drives the ChatGPT subscription backend with a stored "Sign in with ChatGPT"
+/// (Codex) OAuth access token, as a plain chat client.
 ///
-/// This consumes the user's ChatGPT subscription quota (Free/Plus/Pro), not
-/// their API billing. The request/response shape is OpenAI-compatible
-/// (`/conversations` streaming), so we reuse [SseClient] for the wire format
-/// — only the base URL, auth header, and a couple of ChatGPT-specific headers
-/// differ from [OpenAiCompatibleAdapter].
-///
-/// The access token (and refresh token, expiry, plan type) live in
-/// [ProviderAccount.config] as non-secret metadata; the token itself is the
-/// "secret" passed in via [secret] from [SecretStore].
+/// This token type is only authorized for the Codex Responses API
+/// (`chatgpt.com/backend-api/codex/responses`) — the web `/conversation`
+/// endpoint requires the browser client's proof-of-work sentinel and rejects
+/// API-style requests. But the Codex endpoint itself is a normal Responses API:
+/// it accepts any model the account exposes, empty `instructions` (no forced
+/// persona), and no tools. So the experience is "pick a model and chat",
+/// drawing on the user's Plus/Pro quota rather than API billing. See
+/// [CodexProtocol] for the wire details. We reuse [SseClient] for the SSE
+/// transport and map the Responses API's semantic events to [LlmEvent]s.
 class ChatGptSubscriptionAdapter implements LlmAdapter {
-  ChatGptSubscriptionAdapter({Dio? dio, SseClient? sseClient})
-    : _sse = sseClient ?? SseClient(dio ?? Dio());
+  factory ChatGptSubscriptionAdapter({
+    Dio? dio,
+    SseClient? sseClient,
+    LlmEndpoint? endpoint,
+    CodexVersionResolver? versionResolver,
+  }) {
+    final Dio resolvedDio = dio ?? Dio();
+    final LlmEndpoint resolvedEndpoint = endpoint ?? LlmEndpoint.fromPlatform();
+    return ChatGptSubscriptionAdapter._(
+      resolvedDio,
+      sseClient ?? SseClient(resolvedDio),
+      resolvedEndpoint,
+      versionResolver ??
+          CodexVersionResolver(dio: resolvedDio, endpoint: resolvedEndpoint),
+    );
+  }
 
+  ChatGptSubscriptionAdapter._(this._dio, this._sse, this._endpoint, this._version);
+
+  final Dio _dio;
   final SseClient _sse;
+  final LlmEndpoint _endpoint;
+  final CodexVersionResolver _version;
+
+  /// Last-resort model when the account has none selected yet. The model
+  /// selector normally fills this in from the live [listModels] result.
+  static const String _fallbackModel = 'gpt-5.2';
 
   @override
   AdapterKind get kind => AdapterKind.subscription;
@@ -42,6 +69,7 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       return;
     }
 
+    final String model = _resolveModel(account);
     final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
     final CancelToken cancelToken = CancelToken();
 
@@ -54,28 +82,25 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     }
 
     try {
+      final ResolvedRequest resolved = _endpoint.resolve(
+        '$baseUrl${CodexProtocol.responsesPath}',
+        _codexHeaders(secret),
+      );
       final Stream<SseEvent> events = _sse.stream(
-        url: '$baseUrl/conversations',
+        url: resolved.url,
         method: 'POST',
-        headers: <String, String>{
-          'Authorization': 'Bearer $secret',
-          'Content-Type': 'application/json',
-          // ChatGPT backend requires these; without them the request 400s.
-          'OAI-Client-Version': '1.0.0',
-          'OAI-Device-Id': _deviceId(account),
-          'OAI-Language': 'en-US',
-        },
-        body: jsonEncode(_buildBody(request, account)),
+        headers: resolved.headers,
+        body: jsonEncode(
+          CodexProtocol.buildBody(model: model, messages: request.messages),
+        ),
         cancelToken: cancelToken,
       );
 
       await for (final SseEvent event in events) {
-        if (event.data == '[DONE]') {
-          yield const DoneEvent(finishReason: 'stop');
-          return;
-        }
         final LlmEvent? parsed = _parseEvent(event.data);
-        if (parsed != null) yield parsed;
+        if (parsed == null) continue;
+        yield parsed;
+        if (parsed is DoneEvent) return;
       }
       yield const DoneEvent();
     } on DioException catch (e) {
@@ -87,89 +112,141 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     }
   }
 
-  /// Stable per-account device id. ChatGPT's backend ties sessions to a
-  /// device id; we derive one from the account id so it's stable across
-  /// launches but unique per configured account.
-  String _deviceId(ProviderAccount account) {
-    // Simple deterministic hash → hex. Not cryptographic; just needs to be
-    // stable and look like a UUID-ish string to the backend.
-    int hash = 0;
-    for (final int c in account.id.codeUnits) {
-      hash = (hash * 31 + c) & 0xFFFFFFFF;
+  @override
+  Future<List<LlmModel>> listModels({
+    required ProviderAccount account,
+    required String? secret,
+  }) async {
+    if (secret == null || secret.isEmpty) {
+      throw StateError('Not signed in.');
     }
-    final String hex = hash.toRadixString(16).padLeft(8, '0');
-    return '$hex-$hex-$hex-$hex';
+
+    final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
+    final String version = await _version.resolve();
+    final ResolvedRequest resolved = _endpoint.resolve(
+      '$baseUrl${CodexProtocol.modelsPath(version)}',
+      _codexHeaders(secret),
+    );
+    final Response<dynamic> response = await _dio.get<dynamic>(
+      resolved.url,
+      options: Options(headers: resolved.headers),
+    );
+    return _parseModels(response.data);
   }
 
-  Map<String, Object?> _buildBody(LlmRequest request, ProviderAccount account) {
-    final String model =
-        (account.config['model'] as String?)?.isNotEmpty == true
-        ? (account.config['model'] as String)
-        : 'gpt-4o';
+  String _resolveModel(ProviderAccount account) {
+    final Object? configured = account.config['model'];
+    if (configured is String && configured.isNotEmpty) return configured;
+    return _fallbackModel;
+  }
 
-    return <String, Object?>{
-      'action': 'next',
-      'model': model,
-      'stream': true,
-      'messages': request.messages
-          .where((m) => m.text.trim().isNotEmpty)
-          .map(
-            (m) => <String, Object?>{
-              'author': <String, String>{
-                'role': m.isUser ? 'user' : 'assistant',
-              },
-              'content': <String, Object?>{
-                'content_type': 'text',
-                'parts': <String>[m.text],
-              },
-            },
-          )
-          .toList(),
-      if (request.temperature != null) 'temperature': request.temperature,
-      if (request.maxTokens != null) 'max_tokens': request.maxTokens,
+  Map<String, String> _codexHeaders(String secret) {
+    final String? accountId = CodexProtocol.accountIdFromJwt(secret);
+    return <String, String>{
+      'Authorization': 'Bearer $secret',
+      'Content-Type': 'application/json',
+      'OpenAI-Beta': 'responses=experimental',
+      'chatgpt-account-id': ?accountId,
     };
   }
 
-  /// Parse one SSE data payload from the ChatGPT backend.
+  List<LlmModel> _parseModels(Object? body) {
+    List<dynamic>? entries;
+    if (body is Map<String, dynamic>) {
+      entries =
+          (body['models'] as List<dynamic>?) ?? (body['data'] as List<dynamic>?);
+    } else if (body is List) {
+      entries = body;
+    }
+    if (entries == null) return const <LlmModel>[];
+
+    final List<LlmModel> models = <LlmModel>[];
+    for (final dynamic entry in entries) {
+      if (entry is Map<String, dynamic>) {
+        final String? id = (entry['slug'] ?? entry['id']) as String?;
+        if (id == null || id.isEmpty) continue;
+        // Internal/hidden models (e.g. `codex-auto-review`, the auto-review
+        // reviewer agent) carry `visibility: hide`. We surface the flag rather
+        // than drop them so the global "show hidden models" setting can decide.
+        final Object? visibility = entry['visibility'];
+        final bool hidden =
+            visibility is String && visibility.toLowerCase() == 'hide';
+        final Object? name = entry['display_name'] ?? entry['displayName'];
+        models.add(
+          LlmModel(
+            id: id,
+            displayName: name is String && name.isNotEmpty ? name : null,
+            hidden: hidden,
+          ),
+        );
+      } else if (entry is String && entry.isNotEmpty) {
+        models.add(LlmModel(id: entry));
+      }
+    }
+    return models;
+  }
+
+  /// Parse one Responses API SSE payload into an [LlmEvent].
   ///
-  /// The backend streams `data: {"v": {"message": {"content": {"parts": [...]}}}}`
-  /// deltas and a terminal `data: [DONE]`. We extract the latest text delta
-  /// from `parts[0]`.
+  /// Events are typed via the `type` field. We surface assistant text deltas,
+  /// reasoning-summary deltas, completion, and errors; everything else (item
+  /// lifecycle, tool calls, etc.) is ignored for a plain chat client.
   LlmEvent? _parseEvent(String data) {
-    if (data.trim().isEmpty) return null;
-    final Object? decoded = jsonDecode(data);
+    final String trimmed = data.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed == '[DONE]') return const DoneEvent(finishReason: 'stop');
+
+    final Object? decoded = jsonDecode(trimmed);
     if (decoded is! Map<String, dynamic>) return null;
 
-    final Map<String, dynamic>? v = decoded['v'] as Map<String, dynamic>?;
-    if (v == null) return null;
-
-    final Map<String, dynamic>? message = v['message'] as Map<String, dynamic>?;
-    if (message == null) return null;
-
-    final Map<String, dynamic>? content =
-        message['content'] as Map<String, dynamic>?;
-    if (content == null) return null;
-
-    final List<dynamic>? parts = content['parts'] as List<dynamic>?;
-    if (parts == null || parts.isEmpty) return null;
-
-    final String text = parts.last.toString();
-    if (text.isEmpty) return null;
-
-    final String? finishReason = message['end_turn'] == true ? 'stop' : null;
-    if (finishReason != null) {
-      return DoneEvent(finishReason: finishReason);
+    switch (decoded['type'] as String?) {
+      case 'response.output_text.delta':
+        final String? delta = decoded['delta'] as String?;
+        return (delta != null && delta.isNotEmpty) ? TokenEvent(delta) : null;
+      case 'response.reasoning_summary_text.delta':
+      case 'response.reasoning_text.delta':
+        final String? delta = decoded['delta'] as String?;
+        return (delta != null && delta.isNotEmpty)
+            ? ReasoningEvent(delta)
+            : null;
+      case 'response.completed':
+        return const DoneEvent(finishReason: 'stop');
+      case 'response.failed':
+      case 'error':
+        return ErrorEvent(UnknownError(_extractError(decoded)));
+      default:
+        return null;
     }
+  }
 
-    return TokenEvent(text);
+  String _extractError(Map<String, dynamic> decoded) {
+    final Object? response = decoded['response'];
+    if (response is Map<String, dynamic>) {
+      final Object? error = response['error'];
+      if (error is Map<String, dynamic>) {
+        final Object? message = error['message'];
+        if (message is String && message.isNotEmpty) return message;
+      }
+    }
+    final Object? error = decoded['error'];
+    if (error is Map<String, dynamic>) {
+      final Object? message = error['message'];
+      if (message is String && message.isNotEmpty) return message;
+    }
+    return 'Stream failed.';
   }
 
   LlmError _mapDioError(DioException e) {
     final int? status = e.response?.statusCode;
     final String body = e.response?.data?.toString() ?? e.message ?? '';
 
-    if (status == 401 || status == 403) {
+    // 401 = the access token is genuinely rejected (expired/invalid) → re-auth.
+    if (status == 401) {
       return AuthError('Session expired. Please sign in again.');
+    }
+    // 403 is NOT necessarily an expired session — surface the real reason.
+    if (status == 403) {
+      return AuthError('Request forbidden by ChatGPT (403). $body');
     }
     if (status == 429) {
       return RateLimitError('Rate limited. Please slow down.');

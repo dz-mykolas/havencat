@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
+import '../../data/services/storage/app_settings.dart';
 import '../../domain/models/provider_account.dart';
+import '../../providers.dart';
 import 'settings_viewmodel.dart';
 import 'widgets/account_tile.dart';
 import 'widgets/provider_picker.dart' show showProviderPicker;
@@ -16,6 +18,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final SettingsViewModel vm = ref.watch(settingsViewModelProvider);
+    final AppSettings settings = ref.watch(appSettingsProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
@@ -46,6 +49,22 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () => vm.setActive(account.id),
                   onDelete: () => _confirmDelete(context, vm, account),
                 ),
+              const SizedBox(height: 24),
+              const _SectionLabel('Preferences'),
+              SwitchListTile(
+                value: settings.showHiddenModels,
+                onChanged: settings.setShowHiddenModels,
+                title: const Text(
+                  'Show hidden models',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+                ),
+                subtitle: const Text(
+                  "Include models providers mark as internal (e.g. ChatGPT's "
+                  'codex-auto-review). Off by default.',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              ),
               const SizedBox(height: 24),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 20),

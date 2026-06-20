@@ -13,6 +13,7 @@ import 'widgets/chat_input.dart';
 import 'widgets/conversation_drawer.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/model_selector_bar.dart';
 
 /// The main chat view: app bar, conversation drawer, message list, and the
 /// animated input bar.
@@ -89,13 +90,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       conversationRepositoryProvider,
     );
 
+    // On wide screens the logo sits on the left and the model selector is
+    // centered (via flexibleSpace); on phones a compact selector rides right
+    // next to the logo so the bar still fits.
+    final bool wide = MediaQuery.of(context).size.width >= 720;
+
     return Scaffold(
       drawer: ConversationDrawer(viewModel: vm),
       appBar: AppBar(
-        title: GradientText(
-          'HavenChat',
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-        ),
+        titleSpacing: wide ? 16 : 8,
+        title: wide
+            ? GradientText(
+                'HavenChat',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            : Row(
+                children: <Widget>[
+                  GradientText(
+                    'HavenChat',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Flexible(child: ModelSelectorBar(compact: true)),
+                ],
+              ),
+        flexibleSpace: wide
+            ? SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: const ModelSelectorBar(),
+                  ),
+                ),
+              )
+            : null,
         actions: <Widget>[
           IconButton(
             tooltip: 'Settings',

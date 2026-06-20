@@ -5,10 +5,10 @@ import 'package:flutter/foundation.dart';
 import '../../../domain/models/conversation.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/provider_account.dart';
+import '../services/auth/credential_resolver.dart';
 import '../services/llm/adapter_registry.dart';
 import '../services/llm/llm_adapter.dart';
 import '../services/llm/llm_event.dart';
-import '../services/auth/secret_store.dart';
 import 'provider_account_repository.dart';
 
 /// Source of truth for conversations and the streaming reply flow.
@@ -24,9 +24,10 @@ class ConversationRepository extends ChangeNotifier {
   ConversationRepository({
     required ProviderAccountRepository providerRepository,
     required AdapterRegistry adapterRegistry,
-    required this._secretStore,
+    required CredentialResolver credentialResolver,
   }) : _providers = providerRepository,
-       _adapters = adapterRegistry {
+       _adapters = adapterRegistry,
+       _credentials = credentialResolver {
     _conversations.add(Conversation(id: _newId(), createdAt: DateTime.now()));
     _activeId = _conversations.first.id;
     _providers.addListener(_onProvidersChanged);
@@ -34,7 +35,7 @@ class ConversationRepository extends ChangeNotifier {
 
   final ProviderAccountRepository _providers;
   final AdapterRegistry _adapters;
-  final SecretStore _secretStore;
+  final CredentialResolver _credentials;
 
   final List<Conversation> _conversations = <Conversation>[];
   late String _activeId;
@@ -120,7 +121,7 @@ class ConversationRepository extends ChangeNotifier {
     }
 
     final LlmAdapter adapter = _adapters.resolve(account.kind);
-    final String? secret = await _secretStore.read(account.id);
+    final String? secret = await _credentials.resolve(account);
 
     final Completer<void> done = Completer<void>();
     _replySub = adapter

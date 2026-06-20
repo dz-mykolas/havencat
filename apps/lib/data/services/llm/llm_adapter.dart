@@ -1,4 +1,5 @@
 import '../../../domain/models/adapter_kind.dart';
+import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/provider_account.dart';
 import 'llm_event.dart';
 
@@ -23,6 +24,17 @@ abstract class LlmAdapter {
   /// [ErrorEvent] — and then close. Adapters should not emit after a terminal.
   Stream<LlmEvent> stream({
     required LlmRequest request,
+    required ProviderAccount account,
+    required String? secret,
+  });
+
+  /// Fetches the models [account] can use, straight from the provider (no
+  /// hardcoded lists). Used to populate the model picker; the default selection
+  /// is chosen from whatever this returns.
+  ///
+  /// May throw on network/auth failure — callers surface that as a retryable
+  /// error rather than guessing a model.
+  Future<List<LlmModel>> listModels({
     required ProviderAccount account,
     required String? secret,
   });

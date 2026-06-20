@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/llm_model.dart';
 import '../../../../domain/models/provider_account.dart';
 import '../llm_adapter.dart';
+import '../llm_endpoint.dart';
 import '../llm_event.dart';
 import 'sse_client.dart';
 
@@ -22,10 +24,19 @@ import 'sse_client.dart';
 /// The API key comes in via [secret] (resolved from secure storage by the
 /// repository), never from [config].
 class OpenAiCompatibleAdapter implements LlmAdapter {
-  OpenAiCompatibleAdapter({Dio? dio, SseClient? sseClient})
-    : _sse = sseClient ?? SseClient(dio ?? Dio());
+  OpenAiCompatibleAdapter({Dio? dio, SseClient? sseClient, LlmEndpoint? endpoint})
+    : this._(dio ?? Dio(), sseClient, endpoint);
 
+  OpenAiCompatibleAdapter._(
+    this._dio,
+    SseClient? sseClient,
+    LlmEndpoint? endpoint,
+  ) : _sse = sseClient ?? SseClient(_dio),
+      _endpoint = endpoint ?? LlmEndpoint.fromPlatform();
+
+  final Dio _dio;
   final SseClient _sse;
+  final LlmEndpoint _endpoint;
 
   @override
   AdapterKind get kind => AdapterKind.openaiCompatible;
@@ -51,10 +62,14 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
 
     try {
+      final ResolvedRequest resolved = _endpoint.resolve(
+        '$baseUrl/chat/completions',
+        headers,
+      );
       final Stream<SseEvent> events = _sse.stream(
-        url: '$baseUrl/chat/completions',
+        url: resolved.url,
         method: 'POST',
-        headers: headers,
+        headers: resolved.headers,
         body: jsonEncode(_buildBody(request, model)),
         cancelToken: cancelToken,
       );
@@ -76,6 +91,39 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     } finally {
       await signalSub?.cancel();
     }
+  }
+
+  @override
+  Future<List<LlmModel>> listModels({
+    required ProviderAccount account,
+    required String? secret,
+  }) async {
+    final String baseUrl = _readBaseUrl(account);
+    final Map<String, String> headers = _readHeaders(account, secret);
+    final ResolvedRequest resolved = _endpoint.resolve('$baseUrl/models', headers);
+
+    final Response<dynamic> response = await _dio.get<dynamic>(
+      resolved.url,
+      options: Options(headers: resolved.headers),
+    );
+
+    // OpenAI shape: { "object": "list", "data": [ { "id": "gpt-4o" }, ... ] }.
+    final Object? body = response.data;
+    final List<dynamic>? data = body is Map<String, dynamic>
+        ? body['data'] as List<dynamic>?
+        : (body is List ? body : null);
+    if (data == null) return const <LlmModel>[];
+
+    final List<LlmModel> models = <LlmModel>[];
+    for (final dynamic entry in data) {
+      if (entry is Map<String, dynamic>) {
+        final String? id = entry['id'] as String?;
+        if (id != null && id.isNotEmpty) models.add(LlmModel(id: id));
+      } else if (entry is String && entry.isNotEmpty) {
+        models.add(LlmModel(id: entry));
+      }
+    }
+    return models;
   }
 
   String _readBaseUrl(ProviderAccount account) {
