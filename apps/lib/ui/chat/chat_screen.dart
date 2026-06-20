@@ -69,6 +69,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
+  void _goHome() {
+    ref.read(chatViewModelProvider).newConversation();
+    _textController.clear();
+    final ScaffoldState? scaffold = Scaffold.maybeOf(context);
+    if (scaffold?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Widget _buildLogo({required double fontSize}) {
+    return Tooltip(
+      message: 'Home',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: _goHome,
+          behavior: HitTestBehavior.opaque,
+          child: GradientText(
+            'HavenChat',
+            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInput() {
     final ChatViewModel vm = ref.watch(chatViewModelProvider);
     return ListenableBuilder(
@@ -100,22 +126,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       appBar: AppBar(
         titleSpacing: wide ? 16 : 8,
         title: wide
-            ? GradientText(
-                'HavenChat',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              )
+            ? _buildLogo(fontSize: 20)
             : Row(
                 children: <Widget>[
-                  GradientText(
-                    'HavenChat',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  _buildLogo(fontSize: 17),
                   const SizedBox(width: 10),
                   const Flexible(child: ModelSelectorBar(compact: true)),
                 ],
