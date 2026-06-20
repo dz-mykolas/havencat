@@ -17,11 +17,24 @@ enum PricingSort {
   final String label;
 }
 
-/// UI state for the model-pricing browser.
+/// Where in the Discover flow the user is.
 ///
-/// Loads the models.dev catalog via [ModelsDevService] (cached) and exposes a
-/// searchable / sortable view of it. Mirrors the app's other view models:
-/// a [ChangeNotifier] the view drives with a single `ListenableBuilder`.
+/// The catalog is fetched exactly once (then cached), so navigating between
+/// these is pure in-memory filtering:
+///   - [overview]  -> the providers grid (step 1)
+///   - [provider]  -> one provider's models (step 2)
+///   - [all]      -> every model across every provider (search-as-escape-hatch)
+enum PricingView { overview, provider, all }
+
+/// UI state for the model-pricing browser (Discover).
+///
+/// Loads the models.dev catalog via [ModelsDevService] (cached, pre-warmed at
+/// app startup) and exposes a multi-step, searchable, sortable view of it:
+///   step 1: providers grid ([PricingView.overview]),
+///   step 2: one provider's models ([PricingView.provider]),
+///   global: every model at once ([PricingView.all]).
+/// Mirrors the app's other view models: a [ChangeNotifier] driven by a single
+/// `ListenableBuilder`.
 class PricingViewModel extends ChangeNotifier {
   PricingViewModel(this._service) {
     load();
@@ -35,43 +48,73 @@ class PricingViewModel extends ChangeNotifier {
   ModelsCatalog? _catalog;
   String _query = '';
   PricingSort _sort = PricingSort.newest;
+  PricingView _view = PricingView.overview;
 
-  /// True during the initial load (no catalog yet to show).
+  /// The provider the user drilled into, or null in [overview]/[all].
+  String? _selectedProviderId;
+
   bool get loading => _loading;
-
-  /// True while a pull-to-refresh / manual refresh is in flight.
   bool get refreshing => _refreshing;
-
-  /// The error from the last load, if it failed with no cached fallback.
   Object? get error => _error;
-
-  /// The raw catalog, or null before the first successful load.
   ModelsCatalog? get catalog => _catalog;
 
   String get query => _query;
   PricingSort get sort => _sort;
+  PricingView get view => _view;
+
+  /// The provider id drilled into, or null when not in [PricingView.provider].
+  String? get selectedProviderId => _selectedProviderId;
 
   /// When the underlying data was fetched (for the "updated X ago" label).
   DateTime? get fetchedAt => _catalog?.fetchedAt;
 
-  /// The current query + sort applied to the catalog.
+  /// Providers for the overview grid, sorted by name. Empty until loaded.
+  List<ProviderModels> get providers => _catalog?.providers ?? const [];
+
+  /// Total model count across every provider, for the header.
+  int get totalCount => _catalog?.models.length ?? 0;
+
+  /// The provider the user drilled into (if any), resolved from the catalog.
+  ProviderModels? get selectedProvider {
+    final String? id = _selectedProviderId;
+    if (id == null || _catalog == null) return null;
+    for (final ProviderModels p in _catalog!.providers) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// The model list for the current view, with search + sort applied.
+  ///
+  /// In [overview] this is unused (the grid shows [providers]); in
+  /// [provider] it's [selectedProvider]'s models; in [all] it's every model.
   List<PricedModel> get results {
     final ModelsCatalog? catalog = _catalog;
     if (catalog == null) return const <PricedModel>[];
 
+    final List<PricedModel> pool;
+    switch (_view) {
+      case PricingView.overview:
+        pool = const <PricedModel>[];
+        break;
+      case PricingView.provider:
+        pool = selectedProvider?.models ?? const <PricedModel>[];
+        break;
+      case PricingView.all:
+        pool = catalog.models;
+        break;
+    }
+
     final String q = _query.trim().toLowerCase();
     final List<PricedModel> filtered = q.isEmpty
-        ? List<PricedModel>.of(catalog.models)
-        : catalog.models
+        ? List<PricedModel>.of(pool)
+        : pool
               .where((PricedModel m) => m.searchIndex.contains(q))
               .toList();
 
     filtered.sort(_comparator);
     return filtered;
   }
-
-  /// Total model count (across all providers), for the header.
-  int get totalCount => _catalog?.models.length ?? 0;
 
   Future<void> load() async {
     _loading = _catalog == null;
@@ -110,9 +153,38 @@ class PricingViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearQuery() {
+    if (_query.isEmpty) return;
+    _query = '';
+    notifyListeners();
+  }
+
   void setSort(PricingSort value) {
     if (value == _sort) return;
     _sort = value;
+    notifyListeners();
+  }
+
+  /// Drill into a provider's models (step 2). Clears any prior query.
+  void openProvider(String providerId) {
+    _selectedProviderId = providerId;
+    _view = PricingView.provider;
+    _query = '';
+    notifyListeners();
+  }
+
+  /// Show every model across every provider (search-as-escape-hatch).
+  void showAll() {
+    _view = PricingView.all;
+    notifyListeners();
+  }
+
+  /// Return to the providers grid (step 1). Keeps sort; clears query + drill-in.
+  void backToOverview() {
+    if (_view == PricingView.overview) return;
+    _view = PricingView.overview;
+    _selectedProviderId = null;
+    _query = '';
     notifyListeners();
   }
 

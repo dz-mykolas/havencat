@@ -8,13 +8,18 @@ import 'pricing_format.dart';
 import 'pricing_viewmodel.dart';
 import 'widgets/model_card.dart';
 import 'widgets/model_detail_sheet.dart';
+import 'widgets/provider_grid.dart';
 
-/// Browses the public models.dev database: live pricing (USD / 1M tokens),
-/// context limits, and capabilities for every model, searchable and sortable.
+/// Browses the public models.dev database as a two-step Discover flow:
 ///
-/// Reachable from Settings → "Model pricing". The layout is centered with a max
-/// width on desktop and a responsive 1/2-column card grid; on phones it's a
-/// single edge-to-edge column.
+///   step 1 — providers grid (every provider, with model count + "from $x")
+///   step 2 — one provider's models, per-(provider, model) cards with input/
+///            output prices, context + capability chips; tap for full details.
+///
+/// A "Browse all" affordance collapses every provider's models into a single
+/// searchable/sortable list (the global search escape hatch). The catalog is
+/// fetched once (and pre-warmed at app startup), so every step after the first
+/// is pure in-memory filtering — instant, no network.
 class PricingScreen extends ConsumerStatefulWidget {
   const PricingScreen({super.key});
 
@@ -36,7 +41,14 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
     final PricingViewModel vm = ref.watch(pricingViewModelProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Model pricing'),
+        leading: vm.view != PricingView.overview
+            ? IconButton(
+                tooltip: 'Back',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: vm.backToOverview,
+              )
+            : null,
+        title: Text(_title(vm)),
         actions: <Widget>[
           ListenableBuilder(
             listenable: vm,
@@ -71,6 +83,17 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
     );
   }
 
+  String _title(PricingViewModel vm) {
+    switch (vm.view) {
+      case PricingView.overview:
+        return 'Discover';
+      case PricingView.provider:
+        return vm.selectedProvider?.name ?? 'Models';
+      case PricingView.all:
+        return 'All models';
+    }
+  }
+
   Widget _buildBody(BuildContext context, PricingViewModel vm) {
     if (vm.loading) {
       return const Center(child: CircularProgressIndicator());
@@ -79,18 +102,90 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
       return _ErrorState(onRetry: vm.load);
     }
 
-    final List<PricedModel> results = vm.results;
+    switch (vm.view) {
+      case PricingView.overview:
+        return _Overview(
+          vm: vm,
+          onOpenProvider: vm.openProvider,
+          onBrowseAll: vm.showAll,
+        );
+      case PricingView.provider:
+      case PricingView.all:
+        return _ModelList(
+          vm: vm,
+          searchController: _search,
+          onOpenModel: (PricedModel m) => showModelDetailSheet(context, m),
+        );
+    }
+  }
+}
 
+class _Overview extends StatelessWidget {
+  const _Overview({
+    required this.vm,
+    required this.onOpenProvider,
+    required this.onBrowseAll,
+  });
+
+  final PricingViewModel vm;
+  final ValueChanged<String> onOpenProvider;
+  final VoidCallback onBrowseAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '${vm.providers.length} providers · ${vm.totalCount} models'
+                  '${vm.fetchedAt != null ? ' · updated ${formatRelative(vm.fetchedAt!)}' : ''}',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              _BrowseAllButton(onTap: onBrowseAll),
+            ],
+          ),
+        ),
+        Expanded(child: ProviderGrid(providers: vm.providers, onTap: onOpenProvider)),
+      ],
+    );
+  }
+}
+
+class _ModelList extends StatelessWidget {
+  const _ModelList({
+    required this.vm,
+    required this.searchController,
+    required this.onOpenModel,
+  });
+
+  final PricingViewModel vm;
+  final TextEditingController searchController;
+  final ValueChanged<PricedModel> onOpenModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<PricedModel> results = vm.results;
     return Column(
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: _SearchField(
-            controller: _search,
+            controller: searchController,
+            hint: vm.view == PricingView.provider
+                ? 'Search in ${vm.selectedProvider?.name ?? "this provider"}'
+                : 'Search all models',
             onChanged: vm.setQuery,
             onClear: () {
-              _search.clear();
-              vm.setQuery('');
+              searchController.clear();
+              vm.clearQuery();
             },
           ),
         ),
@@ -107,32 +202,27 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
                   ),
                 ),
               ),
-              _SortButton(
-                sort: vm.sort,
-                onSelected: vm.setSort,
-              ),
+              _SortButton(sort: vm.sort, onSelected: vm.setSort),
             ],
           ),
         ),
         Expanded(
           child: results.isEmpty
               ? const _NoResults()
-              : _ResultsGrid(
-                  results: results,
-                  onTap: (PricedModel m) => showModelDetailSheet(context, m),
-                ),
+              : _ResultsGrid(results: results, onTap: onOpenModel),
         ),
       ],
     );
   }
 
   String _statusLine(PricingViewModel vm, int shown) {
-    final DateTime? at = vm.fetchedAt;
-    final String count = vm.query.trim().isEmpty
-        ? '${vm.totalCount} models'
-        : '$shown of ${vm.totalCount} models';
-    final String updated = at != null ? ' · updated ${formatRelative(at)}' : '';
-    return '$count$updated';
+    if (vm.query.trim().isEmpty) {
+      final int total = vm.view == PricingView.provider
+          ? (vm.selectedProvider?.models.length ?? 0)
+          : vm.totalCount;
+      return '$total models';
+    }
+    return '$shown matches';
   }
 }
 
@@ -196,14 +286,48 @@ class _ResultsGrid extends StatelessWidget {
   }
 }
 
+class _BrowseAllButton extends StatelessWidget {
+  const _BrowseAllButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.apps, size: 16, color: AppTheme.textSecondary),
+            SizedBox(width: 6),
+            Text(
+              'Browse all',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.controller,
+    required this.hint,
     required this.onChanged,
     required this.onClear,
   });
 
   final TextEditingController controller;
+  final String hint;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
 
@@ -214,7 +338,7 @@ class _SearchField extends StatelessWidget {
       onChanged: onChanged,
       style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
       decoration: InputDecoration(
-        hintText: 'Search models or providers',
+        hintText: hint,
         hintStyle: const TextStyle(color: AppTheme.textSecondary),
         prefixIcon: const Icon(
           Icons.search,
@@ -277,20 +401,16 @@ class _SortButton extends StatelessWidget {
             ),
           ),
       ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
-              Icons.sort,
-              size: 16,
-              color: AppTheme.textSecondary,
-            ),
-            const SizedBox(width: 6),
+            Icon(Icons.sort, size: 16, color: AppTheme.textSecondary),
+            SizedBox(width: 6),
             Text(
-              sort.label,
-              style: const TextStyle(
+              'Sort',
+              style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w500,

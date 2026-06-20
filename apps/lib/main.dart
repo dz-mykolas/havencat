@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +33,12 @@ Future<void> main() async {
     ],
   );
   await container.read(providerAccountRepositoryProvider).load();
+
+  // Pre-warm the models.dev catalog in the background so the pricing browser
+  // (Settings -> Discover) opens to ready data instead of a spinner. This is
+  // fire-and-forget: it never blocks first-frame, and failures (e.g. offline)
+  // are swallowed here and surfaced lazily inside the pricing screen instead.
+  unawaited(container.read(modelsDevServiceProvider).load());
 
   runApp(
     UncontrolledProviderScope(
