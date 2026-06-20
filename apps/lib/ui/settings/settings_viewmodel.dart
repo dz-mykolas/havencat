@@ -1,0 +1,121 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/repositories/provider_account_repository.dart';
+import '../../data/services/auth/chatgpt_oauth_flow.dart';
+import '../../domain/models/provider_account.dart';
+import '../../domain/models/provider_definition.dart';
+import '../../providers.dart';
+
+/// UI-layer state for the settings screen.
+///
+/// Mirrors [ChatViewModel]: holds only UI state and forwards user actions to
+/// the [ProviderAccountRepository]. It listens to the repository and
+/// re-notifies so the view can rebuild with a single `ListenableBuilder`.
+///
+/// Unlike [ChatViewModel] (which maps [Conversation]s into [ConversationView]s
+/// to hide the domain layer's mutable message list), this view model exposes
+/// [ProviderAccount]s directly: [ProviderAccount] has no mutable collections,
+/// so there is nothing to protect the view from.
+class SettingsViewModel extends ChangeNotifier {
+  SettingsViewModel(this._providers, this._chatGptOAuth) {
+    _providers.addListener(_relay);
+  }
+
+  final ProviderAccountRepository _providers;
+  final ChatGptOAuthFlow _chatGptOAuth;
+
+  /// All configured accounts (read-only view of the repository's list).
+  List<ProviderAccount> get accounts => _providers.accounts;
+
+  /// The id of the currently-active account, or null if none configured.
+  String? get activeAccountId => _providers.activeAccountId;
+
+  /// The active account, or null if none configured.
+  ProviderAccount? get activeAccount => _providers.activeAccount;
+
+  /// Provider definitions the user can add an API-key account for.
+  List<ProviderDefinition> get apiKeyCatalog => ProviderCatalog.apiKey;
+
+  /// Provider definitions the user can add a subscription (OAuth) account for.
+  List<ProviderDefinition> get subscriptionCatalog =>
+      ProviderCatalog.subscription;
+
+  /// All addable providers, subscription section first (matches the UI layout).
+  List<ProviderDefinition> get catalog => ProviderCatalog.all;
+
+  Future<ProviderAccount> addApiKeyAccount({
+    required String definitionId,
+    required String displayName,
+    required String apiKey,
+    Map<String, Object?>? config,
+  }) {
+    return _providers.addApiKeyAccount(
+      definitionId: definitionId,
+      displayName: displayName,
+      apiKey: apiKey,
+      config: config,
+    );
+  }
+
+  /// Starts the ChatGPT device-code OAuth flow. Returns the device code
+  /// response so the UI can show the verification URL + user code and poll
+  /// for completion via [completeChatGptLogin].
+  Future<DeviceCodeResponse> startChatGptLogin() {
+    return _chatGptOAuth.requestDeviceCode();
+  }
+
+  /// Polls for token completion after [startChatGptLogin]. On success, stores
+  /// the account + token and returns the new account.
+  ///
+  /// [onPolling] is called on each poll attempt while the user hasn't
+  /// completed sign-in yet, so the UI can show progress.
+  /// [shouldCancel] cancels the in-progress login if it returns true.
+  Future<ProviderAccount> completeChatGptLogin({
+    required DeviceCodeResponse deviceCode,
+    void Function()? onPolling,
+    Future<bool> Function()? shouldCancel,
+  }) async {
+    final ChatGptAuthResult result = await _chatGptOAuth.completeLogin(
+      deviceCode: deviceCode,
+      onPolling: onPolling,
+      shouldCancel: shouldCancel,
+    );
+    final String displayName = result.planType != null
+        ? 'ChatGPT (${result.planType})'
+        : 'ChatGPT';
+    return _providers.addSubscriptionAccount(
+      definitionId: 'chatgpt_subscription',
+      displayName: displayName,
+      accessToken: result.accessToken,
+      config: <String, Object?>{
+        if (result.accountId != null) 'accountId': result.accountId,
+        if (result.planType != null) 'planType': result.planType,
+        if (result.refreshToken != null) 'refreshToken': result.refreshToken,
+        if (result.expiresAt != null)
+          'tokenExpiresAt': result.expiresAt!.toIso8601String(),
+      },
+    );
+  }
+
+  void setActive(String accountId) => _providers.setActive(accountId);
+
+  Future<void> remove(String accountId) => _providers.remove(accountId);
+
+  void _relay() => notifyListeners();
+
+  @override
+  void dispose() {
+    _providers.removeListener(_relay);
+    super.dispose();
+  }
+}
+
+final settingsViewModelProvider = ChangeNotifierProvider<SettingsViewModel>((
+  ref,
+) {
+  return SettingsViewModel(
+    ref.watch(providerAccountRepositoryProvider),
+    ref.watch(chatGptOAuthFlowProvider),
+  );
+});

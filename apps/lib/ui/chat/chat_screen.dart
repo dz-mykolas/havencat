@@ -1,27 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/conversation.dart';
-import '../state/chat_controller.dart';
-import '../theme/app_theme.dart';
-import 'animated_background.dart';
-import 'chat_input.dart';
-import 'conversation_drawer.dart';
-import 'empty_state.dart';
-import 'gradient_text.dart';
-import 'message_bubble.dart';
+import '../core/theme/app_theme.dart';
+import '../core/widgets/animated_background.dart';
+import '../core/widgets/gradient_text.dart';
+import '../../data/repositories/conversation_repository.dart';
+import '../../domain/models/conversation.dart';
+import '../../providers.dart';
+import '../settings/settings_screen.dart';
+import 'chat_viewmodel.dart';
+import 'widgets/chat_input.dart';
+import 'widgets/conversation_drawer.dart';
+import 'widgets/empty_state.dart';
+import 'widgets/message_bubble.dart';
 
 /// The main chat view: app bar, conversation drawer, message list, and the
 /// animated input bar.
-class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.controller});
-
-  final ChatController controller;
+///
+/// Reads the [ChatViewModel] for UI state (isGenerating, active id, list of
+/// conversations) and the [ConversationRepository] for the active
+/// conversation's messages (which mutate token-by-token during streaming).
+class ChatScreen extends ConsumerStatefulWidget {
+  const ChatScreen({super.key});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -46,7 +52,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send(String text) async {
     _scrollToBottom();
-    await widget.controller.sendMessage(text);
+    await ref.read(chatViewModelProvider).sendMessage(text);
     _scrollToBottom();
   }
 
@@ -56,13 +62,20 @@ class _ChatScreenState extends State<ChatScreen> {
       ..selection = TextSelection.collapsed(offset: suggestion.length);
   }
 
+  void _openSettings(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+  }
+
   Widget _buildInput() {
+    final ChatViewModel vm = ref.watch(chatViewModelProvider);
     return ListenableBuilder(
-      listenable: widget.controller,
+      listenable: vm,
       builder: (BuildContext context, _) {
         return ChatInput(
           textController: _textController,
-          isGenerating: widget.controller.isGenerating,
+          isGenerating: vm.isGenerating,
           onSend: _send,
         );
       },
@@ -71,8 +84,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ChatViewModel vm = ref.watch(chatViewModelProvider);
+    final ConversationRepository repo = ref.watch(
+      conversationRepositoryProvider,
+    );
+
     return Scaffold(
-      drawer: ConversationDrawer(controller: widget.controller),
+      drawer: ConversationDrawer(viewModel: vm),
       appBar: AppBar(
         title: GradientText(
           'HavenChat',
@@ -80,9 +98,14 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: <Widget>[
           IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => _openSettings(context),
+          ),
+          IconButton(
             tooltip: 'New chat',
             icon: const Icon(Icons.add_comment_outlined),
-            onPressed: () => widget.controller.newConversation(),
+            onPressed: () => vm.newConversation(),
           ),
           const SizedBox(width: 4),
         ],
@@ -93,19 +116,17 @@ class _ChatScreenState extends State<ChatScreen> {
         children: <Widget>[
           Positioned.fill(
             child: ListenableBuilder(
-              listenable: widget.controller,
+              listenable: vm,
               builder: (BuildContext context, _) {
-                return AnimatedBackground(
-                  active: widget.controller.isGenerating,
-                );
+                return AnimatedBackground(active: vm.isGenerating);
               },
             ),
           ),
           SafeArea(
             child: ListenableBuilder(
-              listenable: widget.controller,
+              listenable: repo,
               builder: (BuildContext context, _) {
-                final Conversation conversation = widget.controller.active;
+                final Conversation conversation = repo.active;
                 if (conversation.isEmpty) {
                   return EmptyState(
                     onSuggestionTap: _prefill,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import '../../core/theme/app_theme.dart';
 
 /// Paints [text] using the brand gradient via a [ShaderMask].
 class GradientText extends StatelessWidget {

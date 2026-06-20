@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../models/message.dart';
-import '../theme/app_theme.dart';
-import 'typing_indicator.dart';
+import '../../../domain/models/message.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/typing_indicator.dart';
 
 /// Renders a single [ChatMessage].
 ///

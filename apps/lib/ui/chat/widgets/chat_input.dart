@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import '../../core/theme/app_theme.dart';
 
 /// The bottom input bar: a multiline text field inside a pill whose border
 /// becomes an animated, rotating brand gradient while the assistant is

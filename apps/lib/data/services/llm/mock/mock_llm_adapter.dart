@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:math';
 
+import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/provider_account.dart';
+import '../llm_adapter.dart';
+import '../llm_event.dart';
+
 /// A stand-in for a real LLM backend.
 ///
-/// It emits a canned reply word-by-word with small delays to simulate token
-/// streaming. Swap this out for a real provider (Gemini, OpenAI, Ollama, ...)
-/// without touching the rest of the app, as long as the [reply] signature is
-/// preserved.
-class MockLlmService {
-  MockLlmService({Random? random}) : _random = random ?? Random();
+/// Emits a canned reply word-by-word with small delays to simulate token
+/// streaming. Implements the same [LlmAdapter] interface as the real network
+/// adapters so the rest of the app can't tell the difference.
+class MockLlmAdapter implements LlmAdapter {
+  MockLlmAdapter({Random? random}) : _random = random ?? Random();
 
   final Random _random;
 
@@ -28,8 +32,15 @@ class MockLlmService {
         "mutually exclusive, and you can always iterate.",
   ];
 
-  /// Streams the assistant reply for [prompt] one word at a time.
-  Stream<String> reply(String prompt) async* {
+  @override
+  AdapterKind get kind => AdapterKind.mock;
+
+  @override
+  Stream<LlmEvent> stream({
+    required LlmRequest request,
+    required ProviderAccount account,
+    required String? secret,
+  }) async* {
     // A tiny "thinking" pause before the first token arrives.
     await Future<void>.delayed(const Duration(milliseconds: 450));
 
@@ -38,7 +49,8 @@ class MockLlmService {
       await Future<void>.delayed(
         Duration(milliseconds: 28 + _random.nextInt(55)),
       );
-      yield '$word ';
+      yield TokenEvent('$word ');
     }
+    yield const DoneEvent(finishReason: 'stop');
   }
 }

@@ -14,15 +14,18 @@ linter:
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
   # included above or to enable additional rules. A list of all available lints
   # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Force trailing commas on multi-line collections/parameter lists. Pure
+    # formatting win: cleaner diffs, cleaner git blame, no formatting churn.
+    require_trailing_commas: true
+    # Catch `someMap['key'].method()` where the value is dynamic — a real bug
+    # source when parsing LLM JSON responses.
+    avoid_dynamic_calls: true
+    # Catch forgotten `await` on async calls (e.g. token refresh, persistence)
+    # that would otherwise fail silently.
+    unawaited_futures: true
+    # Keep constructor parameter ordering stable for subclasses.
+    sort_unnamed_constructors_first: true
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

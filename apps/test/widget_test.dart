@@ -1,15 +1,16 @@
 // Basic smoke test for the HavenChat UI.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:havencat/main.dart';
+import 'package:havencat/app.dart';
 
 void main() {
   testWidgets('shows greeting empty state on launch', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const HavenChatApp());
+    await tester.pumpWidget(const ProviderScope(child: HavenChatApp()));
 
     // The empty-state greeting and a suggestion chip should be visible.
     expect(find.text('Hello there'), findsOneWidget);
@@ -20,7 +21,7 @@ void main() {
   testWidgets('typing in the input enables sending a message', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const HavenChatApp());
+    await tester.pumpWidget(const ProviderScope(child: HavenChatApp()));
 
     await tester.enterText(find.byType(TextField), 'Hello!');
     await tester.pump();

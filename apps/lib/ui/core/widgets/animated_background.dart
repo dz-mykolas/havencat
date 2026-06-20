@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
+import '../../core/theme/app_theme.dart';
 
 /// A subtle, living backdrop of drifting gradient "blobs" with twinkling stars
 /// that light up as a blob passes over them.

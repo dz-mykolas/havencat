@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../models/conversation.dart';
-import '../state/chat_controller.dart';
-import '../theme/app_theme.dart';
-import 'gradient_text.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/gradient_text.dart';
+import '../chat_viewmodel.dart';
 
 /// Side drawer listing all conversations with a "New chat" action.
 class ConversationDrawer extends StatelessWidget {
-  const ConversationDrawer({super.key, required this.controller});
+  const ConversationDrawer({super.key, required this.viewModel});
 
-  final ChatController controller;
+  final ChatViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +31,7 @@ class ConversationDrawer extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: _NewChatButton(
                 onTap: () {
-                  controller.newConversation();
+                  viewModel.newConversation();
                   Navigator.of(context).pop();
                 },
               ),
@@ -41,20 +40,20 @@ class ConversationDrawer extends StatelessWidget {
             const Divider(height: 1),
             Expanded(
               child: ListenableBuilder(
-                listenable: controller,
+                listenable: viewModel,
                 builder: (BuildContext context, _) {
-                  final List<Conversation> items = controller.conversations;
+                  final List<ConversationView> items = viewModel.conversations;
                   return ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: items.length,
                     itemBuilder: (BuildContext context, int index) {
-                      final Conversation c = items[index];
-                      final bool active = c.id == controller.activeId;
+                      final ConversationView c = items[index];
+                      final bool active = c.id == viewModel.activeId;
                       return _ConversationTile(
-                        title: c.isEmpty ? 'New chat' : c.title,
+                        title: c.title,
                         active: active,
                         onTap: () {
-                          controller.selectConversation(c.id);
+                          viewModel.selectConversation(c.id);
                           Navigator.of(context).pop();
                         },
                       );

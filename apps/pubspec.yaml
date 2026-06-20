@@ -35,6 +35,18 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # State management (classic API, no codegen).
+  flutter_riverpod: ^2.6.1
+
+  # HTTP client + SSE streaming for LLM adapters.
+  dio: ^5.7.0
+
+  # Secure storage for API keys and OAuth tokens.
+  flutter_secure_storage: ^9.2.2
+
+  # Open the system browser for OAuth device-code flows.
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -45,6 +57,9 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+  # Lightweight HTTP mocking for adapter tests.
+  http_mock_adapter: ^0.6.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

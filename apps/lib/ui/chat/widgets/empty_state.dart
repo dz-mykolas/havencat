@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-import 'gradient_text.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/gradient_text.dart';
 
 /// The home layout shown when the active conversation has no messages: a
 /// gradient greeting sitting above center, the message [input] placed just

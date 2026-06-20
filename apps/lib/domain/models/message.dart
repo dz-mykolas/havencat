@@ -2,12 +2,17 @@
 enum MessageRole { user, assistant }
 
 /// A single message in a conversation.
+///
+/// Plain mutable class (no freezed/codegen). The assistant message's [text]
+/// grows token-by-token while [isStreaming] is true; the repository/viewmodel
+/// mutate it in place and notify listeners.
 class ChatMessage {
   ChatMessage({
     required this.id,
     required this.role,
     this.text = '',
     this.isStreaming = false,
+    this.createdAt,
   });
 
   final String id;
@@ -18,6 +23,9 @@ class ChatMessage {
 
   /// True while the assistant is still appending tokens to [text].
   bool isStreaming;
+
+  /// When the message was created. Null only for legacy/mock messages.
+  DateTime? createdAt;
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;
