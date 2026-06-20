@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'data/services/auth/secret_store.dart';
+import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
 import 'providers.dart';
@@ -24,6 +25,9 @@ Future<void> main() async {
       accountStoreProvider.overrideWithValue(accountStore),
       secretStoreProvider.overrideWithValue(secretStore),
       appSettingsProvider.overrideWith((_) => AppSettings(prefs: prefs)),
+      modelsDevServiceProvider.overrideWithValue(
+        ModelsDevService(prefs: prefs),
+      ),
     ],
   );
   await container.read(providerAccountRepositoryProvider).load();

@@ -11,6 +11,14 @@ class AppTheme {
   /// stretches edge-to-edge on wide screens.
   static const double contentMaxWidth = 640;
 
+  /// Max width for full-page panels (settings, pricing). A touch wider than
+  /// [contentMaxWidth] so two-up card grids breathe on desktop. Below this the
+  /// layout is treated as "compact" (phone-style, edge-to-edge, left-aligned).
+  static const double panelMaxWidth = 760;
+
+  /// Width at/above which a layout is considered "desktop/wide".
+  static const double wideBreakpoint = 720;
+
   // Core surface tokens.
   static const Color background = Color(0xFF0E0E11);
   static const Color surface = Color(0xFF17171C);

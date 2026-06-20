@@ -7,6 +7,7 @@ import 'data/services/auth/chatgpt_token_service.dart';
 import 'data/services/auth/credential_resolver.dart';
 import 'data/services/auth/secret_store.dart';
 import 'data/services/llm/adapter_registry.dart';
+import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
 
@@ -39,6 +40,15 @@ final appSettingsProvider = ChangeNotifierProvider<AppSettings>((ref) {
 /// per kind is fine.
 final adapterRegistryProvider = Provider<AdapterRegistry>((ref) {
   return AdapterRegistry();
+});
+
+/// Public model database (pricing + capabilities) from models.dev.
+///
+/// Default has no persistence (tests / first run). `main()` overrides this with
+/// a `SharedPreferences`-backed instance so the catalog is cached across
+/// restarts and available offline.
+final modelsDevServiceProvider = Provider<ModelsDevService>((ref) {
+  return ModelsDevService();
 });
 
 /// ChatGPT OAuth device-code flow. One instance for the whole app.
