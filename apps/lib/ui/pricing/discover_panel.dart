@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
 import '../../domain/models/model_pricing.dart';
-import '../../domain/models/provider_definition.dart';
 import '../settings/settings_viewmodel.dart';
 import 'pricing_viewmodel.dart';
 import 'pricing_format.dart';
@@ -98,9 +97,10 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
               switchOutCurve: Curves.linear,
               // Only render the incoming child; the old tab's content is
               // dropped instantly so you never see two grids stacked.
-              layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
-                return currentChild ?? const SizedBox.shrink();
-              },
+              layoutBuilder:
+                  (Widget? currentChild, List<Widget> previousChildren) {
+                    return currentChild ?? const SizedBox.shrink();
+                  },
               // Only animate the incoming child; the outgoing tab content just
               // disappears — fading it out only delays the new tab's reveal.
               transitionBuilder: (Widget child, Animation<double> a) {
@@ -348,10 +348,13 @@ class _ModelList extends StatelessWidget {
   Widget build(BuildContext context) {
     final List<PricedModel> results = vm.results;
     final ProviderModels? selectedGroup = vm.selectedGroup;
-    // Show the Quick Add CTA only in the Providers-scope drill-in, and only
-    // when the resolver found an adapter for this group (null = no Add button,
-    // e.g. labs scope or any group without a known API adapter).
-    final ProviderDefinition? quickAddDef =
+    // Show the Quick Add CTA only in the Providers-scope drill-in. The
+    // resolver returns one of:
+    //   - Supported  -> enabled button, opens Quick Add
+    //   - Uncertain  -> disabled button with a tooltip (recognised package but
+    //                  models.dev doesn't give us enough to route safely)
+    //   - Unsupported -> no button (labs scope, unknown npm)
+    final ResolveResult? quickAdd =
         (vm.scope == PricingScope.providers &&
             vm.view == PricingView.provider &&
             selectedGroup != null)
@@ -373,16 +376,22 @@ class _ModelList extends StatelessWidget {
                   ),
                 ),
               ),
-              if (quickAddDef != null && selectedGroup != null)
+              if (selectedGroup != null && quickAdd != null)
                 _AddApiKeyButton(
                   label: selectedGroup.name,
+                  result: quickAdd,
                   onTap: () {
                     final SettingsViewModel settings =
                         ProviderScope.containerOf(
                           context,
                           listen: false,
                         ).read(settingsViewModelProvider);
-                    showQuickAdd(context, settings, selectedGroup, quickAddDef);
+                    showQuickAdd(
+                      context,
+                      settings,
+                      selectedGroup,
+                      (quickAdd as Supported).definition,
+                    );
                   },
                 ),
               _SortButton(sort: vm.sort, onSelected: vm.setSort),
@@ -560,37 +569,64 @@ class _ResultsGrid extends StatelessWidget {
 
 /// "Add API key" CTA in the model list header. Opens the Quick Add flow for
 /// the currently drilled-in provider.
+///
+/// Renders enabled when [result] is [Supported]; grayed out and non-tappable
+/// when [Uncertain] (with a tooltip explaining why and linking the provider's
+/// docs).
 class _AddApiKeyButton extends StatelessWidget {
-  const _AddApiKeyButton({required this.label, required this.onTap});
+  const _AddApiKeyButton({
+    required this.label,
+    required this.result,
+    required this.onTap,
+  });
 
   final String label;
+  final ResolveResult result;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          gradient: AppTheme.brandGradient,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.vpn_key_outlined, size: 14, color: Colors.white),
-            SizedBox(width: 6),
-            Text(
-              'Add API key',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
+    final ResolveResult r = result;
+    final bool enabled = r is Supported;
+    String? tooltip;
+    String? docsUrl;
+    if (r is Uncertain) {
+      tooltip = r.reason;
+      docsUrl = r.docsUrl;
+    }
+    return Tooltip(
+      message: tooltip ?? '',
+      waitDuration: const Duration(milliseconds: 500),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: enabled ? AppTheme.brandGradient : null,
+            color: enabled ? null : AppTheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: enabled ? null : Border.all(color: AppTheme.outline),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                docsUrl != null ? Icons.help_outline : Icons.vpn_key_outlined,
+                size: 14,
+                color: enabled ? Colors.white : AppTheme.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                enabled ? 'Add API key' : 'Add API key',
+                style: TextStyle(
+                  color: enabled ? Colors.white : AppTheme.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
