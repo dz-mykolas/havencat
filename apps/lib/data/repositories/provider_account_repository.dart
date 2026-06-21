@@ -56,6 +56,11 @@ class ProviderAccountRepository extends ChangeNotifier {
   /// Restores persisted accounts + active id. Call once on startup before the
   /// first frame. If nothing is persisted yet (first run), the seeded mock
   /// account is persisted so its id stays stable across launches.
+  ///
+  /// Also runs a one-time forward migration: any pre-existing account that
+  /// only has the legacy `config['model']` single-selection gets an
+  /// `enabledModels: [model]` entry written so it shows up as enabled in the
+  /// new multi-select world (no behaviour change for existing accounts).
   Future<void> load() async {
     final List<ProviderAccount> persisted = _accountStore.loadAccounts();
     if (persisted.isEmpty) {
@@ -63,16 +68,50 @@ class ProviderAccountRepository extends ChangeNotifier {
       _loaded = true;
       return;
     }
+    final List<ProviderAccount> migrated = persisted.map(_migrateEnabledModels).toList();
     _accounts
       ..clear()
-      ..addAll(persisted);
+      ..addAll(migrated);
     final String? storedActive = _accountStore.loadActiveAccountId();
     _activeAccountId =
         (storedActive != null && _accounts.any((a) => a.id == storedActive))
         ? storedActive
         : _accounts.first.id;
     _loaded = true;
+    // If any account was migrated (config changed), persist the new shape so
+    // future loads skip the migration path.
+    final bool migratedAny = List.generate(persisted.length, (i) => persisted[i]).any(
+      (p) {
+        final m = _migrateEnabledModels(p);
+        return m.config['enabledModels'] != null &&
+            p.config['enabledModels'] == null;
+      },
+    );
+    if (migratedAny) {
+      await _persist();
+    }
     notifyListeners();
+  }
+
+  /// Returns `account` unchanged if its config already carries
+  /// `enabledModels`, or a copy with `enabledModels: [model]` written if only
+  /// the legacy `model` key is set. Accounts with neither key are returned
+  /// unchanged (the chat will grey them out — the user picks models in the
+  /// Quick-Add or via the chat model picker later).
+  ProviderAccount _migrateEnabledModels(ProviderAccount account) {
+    if (account.config['enabledModels'] != null) return account;
+    final Object? legacy = account.config['model'];
+    if (legacy is! String || legacy.isEmpty) return account;
+    return ProviderAccount(
+      id: account.id,
+      kind: account.kind,
+      displayName: account.displayName,
+      config: <String, Object?>{
+        ...account.config,
+        'enabledModels': <String>[legacy],
+      },
+      createdAt: account.createdAt,
+    );
   }
 
   /// Adds a new API-key-based account. The key is written to secure storage,
@@ -148,6 +187,37 @@ class ProviderAccountRepository extends ChangeNotifier {
       kind: current.kind,
       displayName: current.displayName,
       config: <String, Object?>{...current.config, 'model': modelId},
+      createdAt: current.createdAt,
+    );
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Sets the full set of allowed model ids for [accountId] (the multi-select
+  /// that backs the Quick-Add flow + chat picker grey-out). Replaces any prior
+  /// `enabledModels` list. An empty list disables the account in the chat
+  /// picker until the user enables at least one model. The legacy `model`
+  /// field is kept in sync to the first enabled entry (when non-empty) so the
+  /// existing single-select code paths keep working unchanged.
+  Future<void> setAllowedModels(String accountId, List<String> modelIds) async {
+    final int index = _accounts.indexWhere((a) => a.id == accountId);
+    if (index == -1) return;
+    final ProviderAccount current = _accounts[index];
+    final List<String> deduped = <String>[...modelIds.whereType<String>()];
+    final Map<String, Object?> next = <String, Object?>{
+      ...current.config,
+      'enabledModels': deduped,
+      if (deduped.isNotEmpty) 'model': deduped.first,
+    };
+    if (next['enabledModels'] == current.config['enabledModels'] &&
+        next['model'] == current.config['model']) {
+      return;
+    }
+    _accounts[index] = ProviderAccount(
+      id: current.id,
+      kind: current.kind,
+      displayName: current.displayName,
+      config: next,
       createdAt: current.createdAt,
     );
     notifyListeners();

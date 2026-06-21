@@ -121,67 +121,10 @@ class _ProviderCard extends StatelessWidget {
                   fontSize: 12.5,
                 ),
               ),
-              const SizedBox(height: 12),
-              _Headline(models: provider.models),
             ],
           ),
         ),
       ),
     );
-  }
-}
-
-/// A one-line summary derived from a provider's models: the cheapest non-free
-/// output price ("from $X") or "Free" if every model is free, or "—" if no
-/// prices are published. Gives the card something scannable without a full list.
-class _Headline extends StatelessWidget {
-  const _Headline({required this.models});
-
-  final List<PricedModel> models;
-
-  @override
-  Widget build(BuildContext context) {
-    double? cheapest;
-    bool anyFree = false;
-    for (final PricedModel m in models) {
-      final ModelCost? cost = m.cost;
-      if (cost == null) continue;
-      if (cost.isFree) {
-        anyFree = true;
-        continue;
-      }
-      final double? price = cost.output ?? cost.input;
-      if (price != null && (cheapest == null || price < cheapest)) {
-        cheapest = price;
-      }
-    }
-
-    final String text;
-    if (cheapest != null) {
-      text = 'from \$${_trim(cheapest, cheapest < 1 ? 3 : 2)} / 1M';
-    } else if (anyFree) {
-      text = 'Free';
-    } else {
-      text = 'No pricing';
-    }
-
-    return ShaderMask(
-      shaderCallback: (Rect bounds) =>
-          AppTheme.brandGradient.createShader(bounds),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  static String _trim(double value, int decimals) {
-    final String s = value.toStringAsFixed(decimals);
-    if (!s.contains('.')) return s;
-    return s.replaceFirst(RegExp(r'\.?0+$'), '');
   }
 }

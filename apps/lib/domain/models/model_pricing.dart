@@ -123,7 +123,8 @@ class PricedModel {
     );
   }
 
-  /// Wire id, e.g. `gpt-5.5`, `claude-sonnet-4-5`.
+  /// Wire id, e.g. `gpt-5.5`, `claude-sonnet-4-5`, or namespaced like
+  /// `openai/gpt-5.2` when served through a router.
   final String id;
 
   /// Display name, e.g. "Claude Sonnet 4.5 (latest)".
@@ -134,6 +135,15 @@ class PricedModel {
 
   /// Owning provider display name, e.g. "Anthropic".
   final String providerName;
+
+  /// The lab that actually owns the model — derived from the `lab/...`
+  /// prefix on the model id when served through a router (OpenRouter,
+  /// Requesty, etc.), falling back to [providerId] for first-party entries.
+  /// Examples: `anthropic`, `openai`, `google`, `xai`, `meta`, `mistral`.
+  String get lab {
+    final String prefix = id.split('/').first;
+    return prefix == id ? providerId : prefix;
+  }
 
   final ModelCost? cost;
 
@@ -160,7 +170,7 @@ class PricedModel {
 
   /// Lower-cased haystack used for free-text search.
   String get searchIndex =>
-      '$name $id $providerName $providerId'.toLowerCase();
+      '$name $id $providerName $providerId $lab'.toLowerCase();
 
   static DateTime? _parseDate(Object? value) {
     if (value is! String || value.isEmpty) return null;
@@ -168,24 +178,127 @@ class PricedModel {
   }
 }
 
-/// A provider grouping: the provider's display name plus its models.
+/// A grouping record: an id + display name + the models belonging to it.
+///
+/// Used for both [ModelsCatalog.providers] (grouped by hosting provider) and
+/// [ModelsCatalog.labs] (grouped by the lab that actually owns each model).
 class ProviderModels {
   const ProviderModels({
     required this.id,
     required this.name,
     required this.models,
+    this.npm,
+    this.apiUrl,
+    this.docUrl,
   });
 
   final String id;
   final String name;
   final List<PricedModel> models;
+
+  /// The `npm` adapter package this provider maps to in models.dev's data
+  /// (e.g. `@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`, `@ai-sdk/google`,
+  /// `@ai-sdk/groq`, `@openrouter/ai-sdk-provider`). Only present on the
+  /// providers grouping (sourced from the top-level `npm` field); always null
+  /// on the labs grouping. The Quick-Add resolver uses this to pick the right
+  /// internal `ProviderDefinition`.
+  final String? npm;
+
+  /// The provider's published API base URL (models.dev `api` field), e.g.
+  /// `https://router.requesty.ai/v1`. Only present on the providers grouping.
+  final String? apiUrl;
+
+  /// The provider's documentation URL (models.dev `doc` field). The Quick-Add
+  /// dialog uses this (stripped to its origin) as a fallback "Get an API key"
+  /// link when no per-definition [ProviderDefinition.apiKeyUrl] is set.
+  final String? docUrl;
+
+  /// True when this group is a plan/subscription provider that should be
+  /// hidden from the Discover grid.
+  ///
+  /// models.dev lists three families of plan-billed providers:
+  ///
+  ///   1. **Plans explicitly named** — `umans-ai-coding-plan`,
+  ///      `alibaba-token-plan`, `xiaomi-token-plan-*`, `*-coding-plan`,
+  ///      `tencent-tokenhub`, … These self-identify via their display [name]
+  ///      containing "token plan", "coding plan", or "tokenhub" (case-
+  ///      insensitive, with optional separators). Captured by branch 1
+  ///      ([_planNameRe]). The id-suffix approach is too brittle because
+  ///      regional variants (`alibaba-coding-plan-cn`,
+  ///      `xiaomi-token-plan-cn`) end in `-cn` / `-sgp` / `-ams`, not
+  ///      `-coding-plan`.
+  ///
+  ///   2. **Unbranded plan providers** — `gitlab` ("Duo Chat"),
+  ///      `github-models`, `poolside`, `nova`, `zeldoc`, `iflowcn`. These
+  ///      don't say "plan" anywhere, but they bill via subscription: every
+  ///      served model publishes `cost: {input: 0, output: 0}` AND at least
+  ///      one of those models is **closed-weights** (e.g. GitLab serves
+  ///      `duo-chat-opus-4-5` at $0 — Claude Opus obviously isn't free, so
+  ///      somebody's absorbing the cost via a plan). Captured by branch 2.
+  ///
+  /// Genuinely free providers (LMStudio, ModelScope, Meta's `llama` hub,
+  /// Privatemode AI, Atomic Chat) all serve open-weights models at $0 — that
+  /// is an accurate price, so branch 2 keeps them visible. Nebius ("Token
+  /// Factory") is brand-named with "Token" but publishes real per-token
+  /// prices, so branch 2 keeps it too.
+  ///
+  /// Either branch is sufficient to hide a group.
+  bool get isPlanOnly {
+    // Branch 1 — plans that self-identify by name. Regional suffix variants
+    // like `xiaomi-token-plan-cn` end in `-cn`, not `-coding-plan`, so the id
+    // suffix approach leaks them. Matching the display [name] catches every
+    // known variant: "Token Plan", "Coding Plan", "TokenHub".
+    if (_planNameRe.hasMatch(name)) return true;
+
+    // Branch 2 — unbranded plan providers (GitLab Duo, GitHub Models,
+    // Poolside, Nova, Zeldoc, iFlow) whose tell-tale is publishing $0 for
+    // at least one closed-weights commercial model. An all-open-weights
+    // provider at $0 is genuinely free (LMStudio, ModelScope, Meta's `llama`
+    // hub, …) and stays visible.
+    bool sawClosed = false;
+    for (final PricedModel m in models) {
+      final ModelCost? cost = m.cost;
+      // A model with no cost data at all → we can't classify, keep the group.
+      if (cost == null) return false;
+      // Any real non-zero price → not a plan-only group.
+      if ((cost.input ?? 0) > 0 || (cost.output ?? 0) > 0) return false;
+      if (!m.openWeights) sawClosed = true;
+    }
+    return sawClosed;
+  }
+
+  /// Matches plan/subscription display names. Case-insensitive; allows any
+  /// separator (space, dash, none) between the words so "Token Plan",
+  /// "Token-Plan", "TokenPlan", and "Tokenhub" all match.
+  static final RegExp _planNameRe = RegExp(
+    r'(token[\s\-]?plan|coding[\s\-]?plan|tokenhub)',
+    caseSensitive: false,
+  );
+
+  /// True when at least one model publishes a real (non-zero) per-token price
+  /// — at least one of [ModelCost.input] or [ModelCost.output] is greater than
+  /// zero. Kept as the inverse-positive form for callers that want "has any
+  /// real price" rather than "is a plan-only group".
+  bool get hasPricedModel {
+    for (final PricedModel m in models) {
+      final ModelCost? cost = m.cost;
+      if (cost == null) continue;
+      if ((cost.input ?? 0) > 0 || (cost.output ?? 0) > 0) return true;
+    }
+    return false;
+  }
 }
 
 /// The whole models.dev catalog, both flat and grouped by provider, plus the
 /// timestamp it was fetched at (so the UI can show "updated X ago" / offline).
 class ModelsCatalog {
-  ModelsCatalog({required this.models, required this.fetchedAt})
-    : providers = _group(models);
+  ModelsCatalog({
+    required this.models,
+    required this.fetchedAt,
+    Map<String, ProviderMeta>? providerMeta,
+  })  : providers = _group(models, providerMeta: providerMeta),
+        labs = _groupByLab(models),
+        _providerMeta = providerMeta ?? const <String, ProviderMeta>{};
 
   /// Parses the raw `api.json` map (keyed by provider id) into a catalog.
   factory ModelsCatalog.fromApiJson(
@@ -193,11 +306,17 @@ class ModelsCatalog {
     required DateTime fetchedAt,
   }) {
     final List<PricedModel> all = <PricedModel>[];
+    final Map<String, ProviderMeta> meta = <String, ProviderMeta>{};
     for (final MapEntry<String, Object?> entry in json.entries) {
       final Object? provider = entry.value;
       if (provider is! Map<String, Object?>) continue;
       final String providerId = '${provider['id'] ?? entry.key}';
       final String providerName = '${provider['name'] ?? providerId}';
+      meta[providerId] = ProviderMeta(
+        npm: provider['npm'] as String?,
+        apiUrl: provider['api'] as String?,
+        docUrl: provider['doc'] as String?,
+      );
       final Object? models = provider['models'];
       if (models is! Map<String, Object?>) continue;
       for (final Object? model in models.values) {
@@ -212,46 +331,122 @@ class ModelsCatalog {
         }
       }
     }
-    return ModelsCatalog(models: all, fetchedAt: fetchedAt);
+    return ModelsCatalog(
+      models: all,
+      fetchedAt: fetchedAt,
+      providerMeta: meta,
+    );
   }
 
   /// Every model across every provider.
   final List<PricedModel> models;
 
-  /// Models grouped by provider, sorted by provider name.
+  /// Models grouped by hosting provider (the API you actually call), sorted
+  /// by provider name — e.g. OpenRouter, OpenAI, Anthropic, Qiniu.
   final List<ProviderModels> providers;
+
+  /// Models grouped by the lab that actually owns them. For routed models the
+  /// lab is the `lab/model` id prefix (e.g. `anthropic` for
+  /// `anthropic/claude-sonnet-4-5` served via OpenRouter); for first-party
+  /// entries it's just the provider. Same underlying model served through 3
+  /// different routers collapses into one lab's tile.
+  final List<ProviderModels> labs;
 
   /// When this catalog was fetched from the network.
   final DateTime fetchedAt;
 
+  /// Per-provider metadata (npm/api/doc fields from models.dev), keyed by
+  /// provider id. Used to populate the [providers] grouping's `npm`/`apiUrl`/
+  /// `docUrl`; the labs grouping has no equivalent (the lab prefix is on the
+  /// model id, not the provider).
+  final Map<String, ProviderMeta> _providerMeta;
+
+  /// Looks up the [ProviderMeta] for [providerId], if any.
+  ProviderMeta? metaFor(String providerId) => _providerMeta[providerId];
+
   bool get isEmpty => models.isEmpty;
 
-  static List<ProviderModels> _group(List<PricedModel> models) {
-    final Map<String, List<PricedModel>> byProvider =
+  static List<ProviderModels> _group(
+    List<PricedModel> models, {
+    Map<String, ProviderMeta>? providerMeta,
+  }) {
+    final Map<String, List<PricedModel>> byKey =
         <String, List<PricedModel>>{};
     final Map<String, String> names = <String, String>{};
     for (final PricedModel m in models) {
-      byProvider.putIfAbsent(m.providerId, () => <PricedModel>[]).add(m);
+      byKey.putIfAbsent(m.providerId, () => <PricedModel>[]).add(m);
       names[m.providerId] = m.providerName;
     }
-    final List<ProviderModels> result = byProvider.entries
+    final List<ProviderModels> result = byKey.entries
+        .map(
+          (MapEntry<String, List<PricedModel>> e) {
+            final ProviderMeta? pm = providerMeta?[e.key];
+            return ProviderModels(
+              id: e.key,
+              name: names[e.key] ?? _titleCaseId(e.key),
+              models: e.value..sort(_modelSortByDateThenName),
+              npm: pm?.npm,
+              apiUrl: pm?.apiUrl,
+              docUrl: pm?.docUrl,
+            );
+          },
+        )
+        .toList(growable: false);
+    result.sort(_groupSortByName);
+    return result;
+  }
+
+  static List<ProviderModels> _groupByLab(List<PricedModel> models) {
+    final Map<String, List<PricedModel>> byLab =
+        <String, List<PricedModel>>{};
+    for (final PricedModel m in models) {
+      byLab.putIfAbsent(m.lab, () => <PricedModel>[]).add(m);
+    }
+    final Map<String, String> names = <String, String>{};
+    final List<ProviderModels> result = byLab.entries
         .map(
           (MapEntry<String, List<PricedModel>> e) => ProviderModels(
             id: e.key,
-            name: names[e.key] ?? e.key,
-            models: e.value..sort((PricedModel a, PricedModel b) {
-              final DateTime? ad = a.releaseDate;
-              final DateTime? bd = b.releaseDate;
-              if (ad != null && bd != null) return bd.compareTo(ad);
-              return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-            }),
+            name: names[e.key] ?? _titleCaseId(e.key),
+            models: e.value..sort(_modelSortByDateThenName),
           ),
         )
         .toList(growable: false);
-    result.sort(
-      (ProviderModels a, ProviderModels b) =>
-          a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-    );
+    result.sort(_groupSortByName);
     return result;
   }
+
+  static int _modelSortByDateThenName(PricedModel a, PricedModel b) {
+    final DateTime? ad = a.releaseDate;
+    final DateTime? bd = b.releaseDate;
+    if (ad != null && bd != null) return bd.compareTo(ad);
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  }
+
+  static int _groupSortByName(ProviderModels a, ProviderModels b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+  /// Turns a hyphen/underscore id like `openai` or `x-ai` into "OpenAI" / "X-AI"
+  /// for users when no friendly name was provided (the labs branch).
+  static String _titleCaseId(String id) {
+    final List<String> parts = id.replaceAll('_', '-').split('-');
+    return parts
+        .map(
+          (String p) => p.isEmpty
+              ? p
+              : '${p[0].toUpperCase()}${p.substring(1).toLowerCase()}',
+        )
+        .join('-');
+  }
+}
+
+/// Raw adapter/endpoint fields models.dev publishes per provider, kept around
+/// after catalog construction so the Quick-Add resolver can pick the right
+/// internal [ProviderDefinition] (via [npm]) and prefill base URL + doc link.
+class ProviderMeta {
+  const ProviderMeta({this.npm, this.apiUrl, this.docUrl});
+
+  final String? npm;
+  final String? apiUrl;
+  final String? docUrl;
 }

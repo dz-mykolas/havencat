@@ -107,7 +107,6 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
         return _Overview(
           vm: vm,
           onOpenProvider: vm.openProvider,
-          onBrowseAll: vm.showAll,
         );
       case PricingView.provider:
       case PricingView.all:
@@ -124,12 +123,10 @@ class _Overview extends StatelessWidget {
   const _Overview({
     required this.vm,
     required this.onOpenProvider,
-    required this.onBrowseAll,
   });
 
   final PricingViewModel vm;
   final ValueChanged<String> onOpenProvider;
-  final VoidCallback onBrowseAll;
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +146,6 @@ class _Overview extends StatelessWidget {
                   ),
                 ),
               ),
-              _BrowseAllButton(onTap: onBrowseAll),
             ],
           ),
         ),
@@ -282,38 +278,6 @@ class _ResultsGrid extends StatelessWidget {
           },
         );
       },
-    );
-  }
-}
-
-class _BrowseAllButton extends StatelessWidget {
-  const _BrowseAllButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.apps, size: 16, color: AppTheme.textSecondary),
-            SizedBox(width: 6),
-            Text(
-              'Browse all',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

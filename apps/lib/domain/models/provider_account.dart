@@ -31,9 +31,36 @@ class ProviderAccount {
 
   /// Adapter-specific, non-secret configuration (base URL, default model,
   /// headers, etc.). Secret material lives in secure storage, not here.
+  ///
+  /// Two config keys drive model selection:
+  ///   * `'model'` — the legacy single-selected model id (still written for
+  ///     back-compat; the chat reads it as the active model).
+  ///   * `'enabledModels'` — a `List<String>` of model ids the user has opted
+  ///     into using for this provider. Defaults to empty (the Quick-Add flow
+  ///     writes the user's checkbox selection here). When empty the chat header
+  ///     shows the provider greyed out and non-selectable.
   final Map<String, Object?> config;
 
   DateTime? createdAt;
+
+  /// The set of model ids the user has enabled for this provider. Reads
+  /// `config['enabledModels']` (a `List<String>`); falls back to a single-
+  /// element list of the legacy `config['model']` value if `enabledModels` is
+  /// absent — that mirrors the migration in
+  /// `ProviderAccountRepository.load`, so a freshly-loaded legacy account
+  /// appears enabled even before the migration has run (e.g. in tests that
+  /// build an account directly).
+  List<String> get enabledModels {
+    final Object? v = config['enabledModels'];
+    if (v is List) {
+      return v.whereType<String>().toList(growable: false);
+    }
+    final Object? legacy = config['model'];
+    if (legacy is String && legacy.isNotEmpty) {
+      return <String>[legacy];
+    }
+    return const <String>[];
+  }
 
   /// Non-secret JSON for persistence. Secrets (API keys, OAuth tokens) are
   /// deliberately absent — they live in secure storage keyed by [id].

@@ -15,6 +15,8 @@ class ProviderDefinition {
     this.configTemplate = const <String, Object?>{},
     this.requiresApiKey = false,
     this.requiresOAuth = false,
+    this.apiKeyUrl,
+    this.modelsDevId,
   });
 
   /// Stable id, e.g. 'openai_compatible', 'chatgpt_subscription', 'poe'.
@@ -36,6 +38,19 @@ class ProviderDefinition {
 
   /// True if the user must complete an OAuth flow (browser sign-in) instead.
   final bool requiresOAuth;
+
+  /// Link to the provider's "get an API key" page, surfaced as a "Get an API
+  /// key" action in the Quick-Add dialog. Optional — some definitions (e.g.
+  /// `openai_compatible` as the generic fallback) leave this null and the
+  /// Quick-Add UI derives a URL from the models.dev `doc` link instead.
+  final String? apiKeyUrl;
+
+  /// The models.dev provider id this definition maps to (e.g. `anthropic`,
+  /// `openai`, `groq`, `openrouter`). Used by the Discover panel's Quick-Add
+  /// flow to look up the cached [ProviderModels] group for this definition.
+  /// Null on `openai_compatible` (the generic OpenAI-compatible fallback) —
+  /// resolution there goes through `quick_add_resolver.dart` instead.
+  final String? modelsDevId;
 }
 
 /// Built-in catalog of providers the app knows how to configure.
@@ -73,6 +88,10 @@ class ProviderCatalog {
         'model': 'gpt-4o-mini',
       },
       requiresApiKey: true,
+      // Generic fallback — `modelsDevId` is intentionally null; the resolver
+      // in `quick_add_resolver.dart` picks this definition for any OpenAI-
+      // compatible provider and overrides `baseUrl` from the group's `api` URL.
+      apiKeyUrl: 'https://platform.openai.com/api-keys',
     ),
     ProviderDefinition(
       id: 'anthropic',
@@ -84,6 +103,8 @@ class ProviderCatalog {
         'model': 'claude-3-5-sonnet-latest',
       },
       requiresApiKey: true,
+      apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+      modelsDevId: 'anthropic',
     ),
     ProviderDefinition(
       id: 'gemini_native',
@@ -92,6 +113,8 @@ class ProviderCatalog {
       description: 'Google Gemini API (generativelanguage.googleapis.com).',
       configTemplate: <String, Object?>{'model': 'gemini-1.5-flash'},
       requiresApiKey: true,
+      apiKeyUrl: 'https://aistudio.google.com/app/apikey',
+      modelsDevId: 'google',
     ),
   ];
 

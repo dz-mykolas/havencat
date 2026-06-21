@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:havencat/data/services/pricing/models_dev_service.dart';
 import 'package:havencat/domain/models/model_pricing.dart';
 import 'package:havencat/ui/pricing/pricing_viewmodel.dart';
+import 'package:havencat/ui/pricing/quick_add_resolver.dart';
 
 /// Unit tests for [PricingViewModel]'s multi-step Discover state: provider
 /// drill-in, "browse all", search, and sort. The catalog is built directly from
@@ -81,7 +82,150 @@ void main() {
           isTrue);
     }
   });
+
+  test('each scope keeps its own search query across tab switches', () async {
+    final PricingViewModel vm = await _vm();
+
+    // Providers tab starts selected; type a provider-filtering query.
+    expect(vm.scope, PricingScope.providers);
+    vm.setQuery('open');
+    expect(vm.query, 'open');
+
+    // Switch to Models — different query, different domain.
+    vm.setScope(PricingScope.models);
+    expect(vm.query, ''); // Models tab starts with its own empty query.
+    vm.setQuery('gpt');
+    expect(vm.query, 'gpt');
+
+    // Back to Providers — the "open" query is preserved.
+    vm.setScope(PricingScope.providers);
+    expect(vm.query, 'open');
+
+    // And Models still has "gpt" when we return.
+    vm.setScope(PricingScope.models);
+    expect(vm.query, 'gpt');
+  });
+
+  test('models scope renders every model flat, filtered by its query',
+      () async {
+    final PricingViewModel vm = await _vm();
+    vm.setScope(PricingScope.models);
+    expect(vm.isFlatModelView, isTrue);
+    // No query -> all models.
+    expect(vm.results.length, vm.totalCount);
+
+    vm.setQuery('gpt');
+    expect(vm.results.map((PricedModel m) => m.id), <String>['gpt-5.5']);
+  });
+
+  test('overview grid filters groups by the scope query', () async {
+    final PricingViewModel vm = await _vm();
+    vm.setScope(PricingScope.providers);
+
+    // No query -> all providers (Anthropic + OpenAI in the test payload).
+    expect(
+      vm.groups.map((ProviderModels g) => g.id).toSet(),
+      <String>{'anthropic', 'openai'},
+    );
+
+    vm.setQuery('anthropic');
+    // Only the Anthropic group matches the query.
+    expect(
+      vm.groups.map((ProviderModels g) => g.id).toSet(),
+      <String>{'anthropic'},
+    );
+  });
+
+  /// Tests for [resolveDefinitionFor] — the pure mapping from a models.dev
+  /// provider group to the internal `ProviderDefinition` the Quick-Add flow
+  /// prefills. Three branches of the resolver are covered here: anthropic-shaped
+  /// groups, openrouter-shaped groups (openai-compatible fallback with a
+  /// provider-specific base URL), and labs-scope groups (no `npm`, no adapter).
+  group('resolveDefinitionFor', () {
+    final DateTime now = DateTime(2026, 6, 20);
+
+    test('anthropic npm -> anthropic definition, baseUrl from group', () {
+      final ProviderModels group =
+          ModelsCatalog.fromApiJson(_anthropicPayload, fetchedAt: now)
+              .providers
+              .first;
+      expect(group.npm, '@ai-sdk/anthropic');
+      expect(group.apiUrl, 'https://api.anthropic.com');
+
+      final def = resolveDefinitionFor(group);
+      expect(def, isNotNull);
+      expect(def!.id, 'anthropic');
+      // Base URL overridden from models.dev `api` field, not the template.
+      expect(def.configTemplate['baseUrl'], 'https://api.anthropic.com');
+      expect(def.apiKeyUrl, 'https://console.anthropic.com/settings/keys');
+      expect(def.modelsDevId, 'anthropic');
+    });
+
+    test('openrouter npm -> openai_compatible definition with router baseUrl',
+        () {
+      final ProviderModels group =
+          ModelsCatalog.fromApiJson(_openRouterPayload, fetchedAt: now)
+              .providers
+              .first;
+      expect(group.npm, '@openrouter/ai-sdk-provider');
+      expect(group.apiUrl, 'https://openrouter.ai/api/v1');
+
+      final def = resolveDefinitionFor(group);
+      expect(def, isNotNull);
+      expect(def!.id, 'openai_compatible');
+      expect(def.configTemplate['baseUrl'], 'https://openrouter.ai/api/v1');
+      // apiKeyUrl derived from the doc URL's origin.
+      expect(def.apiKeyUrl, 'https://openrouter.ai');
+      expect(def.modelsDevId, 'openrouter');
+    });
+
+    test('labs-scope group (no npm) -> null (no adapter)', () {
+      // Build a labs grouping: same model served via OpenRouter ends up under
+      // the `anthropic` lab prefix, with no `npm`/`api`/`doc` on the lab group.
+      final ModelsCatalog catalog =
+          ModelsCatalog.fromApiJson(_openRouterPayload, fetchedAt: now);
+      expect(catalog.labs, isNotEmpty);
+      final ProviderModels lab = catalog.labs.first;
+      expect(lab.npm, isNull);
+
+      expect(resolveDefinitionFor(lab), isNull);
+    });
+  });
 }
+
+const Map<String, Object?> _anthropicPayload = <String, Object?>{
+  'anthropic': <String, Object?>{
+    'id': 'anthropic',
+    'name': 'Anthropic',
+    'npm': '@ai-sdk/anthropic',
+    'api': 'https://api.anthropic.com',
+    'doc': 'https://docs.anthropic.com',
+    'models': <String, Object?>{
+      'claude-opus-4-5': <String, Object?>{
+        'id': 'claude-opus-4-5',
+        'name': 'Claude Opus 4.5',
+        'cost': <String, Object?>{'input': 5, 'output': 25},
+      },
+    },
+  },
+};
+
+const Map<String, Object?> _openRouterPayload = <String, Object?>{
+  'openrouter': <String, Object?>{
+    'id': 'openrouter',
+    'name': 'OpenRouter',
+    'npm': '@openrouter/ai-sdk-provider',
+    'api': 'https://openrouter.ai/api/v1',
+    'doc': 'https://openrouter.ai/docs',
+    'models': <String, Object?>{
+      'anthropic/claude-opus-4-5': <String, Object?>{
+        'id': 'anthropic/claude-opus-4-5',
+        'name': 'Claude Opus 4.5',
+        'cost': <String, Object?>{'input': 5, 'output': 25},
+      },
+    },
+  },
+};
 
 /// Builds a [PricingViewModel] primed with a tiny `api.json`-shaped catalog:
 /// Anthropic serves `claude-opus-4-5`, OpenAI serves `gpt-5.5` AND a duplicate

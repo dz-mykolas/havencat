@@ -55,11 +55,19 @@ class _ProviderPicker extends StatelessWidget {
       onSelected: vm.selectProvider,
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
         for (final ProviderAccount a in accounts)
+          // Accounts with no enabled models are rendered disabled (greyed,
+          // non-selectable). Because `PopupMenuButton.onSelected` is set at
+          // the menu level (not per item), we keep `value` on the item for
+          // identification but rely on `enabled: false` to both grey it and
+          // block selection — the framework simply doesn't fire `onSelected`
+          // for disabled items in a PopupMenu.
           PopupMenuItem<String>(
             value: a.id,
+            enabled: a.enabledModels.isNotEmpty,
             child: _MenuRow(
               label: a.displayName,
               selected: a.id == vm.activeAccountId,
+              locked: a.enabledModels.isEmpty,
             ),
           ),
       ],
@@ -214,15 +222,20 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// A row inside a popup menu, with a trailing check on the selected entry.
+/// A row inside a popup menu, with a trailing check on the selected entry and
+/// a trailing lock icon when the item is disabled (no models enabled on that
+/// provider).
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.label, required this.selected});
+  const _MenuRow({required this.label, required this.selected, this.locked = false});
 
   final String label;
   final bool selected;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
+    final Color fg =
+        locked ? AppTheme.textSecondary : AppTheme.textPrimary;
     return Row(
       children: <Widget>[
         Expanded(
@@ -231,13 +244,18 @@ class _MenuRow extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: AppTheme.textPrimary,
+              color: fg,
               fontSize: 14,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
         ),
-        if (selected)
+        if (locked)
+          const Tooltip(
+            message: 'No models enabled for this provider',
+            child: Icon(Icons.lock_outline, size: 14, color: AppTheme.textSecondary),
+          )
+        else if (selected)
           const Icon(Icons.check, size: 16, color: AppTheme.brandBlue),
       ],
     );

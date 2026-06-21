@@ -48,18 +48,45 @@ class SettingsViewModel extends ChangeNotifier {
   /// All addable providers, subscription section first (matches the UI layout).
   List<ProviderDefinition> get catalog => ProviderCatalog.all;
 
+  /// API-key definitions keyed by their [ProviderDefinition.modelsDevId],
+  /// for quick lookup from the Discover panel's Quick-Add flow. Definitions
+  /// with a null `modelsDevId` (e.g. `openai_compatible`) are absent — the
+  /// resolver falls back to them separately.
+  Map<String, ProviderDefinition> get apiKeyCatalogByModelsDevId {
+    final Map<String, ProviderDefinition> out = <String, ProviderDefinition>{};
+    for (final ProviderDefinition d in ProviderCatalog.apiKey) {
+      if (d.modelsDevId != null) out[d.modelsDevId!] = d;
+    }
+    return out;
+  }
+
   Future<ProviderAccount> addApiKeyAccount({
     required String definitionId,
     required String displayName,
     required String apiKey,
     Map<String, Object?>? config,
+    List<String>? enabledModels,
   }) {
+    final Map<String, Object?>? merged = enabledModels == null
+        ? config
+        : <String, Object?>{
+            ...?config,
+            'enabledModels': <String>[...enabledModels],
+            if (enabledModels.isNotEmpty) 'model': enabledModels.first,
+          };
     return _providers.addApiKeyAccount(
       definitionId: definitionId,
       displayName: displayName,
       apiKey: apiKey,
-      config: config,
+      config: merged,
     );
+  }
+
+  /// Updates the set of enabled model ids for an existing account — backs the
+  /// Quick-Add "edit models" flow and the chat picker grey-out toggle. An
+  /// empty list disables the account in the chat picker.
+  Future<void> setAllowedModels(String accountId, List<String> modelIds) {
+    return _providers.setAllowedModels(accountId, modelIds);
   }
 
   /// Starts the ChatGPT device-code OAuth flow. Returns the device code

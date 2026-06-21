@@ -6,7 +6,7 @@ import '../core/widgets/fade_slide_in.dart';
 import '../../data/services/storage/app_settings.dart';
 import '../../domain/models/provider_account.dart';
 import '../../providers.dart';
-import '../pricing/pricing_screen.dart';
+import '../pricing/discover_panel.dart';
 import 'settings_viewmodel.dart';
 import 'widgets/account_tile.dart';
 import 'widgets/provider_picker.dart' show showProviderPicker;
@@ -70,7 +70,7 @@ class SettingsScreen extends ConsumerWidget {
                       delay: const Duration(milliseconds: 90),
                       child: _Section(
                         label: 'Discover',
-                        child: const _PricingEntry(),
+                        child: const _DiscoverCard(),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -223,74 +223,22 @@ class _AccountsCard extends StatelessWidget {
   }
 }
 
-/// Tappable entry that opens the models.dev pricing browser.
-class _PricingEntry extends StatelessWidget {
-  const _PricingEntry();
+/// Bounded-height card hosting the two-tab [DiscoverPanel]. The panel renders
+/// its own scrolling content (groups grid + drill-in model list), so we clamp
+/// the height — taller on wide screens so the two-up grids breathe, shorter on
+/// phones so it doesn't dominate the settings scroll.
+class _DiscoverCard extends StatelessWidget {
+  const _DiscoverCard();
 
   @override
   Widget build(BuildContext context) {
+    final double width = MediaQuery.sizeOf(context).width;
+    final double height = width >= AppTheme.wideBreakpoint ? 560 : 460;
     return _Card(
-      padding: EdgeInsets.zero,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const PricingScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    gradient: AppTheme.brandGradient,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.payments_outlined,
-                    color: Colors.white,
-                    size: 21,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'Model pricing',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Live cost & capabilities for every model · models.dev',
-                        style: TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 12.5,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.chevron_right,
-                  color: AppTheme.textSecondary,
-                  size: 20,
-                ),
-              ],
-            ),
-          ),
-        ),
+      padding: const EdgeInsets.all(8),
+      child: SizedBox(
+        height: height,
+        child: const DiscoverPanel(),
       ),
     );
   }
