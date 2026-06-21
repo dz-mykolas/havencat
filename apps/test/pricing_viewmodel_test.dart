@@ -152,21 +152,18 @@ void main() {
     },
   );
 
-  test(
-    'fuzzy search does not surface unrelated models on near-miss version '
-    'queries (gpt 5.4 ≠ GLM-5.2 / gpt-5.5 Instant)',
-    () async {
-      final PricingViewModel vm = await _vm();
-      vm.setScope(PricingScope.models);
+  test('fuzzy search does not surface unrelated models on near-miss version '
+      'queries (gpt 5.4 ≠ GLM-5.2 / gpt-5.5 Instant)', () async {
+    final PricingViewModel vm = await _vm();
+    vm.setScope(PricingScope.models);
 
-      // "gpt 5.4" must not match `gpt-5.5 Instant` (only the "gpt" token
-      // matches, and matchAllTokens requires both) nor `GLM-5.2` (no "gpt"
-      // token at all). With the small test payload there is no `gpt-5.4`, so
-      // the result set should be empty.
-      vm.setQuery('gpt 5.4');
-      expect(vm.results, isEmpty);
-    },
-  );
+    // "gpt 5.4" must not match `gpt-5.5 Instant` (only the "gpt" token
+    // matches, and matchAllTokens requires both) nor `GLM-5.2` (no "gpt"
+    // token at all). With the small test payload there is no `gpt-5.4`, so
+    // the result set should be empty.
+    vm.setQuery('gpt 5.4');
+    expect(vm.results, isEmpty);
+  });
 
   test('overview grid filters groups by the scope query', () async {
     final PricingViewModel vm = await _vm();
