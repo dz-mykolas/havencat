@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
-import '../core/widgets/fade_slide_in.dart';
 import '../../domain/models/model_pricing.dart';
 import '../../domain/models/provider_definition.dart';
 import '../settings/settings_viewmodel.dart';
@@ -96,18 +95,29 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
             body: AnimatedSwitcher(
               duration: const Duration(milliseconds: 240),
               switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
+              switchOutCurve: Curves.linear,
+              // Only render the incoming child; the old tab's content is
+              // dropped instantly so you never see two grids stacked.
+              layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+                return currentChild ?? const SizedBox.shrink();
+              },
+              // Only animate the incoming child; the outgoing tab content just
+              // disappears — fading it out only delays the new tab's reveal.
               transitionBuilder: (Widget child, Animation<double> a) {
+                if (a.status == AnimationStatus.reverse) return child;
                 return FadeTransition(
                   opacity: a,
                   child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.04),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: a,
-                      curve: Curves.easeOutCubic,
-                    )),
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(0, 0.04),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: a,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
                     child: child,
                   ),
                 );
@@ -120,17 +130,17 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
                       key: const ValueKey<String>('models'),
                     )
                   : vm.view == PricingView.overview
-                      ? _Overview(
-                          vm: vm,
-                          onOpenGroup: vm.openProvider,
-                          key: const ValueKey<String>('overview'),
-                        )
-                      : _ModelList(
-                          vm: vm,
-                          onOpenModel: (PricedModel m) =>
-                              showModelDetailSheet(context, m),
-                          key: ValueKey<String>('list:${vm.scope}'),
-                        ),
+                  ? _Overview(
+                      vm: vm,
+                      onOpenGroup: vm.openProvider,
+                      key: ValueKey<String>('overview:${vm.scope}'),
+                    )
+                  : _ModelList(
+                      vm: vm,
+                      onOpenModel: (PricedModel m) =>
+                          showModelDetailSheet(context, m),
+                      key: ValueKey<String>('list:${vm.scope}'),
+                    ),
             ),
           );
         },
@@ -156,7 +166,11 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
 
 /// Header tabs + always-visible search + body.
 class _PanelShell extends StatelessWidget {
-  const _PanelShell({required this.tabs, required this.search, required this.body});
+  const _PanelShell({
+    required this.tabs,
+    required this.search,
+    required this.body,
+  });
 
   final Widget tabs;
   final Widget search;
@@ -166,10 +180,7 @@ class _PanelShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: tabs,
-        ),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tabs),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: search,
@@ -289,11 +300,7 @@ class _TabLabel extends StatelessWidget {
 }
 
 class _Overview extends StatelessWidget {
-  const _Overview({
-    required this.vm,
-    required this.onOpenGroup,
-    super.key,
-  });
+  const _Overview({required this.vm, required this.onOpenGroup, super.key});
 
   final PricingViewModel vm;
   final ValueChanged<String> onOpenGroup;
@@ -310,8 +317,7 @@ class _Overview extends StatelessWidget {
               Expanded(
                 child: Text(
                   '${groups.length} '
-                  '${vm.scope == PricingScope.providers ? "providers" : "labs"} '
-                  '· ${vm.totalCount} models'
+                  '${vm.scope == PricingScope.providers ? "providers" : "labs"}'
                   '${vm.fetchedAt != null ? ' · updated ${formatRelative(vm.fetchedAt!)}' : ''}',
                   style: const TextStyle(
                     color: AppTheme.textSecondary,
@@ -324,18 +330,16 @@ class _Overview extends StatelessWidget {
             ],
           ),
         ),
-        Expanded(child: ProviderGrid(providers: groups, onTap: onOpenGroup)),
+        Expanded(
+          child: ProviderGrid(providers: groups, onTap: onOpenGroup),
+        ),
       ],
     );
   }
 }
 
 class _ModelList extends StatelessWidget {
-  const _ModelList({
-    required this.vm,
-    required this.onOpenModel,
-    super.key,
-  });
+  const _ModelList({required this.vm, required this.onOpenModel, super.key});
 
   final PricingViewModel vm;
   final ValueChanged<PricedModel> onOpenModel;
@@ -349,10 +353,10 @@ class _ModelList extends StatelessWidget {
     // e.g. labs scope or any group without a known API adapter).
     final ProviderDefinition? quickAddDef =
         (vm.scope == PricingScope.providers &&
-                vm.view == PricingView.provider &&
-                selectedGroup != null)
-            ? resolveDefinitionFor(selectedGroup)
-            : null;
+            vm.view == PricingView.provider &&
+            selectedGroup != null)
+        ? resolveDefinitionFor(selectedGroup)
+        : null;
     return Column(
       children: <Widget>[
         _FilterChipsRow(vm: vm),
@@ -374,8 +378,10 @@ class _ModelList extends StatelessWidget {
                   label: selectedGroup.name,
                   onTap: () {
                     final SettingsViewModel settings =
-                        ProviderScope.containerOf(context, listen: false)
-                            .read(settingsViewModelProvider);
+                        ProviderScope.containerOf(
+                          context,
+                          listen: false,
+                        ).read(settingsViewModelProvider);
                     showQuickAdd(context, settings, selectedGroup, quickAddDef);
                   },
                 ),
@@ -529,28 +535,19 @@ class _ResultsGrid extends StatelessWidget {
                 final PricedModel model = results[index];
                 cells.add(
                   Expanded(
-                    child: ModelCard(
-                      model: model,
-                      onTap: () => onTap(model),
-                    ),
+                    child: ModelCard(model: model, onTap: () => onTap(model)),
                   ),
                 );
               } else {
                 cells.add(const Expanded(child: SizedBox.shrink()));
               }
             }
-            final Duration delay = row < 8
-                ? Duration(milliseconds: row * 45)
-                : Duration.zero;
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: FadeSlideIn(
-                delay: delay,
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: cells,
-                  ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: cells,
                 ),
               ),
             );

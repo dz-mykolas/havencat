@@ -399,8 +399,18 @@ class PricingViewModel extends ChangeNotifier {
   /// user typed there previously reappears). For the providers/labs scopes we
   /// return to the overview grid; the [models] scope is always a flat list so
   /// [view] is irrelevant there.
+  ///
+  /// Tapping the already-active tab is treated as a "pop to overview" — it
+  /// clears any drill-in (selected group / provider view) so the user lands
+  /// back on that tab's top-level grid.
   void setScope(PricingScope value) {
-    if (value == _scope) return;
+    if (value == _scope) {
+      if (_view == PricingView.overview && _selectedGroupId == null) return;
+      _view = PricingView.overview;
+      _selectedGroupId = null;
+      notifyListeners();
+      return;
+    }
     _scope = value;
     _view = PricingView.overview;
     _selectedGroupId = null;

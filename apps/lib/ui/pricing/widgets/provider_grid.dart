@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/fade_slide_in.dart';
 import '../../../domain/models/model_pricing.dart';
 
 /// The step-1 grid of providers. Each card shows the provider name, model count,
@@ -33,29 +32,19 @@ class ProviderGrid extends StatelessWidget {
                 final ProviderModels p = providers[index];
                 cells.add(
                   Expanded(
-                    child: _ProviderCard(
-                      provider: p,
-                      onTap: () => onTap(p.id),
-                    ),
+                    child: _ProviderCard(provider: p, onTap: () => onTap(p.id)),
                   ),
                 );
               } else {
                 cells.add(const Expanded(child: SizedBox.shrink()));
               }
             }
-            // Stagger only the first screenful so far-down cards are instant.
-            final Duration delay = row < 6
-                ? Duration(milliseconds: row * 50)
-                : Duration.zero;
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: FadeSlideIn(
-                delay: delay,
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: cells,
-                  ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: cells,
                 ),
               ),
             );
