@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,7 +22,7 @@ void main() {
   testWidgets('Accounts tab renders the seeded mock account', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ProviderScope(child: HavenChatApp()));
+    await tester.pumpWidget(const ProviderScope(child: App()));
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
@@ -68,38 +67,43 @@ void main() {
       // Single-select `model` field kept in sync with the first enabled entry.
       expect(account.config['model'], 'openai/gpt-5.5');
       // Stringify-then-parse round-trips the new config shape.
-      expect(
-        ProviderAccount.fromJson(account.toJson()).enabledModels,
-        <String>['openai/gpt-5.5', 'anthropic/claude-opus-4-5'],
-      );
+      expect(ProviderAccount.fromJson(account.toJson()).enabledModels, <String>[
+        'openai/gpt-5.5',
+        'anthropic/claude-opus-4-5',
+      ]);
     });
 
-    test('accepts an empty enabledModels list and creates the account', () async {
-      // The Quick-Add flow defaults to no checkboxes selected — the dialog
-      // should still save. The chat picker greys the account out until the
-      // user later enables at least one model.
-      final account = await vm.addApiKeyAccount(
-        definitionId: 'openai_compatible',
-        displayName: 'Empty',
-        apiKey: 'sk-empty',
-        enabledModels: <String>[],
-      );
-      expect(account.enabledModels, isEmpty);
-      expect(vm.accounts.any((a) => a.id == account.id), isTrue);
-    });
+    test(
+      'accepts an empty enabledModels list and creates the account',
+      () async {
+        // The Quick-Add flow defaults to no checkboxes selected — the dialog
+        // should still save. The chat picker greys the account out until the
+        // user later enables at least one model.
+        final account = await vm.addApiKeyAccount(
+          definitionId: 'openai_compatible',
+          displayName: 'Empty',
+          apiKey: 'sk-empty',
+          enabledModels: <String>[],
+        );
+        expect(account.enabledModels, isEmpty);
+        expect(vm.accounts.any((a) => a.id == account.id), isTrue);
+      },
+    );
 
-    test('enabledModels null leaves the legacy `model`-only config intact',
-        () async {
-      // Existing callers that don't pass enabledModels must keep working.
-      final account = await vm.addApiKeyAccount(
-        definitionId: 'anthropic',
-        displayName: 'Anthropic',
-        apiKey: 'sk-ant',
-      );
-      expect(account.config['enabledModels'], isNull);
-      // Still model-enabled via the legacy single-model field: the accessor
-      // falls back to `[model]` when `enabledModels` is absent.
-      expect(account.enabledModels, <String>['claude-3-5-sonnet-latest']);
-    });
+    test(
+      'enabledModels null leaves the legacy `model`-only config intact',
+      () async {
+        // Existing callers that don't pass enabledModels must keep working.
+        final account = await vm.addApiKeyAccount(
+          definitionId: 'anthropic',
+          displayName: 'Anthropic',
+          apiKey: 'sk-ant',
+        );
+        expect(account.config['enabledModels'], isNull);
+        // Still model-enabled via the legacy single-model field: the accessor
+        // falls back to `[model]` when `enabledModels` is absent.
+        expect(account.enabledModels, <String>['claude-3-5-sonnet-latest']);
+      },
+    );
   });
 }

@@ -50,10 +50,7 @@ Future<void> main() async {
   unawaited(_warmAccountModels(container));
 
   runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const HavenChatApp(),
-    ),
+    UncontrolledProviderScope(container: container, child: const App()),
   );
 }
 

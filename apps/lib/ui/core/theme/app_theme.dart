@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Centralized color tokens, gradients, and [ThemeData] for HavenChat.
+/// Centralized color tokens, gradients, and [ThemeData] for the app.
 ///
 /// The visual language is a dark, minimalist surface accented by a single
 /// Gemini-style brand gradient that is reused across the app.

@@ -1,4 +1,4 @@
-# HavenChat
+# HavenCat
 
 ## Provider routing (Discover → Add API key)
 

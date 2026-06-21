@@ -1,5 +1,5 @@
 {
-  "name": "havenchat",
+  "name": "havencat",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."

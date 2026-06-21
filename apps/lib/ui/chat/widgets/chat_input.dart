@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../branding.dart';
 import '../../core/theme/app_theme.dart';
 
 /// The bottom input bar: a multiline text field inside a pill whose border
@@ -175,7 +176,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
                         decoration: const InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
-                          hintText: 'Message HavenChats',
+                          hintText: 'Message $appName',
                           hintStyle: TextStyle(color: AppTheme.textSecondary),
                           contentPadding: EdgeInsets.symmetric(vertical: 12),
                         ),

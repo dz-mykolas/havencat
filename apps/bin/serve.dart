@@ -1,11 +1,12 @@
 import 'dart:io';
 
+import 'package:havencat/branding.dart';
 import 'package:havencat/server/llm_proxy.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_static/shelf_static.dart';
 
-/// HavenChat self-host server: one lightweight Dart process that serves the
+/// Self-host server: one lightweight Dart process that serves the
 /// built Flutter web app **and** a same-origin LLM reverse proxy. This is the
 /// whole "backend" for the web build — it ships inside the app, runs on the
 /// user's own machine, and exists only so the browser can reach providers that
@@ -52,10 +53,9 @@ Future<void> main(List<String> args) async {
     // Only fall through to static files on 404 — NOT 405 (Cascade's other
     // default), so a genuine upstream 405 from the proxy isn't masked as a
     // static 404.
-    handler = Cascade(statusCodes: const <int>{404})
-        .add(proxy)
-        .add(static)
-        .handler;
+    handler = Cascade(
+      statusCodes: const <int>{404},
+    ).add(proxy).add(static).handler;
   } else {
     stderr.writeln(
       'WEB_ROOT "$webRoot" not found — serving the proxy only. '
@@ -78,7 +78,7 @@ Future<void> main(List<String> args) async {
             : allowedHosts.join(', '));
   stdout
     ..writeln('────────────────────────────────────────────────────────')
-    ..writeln('HavenChat server ready')
+    ..writeln('$appName server ready')
     ..writeln('  url        http://$host:${server.port}')
     ..writeln('  llm proxy  http://$host:${server.port}/proxy')
     ..writeln('  web root   $webRoot')

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../branding.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/animated_background.dart';
 import '../core/widgets/gradient_text.dart';
@@ -87,7 +88,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           onTap: _goHome,
           behavior: HitTestBehavior.opaque,
           child: GradientText(
-            'HavenChat',
+            appName,
             style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700),
           ),
         ),

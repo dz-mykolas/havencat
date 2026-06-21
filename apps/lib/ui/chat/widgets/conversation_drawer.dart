@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../branding.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/gradient_text.dart';
 import '../chat_viewmodel.dart';
@@ -20,7 +21,7 @@ class ConversationDrawer extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: GradientText(
-                'HavenChat',
+                appName,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
