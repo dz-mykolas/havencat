@@ -30,7 +30,9 @@ class ModelSelectorBar extends ConsumerWidget {
           children: <Widget>[
             _ProviderPicker(vm: vm, compact: compact),
             const SizedBox(width: 8),
-            Flexible(child: _ModelPicker(vm: vm, compact: compact)),
+            Flexible(
+              child: _ModelPicker(vm: vm, compact: compact),
+            ),
           ],
         );
       },
@@ -111,7 +113,16 @@ class _ModelPicker extends StatelessWidget {
       );
     }
 
-    final List<LlmModel> models = vm.models;
+    final List<LlmModel>? models = vm.models;
+    // null = not yet fetched (cache empty, no background fetch has landed).
+    if (models == null) {
+      return _Chip(
+        icon: Icons.bubble_chart_outlined,
+        label: compact ? 'Loading…' : 'Loading models…',
+        showSpinner: true,
+        dense: compact,
+      );
+    }
     if (models.isEmpty) {
       return _Chip(
         icon: Icons.bubble_chart_outlined,
@@ -226,7 +237,11 @@ class _Chip extends StatelessWidget {
 /// a trailing lock icon when the item is disabled (no models enabled on that
 /// provider).
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.label, required this.selected, this.locked = false});
+  const _MenuRow({
+    required this.label,
+    required this.selected,
+    this.locked = false,
+  });
 
   final String label;
   final bool selected;
@@ -234,8 +249,7 @@ class _MenuRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color fg =
-        locked ? AppTheme.textSecondary : AppTheme.textPrimary;
+    final Color fg = locked ? AppTheme.textSecondary : AppTheme.textPrimary;
     return Row(
       children: <Widget>[
         Expanded(
@@ -253,7 +267,11 @@ class _MenuRow extends StatelessWidget {
         if (locked)
           const Tooltip(
             message: 'No models enabled for this provider',
-            child: Icon(Icons.lock_outline, size: 14, color: AppTheme.textSecondary),
+            child: Icon(
+              Icons.lock_outline,
+              size: 14,
+              color: AppTheme.textSecondary,
+            ),
           )
         else if (selected)
           const Icon(Icons.check, size: 16, color: AppTheme.brandBlue),

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/repositories/conversation_repository.dart';
 import 'data/repositories/provider_account_repository.dart';
@@ -6,7 +7,9 @@ import 'data/services/auth/chatgpt_oauth_flow.dart';
 import 'data/services/auth/chatgpt_token_service.dart';
 import 'data/services/auth/credential_resolver.dart';
 import 'data/services/auth/secret_store.dart';
+import 'data/services/llm/account_models_service.dart';
 import 'data/services/llm/adapter_registry.dart';
+import 'data/services/llm/model_service.dart';
 import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
@@ -34,6 +37,13 @@ final accountStoreProvider = Provider<AccountStore>((ref) {
 /// `SharedPreferences`-backed instance.
 final appSettingsProvider = ChangeNotifierProvider<AppSettings>((ref) {
   return AppSettings();
+});
+
+/// Shared `SharedPreferences` instance. Default is null (tests / first run);
+/// `main()` overrides this with the real platform-backed instance so services
+/// like [AccountModelsService] can persist their caches across restarts.
+final sharedPreferencesProvider = Provider<SharedPreferences?>((ref) {
+  return null;
 });
 
 /// Single shared [AdapterRegistry]. Adapters are stateless so one instance
@@ -84,6 +94,33 @@ final providerAccountRepositoryProvider =
         secretStore: ref.watch(secretStoreProvider),
       );
     });
+
+/// Caches the models each configured account exposes, fetched from the
+/// provider's own "list models" endpoint. Pre-warmed on startup (like
+/// [modelsDevServiceProvider]) so the chat header's model picker is
+/// populated before the user opens a conversation.
+///
+/// Default has no persistence (tests). `main()` overrides this with a
+/// `SharedPreferences`-backed instance.
+final accountModelsServiceProvider =
+    ChangeNotifierProvider<AccountModelsService>((ref) {
+      return AccountModelsService(
+        prefs: ref.watch(sharedPreferencesProvider),
+        providers: ref.watch(providerAccountRepositoryProvider),
+        adapters: ref.watch(adapterRegistryProvider),
+        credentials: ref.watch(credentialResolverProvider),
+      );
+    });
+
+/// Fetches models for a single account on demand. Used directly by tests and
+/// by [AccountModelsService] internally; the chat UI goes through
+/// [accountModelsServiceProvider] (the cached, pre-warmed path) instead.
+final modelServiceProvider = Provider<ModelService>((ref) {
+  return ModelService(
+    adapters: ref.watch(adapterRegistryProvider),
+    credentials: ref.watch(credentialResolverProvider),
+  );
+});
 
 /// Source of truth for conversations + the streaming reply flow.
 final conversationRepositoryProvider =

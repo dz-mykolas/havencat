@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/provider_account_repository.dart';
-import '../../data/services/llm/model_service.dart';
+import '../../data/services/llm/account_models_service.dart';
 import '../../data/services/storage/app_settings.dart';
 import '../../domain/models/llm_model.dart';
 import '../../domain/models/provider_account.dart';
@@ -11,34 +13,32 @@ import '../../providers.dart';
 /// UI state for the chat header's provider + model pickers.
 ///
 /// The provider list comes from [ProviderAccountRepository] (the configured
-/// accounts). The model list is fetched dynamically from the active provider
-/// every time it changes — nothing is hardcoded. When the fetch lands and the
-/// account has no valid model selected yet, the first available model is picked
-/// and persisted, so the default always reflects what the provider actually
-/// offers.
+/// accounts). The model list is read from [AccountModelsService]'s cache,
+/// which is pre-warmed on startup (and refreshed when an account is added) —
+/// the same pattern the Discover panel uses for the models.dev catalog. The
+/// chat header never blocks first-frame on a network fetch; it shows cached
+/// models immediately and updates when a background refresh lands.
 class ModelSelectorViewModel extends ChangeNotifier {
-  ModelSelectorViewModel(this._providers, this._modelService, this._settings) {
+  ModelSelectorViewModel(this._providers, this._accountModels, this._settings) {
     _providers.addListener(_onProvidersChanged);
+    _accountModels.addListener(_onModelsChanged);
     _settings.addListener(_onSettingsChanged);
-    _load();
+    // Defer the initial default-model pick to a microtask. Calling
+    // _ensureDefaultSelected directly would call _providers.setModel(), which
+    // notifies the repository, which notifies AccountModelsService — all
+    // during this provider's initialization, which Riverpod forbids.
+    scheduleMicrotask(() {
+      if (_disposed) return;
+      final ProviderAccount? account = _providers.activeAccount;
+      if (account != null) _ensureDefaultSelected(account);
+    });
   }
 
   final ProviderAccountRepository _providers;
-  final ModelService _modelService;
+  final AccountModelsService _accountModels;
   final AppSettings _settings;
 
-  /// Everything the provider returned, including models it marks as hidden.
-  List<LlmModel> _allModels = const <LlmModel>[];
-  bool _loading = false;
-  Object? _error;
-
-  /// Which account we last kicked off a fetch for, so we only refetch when the
-  /// active provider actually changes (not on every unrelated notify).
-  String? _loadedForAccountId;
-
-  /// Guards against out-of-order fetch results when the user switches provider
-  /// quickly: only the latest token's result is applied.
-  int _fetchToken = 0;
+  bool _disposed = false;
 
   // --- Provider (account) side -------------------------------------------
 
@@ -53,14 +53,31 @@ class ModelSelectorViewModel extends ChangeNotifier {
 
   // --- Model side ---------------------------------------------------------
 
-  /// Models shown in the picker: all of them when "show hidden models" is on,
-  /// otherwise only the provider-visible ones.
-  List<LlmModel> get models => _settings.showHiddenModels
-      ? _allModels
-      : _allModels.where((LlmModel m) => !m.hidden).toList();
+  /// Models shown in the picker for the active account: all of them when
+  /// "show hidden models" is on, otherwise only the provider-visible ones.
+  /// Read straight from the [AccountModelsService] cache — no per-screen
+  /// fetch. Null while the cache is still loading for this account.
+  List<LlmModel>? get models {
+    final String? id = _providers.activeAccountId;
+    if (id == null) return const <LlmModel>[];
+    final List<LlmModel>? cached = _accountModels.modelsFor(id);
+    if (cached == null) return null;
+    return _settings.showHiddenModels
+        ? cached
+        : cached.where((LlmModel m) => !m.hidden).toList();
+  }
 
-  bool get isLoading => _loading;
-  Object? get error => _error;
+  /// True when a background fetch is running for the active account.
+  bool get isLoading {
+    final String? id = _providers.activeAccountId;
+    return id != null && _accountModels.isLoading(id);
+  }
+
+  /// Last fetch error for the active account, or null.
+  Object? get error {
+    final String? id = _providers.activeAccountId;
+    return id == null ? null : _accountModels.errorFor(id);
+  }
 
   String? get selectedModelId {
     final Object? model = _providers.activeAccount?.config['model'];
@@ -73,16 +90,43 @@ class ModelSelectorViewModel extends ChangeNotifier {
     _providers.setModel(accountId, modelId);
   }
 
-  /// Re-fetches the current provider's models (used by the retry affordance).
-  Future<void> refresh() => _load();
+  /// Re-fetches the active account's models from the provider (used by the
+  /// retry affordance). Delegates to [AccountModelsService.refresh].
+  Future<void> refresh() async {
+    final String? id = _providers.activeAccountId;
+    if (id == null) return;
+    try {
+      await _accountModels.refresh(id);
+    } catch (_) {
+      // Error is already captured in the service; the view reads it via
+      // [error]. Swallow here so the retry button doesn't throw uncaught.
+    }
+    _ensureDefaultSelected();
+  }
 
   void _onProvidersChanged() {
-    if (_providers.activeAccountId != _loadedForAccountId) {
-      _load();
-    } else {
-      // Account list or selected model changed — just rebuild the view.
-      notifyListeners();
+    // Active provider changed — ensure a fetch is in flight (the service
+    // coalesces duplicates) and pick a default model from whatever's cached.
+    // The fetch is deferred to a microtask so we don't trigger
+    // notifyListeners on AccountModelsService during a provider build (which
+    // Riverpod forbids).
+    final String? id = _providers.activeAccountId;
+    if (id != null && _accountModels.modelsFor(id) == null) {
+      scheduleMicrotask(() {
+        if (!_disposed) _accountModels.refresh(id);
+      });
     }
+    notifyListeners();
+    final ProviderAccount? account = _providers.activeAccount;
+    if (account != null) _ensureDefaultSelected(account);
+  }
+
+  void _onModelsChanged() {
+    // Cache updated (background fetch landed) — rebuild and ensure a default
+    // model is picked from the now-available list.
+    notifyListeners();
+    final ProviderAccount? account = _providers.activeAccount;
+    if (account != null) _ensureDefaultSelected(account);
   }
 
   void _onSettingsChanged() {
@@ -92,43 +136,13 @@ class ModelSelectorViewModel extends ChangeNotifier {
     if (account != null) _ensureDefaultSelected(account);
   }
 
-  Future<void> _load() async {
-    final ProviderAccount? account = _providers.activeAccount;
-    _loadedForAccountId = _providers.activeAccountId;
-    if (account == null) {
-      _allModels = const <LlmModel>[];
-      _loading = false;
-      _error = null;
-      notifyListeners();
-      return;
-    }
-
-    final int token = ++_fetchToken;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      final List<LlmModel> models = await _modelService.list(account);
-      if (token != _fetchToken) return;
-      _allModels = models;
-      _loading = false;
-      notifyListeners();
-      _ensureDefaultSelected(account);
-    } catch (e) {
-      if (token != _fetchToken) return;
-      _allModels = const <LlmModel>[];
-      _loading = false;
-      _error = e;
-      notifyListeners();
-    }
-  }
-
   /// Picks a default from the currently-visible models when the account has no
   /// valid selection. Default = first visible model (never hardcoded).
-  void _ensureDefaultSelected(ProviderAccount account) {
-    final List<LlmModel> visible = models;
-    if (visible.isEmpty) return;
+  void _ensureDefaultSelected([ProviderAccount? account]) {
+    account ??= _providers.activeAccount;
+    if (account == null) return;
+    final List<LlmModel>? visible = models;
+    if (visible == null || visible.isEmpty) return;
     final Object? current = account.config['model'];
     final bool hasValid =
         current is String &&
@@ -141,24 +155,19 @@ class ModelSelectorViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _providers.removeListener(_onProvidersChanged);
+    _accountModels.removeListener(_onModelsChanged);
     _settings.removeListener(_onSettingsChanged);
     super.dispose();
   }
 }
 
-final modelServiceProvider = Provider<ModelService>((ref) {
-  return ModelService(
-    adapters: ref.watch(adapterRegistryProvider),
-    credentials: ref.watch(credentialResolverProvider),
-  );
-});
-
 final modelSelectorViewModelProvider =
     ChangeNotifierProvider<ModelSelectorViewModel>((ref) {
       return ModelSelectorViewModel(
         ref.watch(providerAccountRepositoryProvider),
-        ref.watch(modelServiceProvider),
+        ref.watch(accountModelsServiceProvider),
         ref.watch(appSettingsProvider),
       );
     });

@@ -48,6 +48,12 @@ class SettingsViewModel extends ChangeNotifier {
   /// All addable providers, subscription section first (matches the UI layout).
   List<ProviderDefinition> get catalog => ProviderCatalog.all;
 
+  /// Whether the user already has an account for [definitionId]. Backs the
+  /// "grey out duplicate subscriptions" UX in the provider picker — a
+  /// subscription provider (ChatGPT, Poe) can only be connected once.
+  bool hasAccountForDefinition(String definitionId) =>
+      _providers.hasAccountForDefinition(definitionId);
+
   /// API-key definitions keyed by their [ProviderDefinition.modelsDevId],
   /// for quick lookup from the Discover panel's Quick-Add flow. Definitions
   /// with a null `modelsDevId` (e.g. `openai_compatible`) are absent — the

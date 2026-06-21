@@ -198,9 +198,10 @@ void main() {
       expect(group.npm, '@ai-sdk/anthropic');
       expect(group.apiUrl, 'https://api.anthropic.com');
 
-      final def = resolveDefinitionFor(group);
-      expect(def, isNotNull);
-      expect(def!.id, 'anthropic');
+      final ResolveResult result = resolveDefinitionFor(group);
+      expect(result, isA<Supported>());
+      final def = (result as Supported).definition;
+      expect(def.id, 'anthropic');
       // Base URL overridden from models.dev `api` field, not the template.
       expect(def.configTemplate['baseUrl'], 'https://api.anthropic.com');
       expect(def.apiKeyUrl, 'https://console.anthropic.com/settings/keys');
@@ -217,9 +218,10 @@ void main() {
         expect(group.npm, '@openrouter/ai-sdk-provider');
         expect(group.apiUrl, 'https://openrouter.ai/api/v1');
 
-        final def = resolveDefinitionFor(group);
-        expect(def, isNotNull);
-        expect(def!.id, 'openai_compatible');
+        final ResolveResult result = resolveDefinitionFor(group);
+        expect(result, isA<Supported>());
+        final def = (result as Supported).definition;
+        expect(def.id, 'openai_compatible');
         expect(def.configTemplate['baseUrl'], 'https://openrouter.ai/api/v1');
         // apiKeyUrl derived from the doc URL's origin.
         expect(def.apiKeyUrl, 'https://openrouter.ai');
@@ -239,7 +241,7 @@ void main() {
       final ProviderModels lab = catalog.labs.first;
       expect(lab.npm, isNull);
 
-      expect(resolveDefinitionFor(lab), isNull);
+      expect(resolveDefinitionFor(lab), isA<Unsupported>());
     });
   });
 }

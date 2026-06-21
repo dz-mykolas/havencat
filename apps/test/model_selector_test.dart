@@ -10,8 +10,8 @@ import 'package:havencat/data/services/auth/chatgpt_oauth_flow.dart';
 import 'package:havencat/data/services/auth/chatgpt_token_service.dart';
 import 'package:havencat/data/services/auth/credential_resolver.dart';
 import 'package:havencat/data/services/auth/secret_store.dart';
+import 'package:havencat/data/services/llm/account_models_service.dart';
 import 'package:havencat/data/services/llm/adapter_registry.dart';
-import 'package:havencat/data/services/llm/model_service.dart';
 import 'package:havencat/data/services/llm/openai_compatible/openai_compatible_adapter.dart';
 import 'package:havencat/data/services/storage/account_store.dart';
 import 'package:havencat/data/services/storage/app_settings.dart';
@@ -60,13 +60,20 @@ void main() {
   });
 
   group('ModelSelectorViewModel', () {
-    ModelSelectorViewModel buildVm({AppSettings? settings}) {
+    /// Builds a [ModelSelectorViewModel] backed by an [AccountModelsService]
+    /// that uses a [_FixedModelService] under the hood — so tests get
+    /// deterministic model lists without real network calls.
+    ModelSelectorViewModel buildVm({
+      AppSettings? settings,
+      List<LlmModel> models = const <LlmModel>[LlmModel(id: 'mock-model')],
+    }) {
       final SecretStore secrets = SecretStore();
       final ProviderAccountRepository providers = ProviderAccountRepository(
         accountStore: AccountStore(),
         secretStore: secrets,
       );
-      final ModelService service = ModelService(
+      final AccountModelsService accountModels = AccountModelsService(
+        providers: providers,
         adapters: AdapterRegistry(),
         credentials: CredentialResolver(
           secretStore: secrets,
@@ -79,143 +86,163 @@ void main() {
           ),
         ),
       );
-      return ModelSelectorViewModel(providers, service, settings ?? AppSettings());
+      // Seed the cache for the mock seed account so the view model sees models
+      // immediately without a real adapter call.
+      final List<ProviderAccount> accounts = providers.accounts;
+      for (final ProviderAccount a in accounts) {
+        accountModels.seedForTest(a.id, models);
+      }
+      return ModelSelectorViewModel(
+        providers,
+        accountModels,
+        settings ?? AppSettings(),
+      );
     }
 
-    test('fetches models for the active (mock) provider', () async {
+    test('reads cached models for the active (mock) provider', () async {
       final ModelSelectorViewModel vm = buildVm();
-      await vm.refresh();
+      await Future<void>.delayed(Duration.zero); // let the microtask run
       expect(vm.isLoading, isFalse);
       expect(vm.error, isNull);
       expect(vm.models, isNotEmpty);
     });
 
-    test('selects a default from the visible models, not a hidden one',
-        () async {
-      final SecretStore secrets = SecretStore();
-      final ProviderAccountRepository providers = ProviderAccountRepository(
-        accountStore: AccountStore(),
-        secretStore: secrets,
-      );
-      final ModelSelectorViewModel vm = ModelSelectorViewModel(
-        providers,
-        _FixedModelService(const <LlmModel>[
-          LlmModel(id: 'hidden-1', hidden: true),
-          LlmModel(id: 'visible-1'),
-        ]),
-        AppSettings(),
-      );
-      await vm.refresh();
-      // Default skips the hidden model and lands on the first visible one.
-      expect(vm.selectedModelId, 'visible-1');
-    });
+    test(
+      'selects a default from the visible models, not a hidden one',
+      () async {
+        final ModelSelectorViewModel vm = buildVm(
+          models: const <LlmModel>[
+            LlmModel(id: 'hidden-1', hidden: true),
+            LlmModel(id: 'visible-1'),
+          ],
+        );
+        await Future<void>.delayed(Duration.zero); // let the microtask run
+        // Default skips the hidden model and lands on the first visible one.
+        expect(vm.selectedModelId, 'visible-1');
+      },
+    );
 
-    test('hides models flagged hidden until the global setting is enabled',
-        () async {
-      final SecretStore secrets = SecretStore();
-      final ProviderAccountRepository providers = ProviderAccountRepository(
-        accountStore: AccountStore(),
-        secretStore: secrets,
-      );
-      final AppSettings settings = AppSettings();
-      final ModelSelectorViewModel vm = ModelSelectorViewModel(
-        providers,
-        _FixedModelService(const <LlmModel>[
-          LlmModel(id: 'visible-1'),
-          LlmModel(id: 'hidden-1', hidden: true),
-        ]),
-        settings,
-      );
-      await vm.refresh();
+    test(
+      'hides models flagged hidden until the global setting is enabled',
+      () async {
+        final AppSettings settings = AppSettings();
+        final ModelSelectorViewModel vm = buildVm(
+          settings: settings,
+          models: const <LlmModel>[
+            LlmModel(id: 'visible-1'),
+            LlmModel(id: 'hidden-1', hidden: true),
+          ],
+        );
 
-      expect(vm.models.map((LlmModel m) => m.id), <String>['visible-1']);
+        expect(vm.models!.map((LlmModel m) => m.id), <String>['visible-1']);
 
-      await settings.setShowHiddenModels(true);
-      expect(vm.models.map((LlmModel m) => m.id), <String>[
-        'visible-1',
-        'hidden-1',
-      ]);
-    });
+        await settings.setShowHiddenModels(true);
+        expect(vm.models!.map((LlmModel m) => m.id), <String>[
+          'visible-1',
+          'hidden-1',
+        ]);
+      },
+    );
   });
 
   group('ModelSelectorBar provider picker grey-out', () {
     testWidgets(
-        'an account with no enabledModels is greyed out and non-selectable',
-        (WidgetTester tester) async {
-      final SecretStore secrets = SecretStore();
-      // Seed two accounts directly: one with an enabled model, one without.
-      // We bypass the repository's addApiKeyAccount to set exact config shapes.
-      final ProviderAccountRepository providers = ProviderAccountRepository(
-        accountStore: AccountStore(),
-        secretStore: secrets,
-      );
-      // Account A: enabledModels present and non-empty -> selectable.
-      await providers.addApiKeyAccount(
-        definitionId: 'openai_compatible',
-        displayName: 'With Models',
-        apiKey: 'sk-a',
-        config: const <String, Object?>{
-          'enabledModels': <String>['gpt-5.5'],
-        },
-      );
-      // Account B: explicitly empty enabledModels -> greyed out.
-      await providers.addApiKeyAccount(
-        definitionId: 'openai_compatible',
-        displayName: 'No Models',
-        apiKey: 'sk-b',
-        config: const <String, Object?>{
-          'enabledModels': <String>[],
-        },
-      );
+      'an account with no enabledModels is greyed out and non-selectable',
+      (WidgetTester tester) async {
+        final SecretStore secrets = SecretStore();
+        // Seed two accounts directly: one with an enabled model, one without.
+        // We bypass the repository's addApiKeyAccount to set exact config shapes.
+        final ProviderAccountRepository providers = ProviderAccountRepository(
+          accountStore: AccountStore(),
+          secretStore: secrets,
+        );
+        // Account A: enabledModels present and non-empty -> selectable.
+        await providers.addApiKeyAccount(
+          definitionId: 'openai_compatible',
+          displayName: 'With Models',
+          apiKey: 'sk-a',
+          config: const <String, Object?>{
+            'enabledModels': <String>['gpt-5.5'],
+          },
+        );
+        // Account B: explicitly empty enabledModels -> greyed out.
+        await providers.addApiKeyAccount(
+          definitionId: 'openai_compatible',
+          displayName: 'No Models',
+          apiKey: 'sk-b',
+          config: const <String, Object?>{'enabledModels': <String>[]},
+        );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: <Override>[
-            providerAccountRepositoryProvider
-                .overrideWith((ref) => providers),
-            modelServiceProvider.overrideWithValue(
-              _FixedModelService(const <LlmModel>[LlmModel(id: 'gpt-5.5')]),
+        final AccountModelsService accountModels = AccountModelsService(
+          providers: providers,
+          adapters: AdapterRegistry(),
+          credentials: CredentialResolver(
+            secretStore: secrets,
+            chatGptTokens: ChatGptTokenService(
+              secretStore: secrets,
+              oauthFlow: ChatGptOAuthFlow(
+                clientId: 'c',
+                issuer: 'https://auth.test',
+              ),
             ),
-          ],
-          child: const MaterialApp(home: Scaffold(body: ModelSelectorBar())),
-        ),
-      );
-      await tester.pumpAndSettle();
+          ),
+        );
+        // Seed the cache so no real network fetch is triggered during the test.
+        for (final ProviderAccount a in providers.accounts) {
+          accountModels.seedForTest(a.id, const <LlmModel>[
+            LlmModel(id: 'gpt-5.5'),
+          ]);
+        }
 
-      // Open the provider picker popup by tapping the provider chip (the
-      // account-tree icon button in the selector bar).
-      await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: <Override>[
+              providerAccountRepositoryProvider.overrideWith(
+                (ref) => providers,
+              ),
+              accountModelsServiceProvider.overrideWith((ref) => accountModels),
+            ],
+            child: const MaterialApp(home: Scaffold(body: ModelSelectorBar())),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // "With Models" entry is enabled (selectable, has no lock icon).
-      final Finder withRow = find.ancestor(
-        of: find.text('With Models'),
-        matching: find.byType(PopupMenuItem<String>),
-      );
-      expect(withRow, findsOneWidget);
-      expect(
-        tester.widget<PopupMenuItem<String>>(withRow).enabled,
-        isTrue,
-      );
+        // Open the provider picker popup by tapping the provider chip (the
+        // account-tree icon button in the selector bar).
+        await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
+        await tester.pumpAndSettle();
 
-      // "No Models" entry is disabled (no trailing check + lock icon visible).
-      final Finder withoutRow = find.ancestor(
-        of: find.text('No Models'),
-        matching: find.byType(PopupMenuItem<String>),
-      );
-      expect(withoutRow, findsOneWidget);
-      expect(
-        tester.widget<PopupMenuItem<String>>(withoutRow).enabled,
-        isFalse,
-      );
-      expect(
-        find.descendant(of: withoutRow, matching: find.byIcon(Icons.lock_outline)),
-        findsOneWidget,
-      );
-    });
+        // "With Models" entry is enabled (selectable, has no lock icon).
+        final Finder withRow = find.ancestor(
+          of: find.text('With Models'),
+          matching: find.byType(PopupMenuItem<String>),
+        );
+        expect(withRow, findsOneWidget);
+        expect(tester.widget<PopupMenuItem<String>>(withRow).enabled, isTrue);
 
-    testWidgets('an account with at least one enabled model is selectable',
-        (WidgetTester tester) async {
+        // "No Models" entry is disabled (no trailing check + lock icon visible).
+        final Finder withoutRow = find.ancestor(
+          of: find.text('No Models'),
+          matching: find.byType(PopupMenuItem<String>),
+        );
+        expect(withoutRow, findsOneWidget);
+        expect(
+          tester.widget<PopupMenuItem<String>>(withoutRow).enabled,
+          isFalse,
+        );
+        expect(
+          find.descendant(
+            of: withoutRow,
+            matching: find.byIcon(Icons.lock_outline),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('an account with at least one enabled model is selectable', (
+      WidgetTester tester,
+    ) async {
       final SecretStore secrets = SecretStore();
       final ProviderAccountRepository providers = ProviderAccountRepository(
         accountStore: AccountStore(),
@@ -230,14 +257,32 @@ void main() {
         config: const <String, Object?>{'model': 'gpt-5.5'},
       );
 
+      final AccountModelsService accountModels = AccountModelsService(
+        providers: providers,
+        adapters: AdapterRegistry(),
+        credentials: CredentialResolver(
+          secretStore: secrets,
+          chatGptTokens: ChatGptTokenService(
+            secretStore: secrets,
+            oauthFlow: ChatGptOAuthFlow(
+              clientId: 'c',
+              issuer: 'https://auth.test',
+            ),
+          ),
+        ),
+      );
+      // Seed the cache so no real network fetch is triggered during the test.
+      for (final ProviderAccount a in providers.accounts) {
+        accountModels.seedForTest(a.id, const <LlmModel>[
+          LlmModel(id: 'gpt-5.5'),
+        ]);
+      }
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: <Override>[
-            providerAccountRepositoryProvider
-                .overrideWith((ref) => providers),
-            modelServiceProvider.overrideWithValue(
-              _FixedModelService(const <LlmModel>[LlmModel(id: 'gpt-5.5')]),
-            ),
+            providerAccountRepositoryProvider.overrideWith((ref) => providers),
+            accountModelsServiceProvider.overrideWith((ref) => accountModels),
           ],
           child: const MaterialApp(home: Scaffold(body: ModelSelectorBar())),
         ),
@@ -259,28 +304,4 @@ void main() {
       );
     });
   });
-}
-
-/// A [ModelService] that returns a fixed list, for testing the view model's
-/// hidden-model filtering independent of any adapter.
-class _FixedModelService extends ModelService {
-  _FixedModelService(this._models)
-    : super(
-        adapters: AdapterRegistry(),
-        credentials: CredentialResolver(
-          secretStore: SecretStore(),
-          chatGptTokens: ChatGptTokenService(
-            secretStore: SecretStore(),
-            oauthFlow: ChatGptOAuthFlow(
-              clientId: 'c',
-              issuer: 'https://auth.test',
-            ),
-          ),
-        ),
-      );
-
-  final List<LlmModel> _models;
-
-  @override
-  Future<List<LlmModel>> list(ProviderAccount account) async => _models;
 }

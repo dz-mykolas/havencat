@@ -28,11 +28,15 @@ enum PricingSort {
 ///                   searchable list (formerly the "Browse all" escape hatch,
 ///                   now a first-class tab with its own dedicated search).
 ///   - [providers] -> hosting APIs (OpenRouter, OpenAI, Anthropic, Qiniu…).
+///   - [accounts] -> configured provider accounts (API keys, subscriptions,
+///                   custom endpoints). Not a catalog view — shows the user's
+///                   own accounts for activation/removal, plus the "add
+///                   custom endpoint" affordance.
 ///
 /// Each scope keeps its own search query (see [_queries]) so switching tabs
 /// preserves the text the user typed — "gpt" on Models, "open" on Providers,
 /// etc. — matching the "dedicated search per tab" UX.
-enum PricingScope { labs, models, providers }
+enum PricingScope { labs, models, providers, accounts }
 
 /// A capability/filter toggle surfaced as a chip above the model list.
 ///
@@ -227,11 +231,16 @@ class PricingViewModel extends ChangeNotifier {
 
   /// Groups for the overview grid, based on the current [scope], filtered by
   /// the active scope's search query. Empty until loaded.
+  ///
+  /// [PricingScope.accounts] returns an empty list — the accounts tab renders
+  /// its own view (configured accounts + custom endpoint affordance), not a
+  /// catalog grid.
   List<ProviderModels> get groups {
     final List<ProviderModels> source = switch (_scope) {
       PricingScope.providers => _catalog?.providers ?? const [],
       PricingScope.labs => _catalog?.labs ?? const [],
       PricingScope.models => const <ProviderModels>[],
+      PricingScope.accounts => const <ProviderModels>[],
     };
     final String q = query.trim();
     Iterable<ProviderModels> stream = source;
@@ -275,6 +284,7 @@ class PricingViewModel extends ChangeNotifier {
       PricingScope.providers => _catalog!.providers,
       PricingScope.labs => _catalog!.labs,
       PricingScope.models => const <ProviderModels>[],
+      PricingScope.accounts => const <ProviderModels>[],
     };
     for (final ProviderModels p in source) {
       if (p.id == id) return p;

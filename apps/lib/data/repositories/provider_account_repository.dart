@@ -53,6 +53,19 @@ class ProviderAccountRepository extends ChangeNotifier {
   /// All known provider definitions the user can add (subscription + API key).
   List<ProviderDefinition> get catalog => ProviderCatalog.all;
 
+  /// Whether the user already has an account for [definitionId].
+  ///
+  /// Used to grey out duplicate subscription providers in the "Add account"
+  /// sheet — e.g. once a ChatGPT subscription is connected, the ChatGPT entry
+  /// is disabled with a "Already connected" hint. API-key providers are never
+  /// considered duplicates (the user can have many OpenAI-compatible keys).
+  bool hasAccountForDefinition(String definitionId) {
+    for (final ProviderAccount a in _accounts) {
+      if (a.config['definitionId'] == definitionId) return true;
+    }
+    return false;
+  }
+
   /// Restores persisted accounts + active id. Call once on startup before the
   /// first frame. If nothing is persisted yet (first run), the seeded mock
   /// account is persisted so its id stays stable across launches.
@@ -243,7 +256,15 @@ class ProviderAccountRepository extends ChangeNotifier {
       id: 'acct_${_uuid.v4()}',
       kind: def.kind,
       displayName: displayName,
-      config: <String, Object?>{...def.configTemplate, ...?config},
+      config: <String, Object?>{
+        ...def.configTemplate,
+        ...?config,
+        // Store the definition id so we can detect duplicate subscriptions
+        // (e.g. "ChatGPT already connected") and route model fetches. Old
+        // accounts loaded from disk before this field existed simply won't
+        // have it — they're treated as non-duplicates, which is safe.
+        'definitionId': def.id,
+      },
       createdAt: DateTime.now(),
     );
   }

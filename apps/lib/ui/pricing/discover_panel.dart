@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
+import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/model_pricing.dart';
+import '../../domain/models/provider_account.dart';
 import '../settings/settings_viewmodel.dart';
+import '../settings/widgets/account_tile.dart';
+import '../settings/widgets/provider_picker.dart' show showProviderPicker;
 import 'pricing_viewmodel.dart';
 import 'pricing_format.dart';
 import 'quick_add_resolver.dart';
+import 'widgets/custom_endpoint_dialog.dart';
 import 'widgets/model_card.dart';
 import 'widgets/model_detail_sheet.dart';
 import 'widgets/provider_grid.dart';
@@ -69,6 +74,7 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
           if (vm.loading) {
             return const _PanelShell(
               tabs: _ScopeTabs(),
+              chips: _AccountChips(),
               search: SizedBox.shrink(),
               body: Center(child: CircularProgressIndicator()),
             );
@@ -76,12 +82,14 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
           if (vm.error != null && vm.catalog == null) {
             return _PanelShell(
               tabs: const _ScopeTabs(),
+              chips: const _AccountChips(),
               search: const SizedBox.shrink(),
               body: _ErrorState(onRetry: vm.load),
             );
           }
           return _PanelShell(
             tabs: const _ScopeTabs(),
+            chips: const _AccountChips(),
             search: _SearchField(
               controller: _search,
               hint: _searchHint(vm),
@@ -122,7 +130,9 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
                   ),
                 );
               },
-              child: vm.isFlatModelView
+              child: vm.scope == PricingScope.accounts
+                  ? _AccountsView(key: const ValueKey<String>('accounts'))
+                  : vm.isFlatModelView
                   ? _ModelList(
                       vm: vm,
                       onOpenModel: (PricedModel m) =>
@@ -152,6 +162,7 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
     if (vm.isFlatModelView) return 'Search all models';
     switch (vm.view) {
       case PricingView.overview:
+        if (vm.scope == PricingScope.accounts) return 'Search accounts';
         final String what = vm.scope == PricingScope.providers
             ? 'providers'
             : 'labs';
@@ -170,16 +181,26 @@ class _PanelShell extends StatelessWidget {
     required this.tabs,
     required this.search,
     required this.body,
+    this.chips,
   });
 
   final Widget tabs;
   final Widget search;
   final Widget body;
 
+  /// Optional account-chips row rendered above the tabs. When null (or when
+  /// there are no accounts) nothing is rendered so the tabs sit at the top.
+  final Widget? chips;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: <Widget>[
+        if (chips != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: chips,
+          ),
         Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tabs),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -191,9 +212,9 @@ class _PanelShell extends StatelessWidget {
   }
 }
 
-/// Segmented "Labs / Models / Providers" tab control with a sliding brand-
-/// gradient indicator behind the selected label. Reads the current scope from
-/// the view model and calls [PricingViewModel.setScope] on tap.
+/// Segmented "Labs / Models / Providers / Accounts" tab control with a sliding
+/// brand-gradient indicator behind the selected label. Reads the current scope
+/// from the view model and calls [PricingViewModel.setScope] on tap.
 class _ScopeTabs extends StatelessWidget {
   const _ScopeTabs();
 
@@ -211,7 +232,7 @@ class _ScopeTabs extends StatelessWidget {
           ),
           child: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints c) {
-              final double tabWidth = (c.maxWidth - 8) / 3;
+              final double tabWidth = (c.maxWidth - 8) / 4;
               final int index = vm.scope.index;
               return Stack(
                 children: <Widget>[
@@ -253,6 +274,13 @@ class _ScopeTabs extends StatelessWidget {
                           label: 'Providers',
                           selected: vm.scope == PricingScope.providers,
                           onTap: () => vm.setScope(PricingScope.providers),
+                        ),
+                      ),
+                      Expanded(
+                        child: _TabLabel(
+                          label: 'Accounts',
+                          selected: vm.scope == PricingScope.accounts,
+                          onTap: () => vm.setScope(PricingScope.accounts),
                         ),
                       ),
                     ],
@@ -308,6 +336,7 @@ class _Overview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<ProviderModels> groups = vm.groups;
+    final bool isProviders = vm.scope == PricingScope.providers;
     return Column(
       children: <Widget>[
         Padding(
@@ -317,7 +346,7 @@ class _Overview extends StatelessWidget {
               Expanded(
                 child: Text(
                   '${groups.length} '
-                  '${vm.scope == PricingScope.providers ? "providers" : "labs"}'
+                  '${isProviders ? "providers" : "labs"}'
                   '${vm.fetchedAt != null ? ' · updated ${formatRelative(vm.fetchedAt!)}' : ''}',
                   style: const TextStyle(
                     color: AppTheme.textSecondary,
@@ -331,10 +360,25 @@ class _Overview extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: ProviderGrid(providers: groups, onTap: onOpenGroup),
+          child: ProviderGrid(
+            providers: groups,
+            onTap: onOpenGroup,
+            // The custom-endpoint affordance only makes sense on the
+            // Providers tab — Labs are orgs, not user-configurable endpoints.
+            showCustomCard: isProviders,
+            onAddCustom: () => _openCustomEndpoint(context),
+          ),
         ),
       ],
     );
+  }
+
+  void _openCustomEndpoint(BuildContext context) {
+    final SettingsViewModel settings = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(settingsViewModelProvider);
+    showCustomEndpointDialog(context, settings);
   }
 }
 
@@ -832,6 +876,262 @@ class _ErrorState extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Horizontally-scrolling row of small account chips, grouped by type
+/// (subscriptions first, then API-key accounts). Tapping a chip activates
+/// that account via [SettingsViewModel.setActive]. Renders nothing when there
+/// are no accounts configured.
+///
+/// Sits above the scope tabs so the user's configured accounts are always
+/// one tap away, regardless of which Discover tab they're on.
+class _AccountChips extends StatelessWidget {
+  const _AccountChips();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, _) {
+        final SettingsViewModel settings = ref.watch(settingsViewModelProvider);
+        final List<ProviderAccount> accounts = settings.accounts;
+        if (accounts.isEmpty) return const SizedBox.shrink();
+        final String? activeId = settings.activeAccountId;
+        // Subscriptions first (OAuth logins), then API-key accounts. Stable
+        // within each group by preserving repository order.
+        final List<ProviderAccount> sorted = <ProviderAccount>[
+          ...accounts.where(
+            (ProviderAccount a) => a.kind == AdapterKind.subscription,
+          ),
+          ...accounts.where(
+            (ProviderAccount a) => a.kind != AdapterKind.subscription,
+          ),
+        ];
+        return SizedBox(
+          height: 34,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.zero,
+            itemCount: sorted.length,
+            separatorBuilder: (BuildContext _, __) => const SizedBox(width: 8),
+            itemBuilder: (BuildContext context, int index) {
+              final ProviderAccount a = sorted[index];
+              final bool active = a.id == activeId;
+              return _AccountChip(
+                account: a,
+                active: active,
+                onTap: () => settings.setActive(a.id),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AccountChip extends StatelessWidget {
+  const _AccountChip({
+    required this.account,
+    required this.active,
+    required this.onTap,
+  });
+
+  final ProviderAccount account;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fg = active ? Colors.white : AppTheme.textSecondary;
+    return Material(
+      color: active ? AppTheme.brandViolet : AppTheme.surface,
+      borderRadius: BorderRadius.circular(17),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(
+              color: active ? Colors.transparent : AppTheme.outline,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(_iconFor(account.kind), size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(
+                account.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 12.5,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static IconData _iconFor(AdapterKind kind) {
+    switch (kind) {
+      case AdapterKind.subscription:
+        return Icons.workspace_premium_outlined;
+      case AdapterKind.openaiCompatible:
+      case AdapterKind.anthropic:
+      case AdapterKind.geminiNative:
+        return Icons.cloud_outlined;
+      case AdapterKind.onDevice:
+        return Icons.phone_android_outlined;
+      case AdapterKind.mock:
+        return Icons.science_outlined;
+    }
+  }
+}
+
+/// The Accounts tab body: lists configured accounts (reusing [AccountTile]
+/// from settings), with an "Add account" affordance at the bottom that opens
+/// the provider picker (subscriptions + API keys + custom endpoint).
+///
+/// This is the same data the Settings screen used to show in its "Accounts"
+/// section, now consolidated into Discover so all account management lives
+/// in one place.
+class _AccountsView extends StatelessWidget {
+  const _AccountsView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, _) {
+        final SettingsViewModel settings = ref.watch(settingsViewModelProvider);
+        final List<ProviderAccount> accounts = settings.accounts;
+        final String? activeId = settings.activeAccountId;
+        if (accounts.isEmpty) {
+          return _EmptyAccounts(onAdd: () => _addAccount(context, settings));
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          children: <Widget>[
+            Material(
+              color: AppTheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppTheme.outline),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: <Widget>[
+                  for (final ProviderAccount account in accounts)
+                    AccountTile(
+                      account: account,
+                      active: account.id == activeId,
+                      onTap: () => settings.setActive(account.id),
+                      onDelete: () =>
+                          _confirmDelete(context, settings, account),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Center(
+              child: FilledButton.icon(
+                onPressed: () => _addAccount(context, settings),
+                icon: const Icon(Icons.add),
+                label: const Text('Add account'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _addAccount(BuildContext context, SettingsViewModel settings) {
+    showProviderPicker(context, settings);
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    SettingsViewModel settings,
+    ProviderAccount account,
+  ) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Remove account?'),
+          content: Text(
+            'Remove "${account.displayName}" and its stored API key? '
+            'This cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      await settings.remove(account.id);
+    }
+  }
+}
+
+class _EmptyAccounts extends StatelessWidget {
+  const _EmptyAccounts({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(
+              Icons.cloud_off_outlined,
+              size: 48,
+              color: AppTheme.textSecondary,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No provider accounts yet',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Add an API key or sign in to start chatting.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('Add account'),
             ),
           ],
         ),
