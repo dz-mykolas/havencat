@@ -7,9 +7,14 @@ import '../../../domain/models/model_pricing.dart';
 
 /// Fetches and caches the public model database from models.dev.
 ///
-/// The endpoint (`https://models.dev/api.json`) is a single ~2.4 MB JSON blob
+/// The endpoint (`https://models.dev/catalog.json`) is a single JSON blob
 /// served with `Access-Control-Allow-Origin: *`, so the web build can hit it
-/// directly — no LLM proxy needed. Because it's large and rarely changes, we:
+/// directly — no LLM proxy needed. It bundles both the canonical model
+/// registry (keyed by `<lab>/<model-id>`, e.g. `openai/gpt-5.5`) and the
+/// per-provider serving entries (keyed by provider id). The canonical
+/// registry is what lets us collapse the same model served under different
+/// ids/names (`gpt-5.5`, `openai-gpt-5.5`, `gpt-5-5`, `GPT 5.5`…) into one
+/// lab + display name. Because it's large and rarely changes, we:
 ///   1. keep an in-memory [ModelsCatalog] for the session,
 ///   2. persist the raw JSON (+ fetch time) to [SharedPreferences] so a restart
 ///      / browser refresh shows data instantly and works offline, and
@@ -23,9 +28,9 @@ class ModelsDevService {
       // ignore: prefer_initializing_formals
       _prefs = prefs;
 
-  static const String endpoint = 'https://models.dev/api.json';
-  static const String _cacheKey = 'models_dev_cache::v1';
-  static const String _cacheAtKey = 'models_dev_cached_at::v1';
+  static const String endpoint = 'https://models.dev/catalog.json';
+  static const String _cacheKey = 'models_dev_cache::v2';
+  static const String _cacheAtKey = 'models_dev_cached_at::v2';
   static const Duration _ttl = Duration(hours: 12);
 
   final Dio _dio;
@@ -79,7 +84,7 @@ class ModelsDevService {
     if (decoded is! Map<String, Object?>) {
       throw const FormatException('models.dev: unexpected payload shape');
     }
-    return ModelsCatalog.fromApiJson(decoded, fetchedAt: fetchedAt);
+    return ModelsCatalog.fromCatalogJson(decoded, fetchedAt: fetchedAt);
   }
 
   ModelsCatalog? _readPersisted() {

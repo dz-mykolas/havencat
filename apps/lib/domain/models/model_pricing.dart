@@ -1,10 +1,18 @@
 /// Domain models for the public model database served by models.dev
-/// (`https://models.dev/api.json`).
+/// (`https://models.dev/catalog.json`).
 ///
-/// The remote payload is a JSON object keyed by provider id; each provider has
-/// a `models` map keyed by model id. We flatten that into a list of
-/// [PricedModel]s (each carrying its provider) plus a grouped [ModelsCatalog]
-/// so the UI can render either a flat searchable list or per-provider sections.
+/// The remote payload is a JSON object with two top-level sections:
+///   - `models`: the canonical model registry, keyed by `<lab>/<model-id>`
+///     (e.g. `openai/gpt-5.5`). Each key is already the canonical model id —
+///     no regex or resolution needed.
+///   - `providers`: per-provider serving entries (with provider-specific
+///     pricing/limits), keyed by provider id. Each provider has its own
+///     `models` map.
+///
+/// We flatten both into a list of [PricedModel]s (each carrying its provider)
+/// plus a grouped [ModelsCatalog] so the UI can render either a flat
+/// searchable list or per-provider sections. The Labs grouping is derived
+/// from the canonical model id prefix (`openai/gpt-5.5` → `openai`).
 ///
 /// All money figures are **USD per million tokens**, matching models.dev.
 library;
@@ -63,6 +71,7 @@ class PricedModel {
     required this.name,
     required this.providerId,
     required this.providerName,
+    required this.labId,
     this.cost,
     this.contextLimit,
     this.outputLimit,
@@ -76,10 +85,15 @@ class PricedModel {
     this.lastUpdated,
   });
 
+  /// Builds a [PricedModel] from a models.dev model entry, stamped with its
+  /// provider context. The [labId] is the canonical lab prefix derived from
+  /// the canonical model id (`openai/gpt-5.5` → `openai`); for provider
+  /// entries whose id already contains a `/`, that prefix is reused.
   factory PricedModel.fromJson(
     Map<String, Object?> json, {
     required String providerId,
     required String providerName,
+    required String labId,
   }) {
     final Object? costJson = json['cost'];
     final Object? limitJson = json['limit'];
@@ -107,6 +121,7 @@ class PricedModel {
       name: '${json['name'] ?? json['id'] ?? ''}',
       providerId: providerId,
       providerName: providerName,
+      labId: labId,
       cost: costJson is Map<String, Object?>
           ? ModelCost.fromJson(costJson)
           : null,
@@ -123,11 +138,11 @@ class PricedModel {
     );
   }
 
-  /// Wire id, e.g. `gpt-5.5`, `claude-sonnet-4-5`, or namespaced like
-  /// `openai/gpt-5.2` when served through a router.
+  /// Wire id as served by the provider, e.g. `gpt-5.5`, `claude-sonnet-4-5`,
+  /// or namespaced like `openai/gpt-5.2` when served through a router.
   final String id;
 
-  /// Display name, e.g. "Claude Sonnet 4.5 (latest)".
+  /// Display name as published by the serving provider.
   final String name;
 
   /// Owning provider id from models.dev, e.g. `anthropic`.
@@ -136,14 +151,14 @@ class PricedModel {
   /// Owning provider display name, e.g. "Anthropic".
   final String providerName;
 
-  /// The lab that actually owns the model — derived from the `lab/...`
-  /// prefix on the model id when served through a router (OpenRouter,
-  /// Requesty, etc.), falling back to [providerId] for first-party entries.
-  /// Examples: `anthropic`, `openai`, `google`, `xai`, `meta`, `mistral`.
-  String get lab {
-    final String prefix = id.split('/').first;
-    return prefix == id ? providerId : prefix;
-  }
+  /// The lab that actually owns the model. Derived from the canonical model
+  /// id prefix (`openai/gpt-5.5` → `openai`); falls back to [providerId] when
+  /// the id has no `/`.
+  final String labId;
+
+  /// The display name to show in the UI. Uses the serving [name] (models.dev
+  /// already normalizes it per provider).
+  String get displayName => name;
 
   final ModelCost? cost;
 
@@ -170,7 +185,7 @@ class PricedModel {
 
   /// Lower-cased haystack used for free-text search.
   String get searchIndex =>
-      '$name $id $providerName $providerId $lab'.toLowerCase();
+      '$displayName $name $id $providerName $providerId $labId'.toLowerCase();
 
   static DateTime? _parseDate(Object? value) {
     if (value is! String || value.isEmpty) return null;
@@ -292,53 +307,104 @@ class ProviderModels {
 /// The whole models.dev catalog, both flat and grouped by provider, plus the
 /// timestamp it was fetched at (so the UI can show "updated X ago" / offline).
 class ModelsCatalog {
-  ModelsCatalog({
-    required this.models,
-    required this.fetchedAt,
-    Map<String, ProviderMeta>? providerMeta,
-  })  : providers = _group(models, providerMeta: providerMeta),
-        labs = _groupByLab(models),
-        _providerMeta = providerMeta ?? const <String, ProviderMeta>{};
+  // (Constructor is the private `ModelsCatalog._` below — kept private so
+  // callers go through `fromCatalogJson`, which splits canonical vs provider
+  // models correctly.)
 
-  /// Parses the raw `api.json` map (keyed by provider id) into a catalog.
-  factory ModelsCatalog.fromApiJson(
+  /// Parses the `catalog.json` payload (`{ models, providers }`) into a
+  /// catalog.
+  ///
+  /// `catalog.json` bundles two sections, each backing one Discover tab:
+  ///   - `models`: the canonical model registry, keyed by `<lab>/<model-id>`
+  ///     (e.g. `openai/gpt-5.5`). Each key is already the canonical model id.
+  ///     This is the source of truth for the **Models** tab (flat list) and
+  ///     the **Labs** tab (grouped by the `lab/` prefix — 18 labs, matching
+  ///     models.dev).
+  ///   - `providers`: per-provider serving entries (with provider-specific
+  ///     pricing/limits), keyed by provider id. This is the source of truth
+  ///     for the **Providers** tab.
+  ///
+  /// No regex or canonical resolution is performed — just plain iteration
+  /// and `split("/")` on the canonical model id prefix.
+  factory ModelsCatalog.fromCatalogJson(
     Map<String, Object?> json, {
     required DateTime fetchedAt,
   }) {
+    final Object? modelsSection = json['models'];
+    final Object? providersSection = json['providers'];
+
+    // Canonical models (Models tab + Labs tab source).
+    final List<PricedModel> canonical = <PricedModel>[];
+    if (modelsSection is Map<String, Object?>) {
+      for (final MapEntry<String, Object?> e in modelsSection.entries) {
+        final Object? v = e.value;
+        if (v is! Map<String, Object?>) continue;
+        final String labId = e.key.split('/').first;
+        canonical.add(
+          PricedModel.fromJson(
+            v,
+            providerId: labId,
+            providerName: ModelsCatalog.titleCaseId(labId),
+            labId: labId,
+          ),
+        );
+      }
+    }
+
+    // Provider serving entries (Providers tab source).
     final List<PricedModel> all = <PricedModel>[];
     final Map<String, ProviderMeta> meta = <String, ProviderMeta>{};
-    for (final MapEntry<String, Object?> entry in json.entries) {
-      final Object? provider = entry.value;
-      if (provider is! Map<String, Object?>) continue;
-      final String providerId = '${provider['id'] ?? entry.key}';
-      final String providerName = '${provider['name'] ?? providerId}';
-      meta[providerId] = ProviderMeta(
-        npm: provider['npm'] as String?,
-        apiUrl: provider['api'] as String?,
-        docUrl: provider['doc'] as String?,
-      );
-      final Object? models = provider['models'];
-      if (models is! Map<String, Object?>) continue;
-      for (final Object? model in models.values) {
-        if (model is Map<String, Object?>) {
+    if (providersSection is Map<String, Object?>) {
+      for (final MapEntry<String, Object?> entry in providersSection.entries) {
+        final Object? provider = entry.value;
+        if (provider is! Map<String, Object?>) continue;
+        final String providerId = '${provider['id'] ?? entry.key}';
+        final String providerName = '${provider['name'] ?? providerId}';
+        meta[providerId] = ProviderMeta(
+          npm: provider['npm'] as String?,
+          apiUrl: provider['api'] as String?,
+          docUrl: provider['doc'] as String?,
+        );
+        final Object? models = provider['models'];
+        if (models is! Map<String, Object?>) continue;
+        for (final Object? model in models.values) {
+          if (model is! Map<String, Object?>) continue;
+          final String modelId = '${model['id'] ?? ''}';
+          final String labId = labIdOf(modelId, providerId: providerId);
           all.add(
             PricedModel.fromJson(
               model,
               providerId: providerId,
               providerName: providerName,
+              labId: labId,
             ),
           );
         }
       }
     }
-    return ModelsCatalog(
-      models: all,
+    return ModelsCatalog._(
+      canonicalModels: canonical,
+      providerModels: all,
       fetchedAt: fetchedAt,
       providerMeta: meta,
     );
   }
 
-  /// Every model across every provider.
+  ModelsCatalog._({
+    required List<PricedModel> canonicalModels,
+    required List<PricedModel> providerModels,
+    required this.fetchedAt,
+    Map<String, ProviderMeta>? providerMeta,
+  }) : models = canonicalModels,
+       providers = _groupProviders(providerModels, providerMeta: providerMeta),
+       labs = _groupByLab(canonicalModels),
+       _providerMeta = providerMeta ?? const <String, ProviderMeta>{};
+
+  /// The canonical model registry — one entry per underlying model, keyed by
+  /// `<lab>/<model-id>` (e.g. `openai/gpt-5.5`). This is what models.dev's
+  /// `/models/` page renders, and what the Discover panel's Models tab and
+  /// [totalCount] mirror. Per-provider serving entries (with provider-specific
+  /// pricing) live in [providers] instead.
   final List<PricedModel> models;
 
   /// Models grouped by hosting provider (the API you actually call), sorted
@@ -366,48 +432,43 @@ class ModelsCatalog {
 
   bool get isEmpty => models.isEmpty;
 
-  static List<ProviderModels> _group(
+  static List<ProviderModels> _groupProviders(
     List<PricedModel> models, {
     Map<String, ProviderMeta>? providerMeta,
   }) {
-    final Map<String, List<PricedModel>> byKey =
-        <String, List<PricedModel>>{};
+    final Map<String, List<PricedModel>> byKey = <String, List<PricedModel>>{};
     final Map<String, String> names = <String, String>{};
     for (final PricedModel m in models) {
       byKey.putIfAbsent(m.providerId, () => <PricedModel>[]).add(m);
       names[m.providerId] = m.providerName;
     }
     final List<ProviderModels> result = byKey.entries
-        .map(
-          (MapEntry<String, List<PricedModel>> e) {
-            final ProviderMeta? pm = providerMeta?[e.key];
-            return ProviderModels(
-              id: e.key,
-              name: names[e.key] ?? _titleCaseId(e.key),
-              models: e.value..sort(_modelSortByDateThenName),
-              npm: pm?.npm,
-              apiUrl: pm?.apiUrl,
-              docUrl: pm?.docUrl,
-            );
-          },
-        )
+        .map((MapEntry<String, List<PricedModel>> e) {
+          final ProviderMeta? pm = providerMeta?[e.key];
+          return ProviderModels(
+            id: e.key,
+            name: names[e.key] ?? titleCaseId(e.key),
+            models: e.value..sort(_modelSortByDateThenName),
+            npm: pm?.npm,
+            apiUrl: pm?.apiUrl,
+            docUrl: pm?.docUrl,
+          );
+        })
         .toList(growable: false);
     result.sort(_groupSortByName);
     return result;
   }
 
   static List<ProviderModels> _groupByLab(List<PricedModel> models) {
-    final Map<String, List<PricedModel>> byLab =
-        <String, List<PricedModel>>{};
+    final Map<String, List<PricedModel>> byLab = <String, List<PricedModel>>{};
     for (final PricedModel m in models) {
-      byLab.putIfAbsent(m.lab, () => <PricedModel>[]).add(m);
+      byLab.putIfAbsent(m.labId, () => <PricedModel>[]).add(m);
     }
-    final Map<String, String> names = <String, String>{};
     final List<ProviderModels> result = byLab.entries
         .map(
           (MapEntry<String, List<PricedModel>> e) => ProviderModels(
             id: e.key,
-            name: names[e.key] ?? _titleCaseId(e.key),
+            name: titleCaseId(e.key),
             models: e.value..sort(_modelSortByDateThenName),
           ),
         )
@@ -420,7 +481,7 @@ class ModelsCatalog {
     final DateTime? ad = a.releaseDate;
     final DateTime? bd = b.releaseDate;
     if (ad != null && bd != null) return bd.compareTo(ad);
-    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
   }
 
   static int _groupSortByName(ProviderModels a, ProviderModels b) =>
@@ -428,7 +489,7 @@ class ModelsCatalog {
 
   /// Turns a hyphen/underscore id like `openai` or `x-ai` into "OpenAI" / "X-AI"
   /// for users when no friendly name was provided (the labs branch).
-  static String _titleCaseId(String id) {
+  static String titleCaseId(String id) {
     final List<String> parts = id.replaceAll('_', '-').split('-');
     return parts
         .map(
@@ -438,6 +499,15 @@ class ModelsCatalog {
         )
         .join('-');
   }
+}
+
+/// Derives the lab id from a model id. If the id contains a `/`, the prefix
+/// before it is the lab (`openai/gpt-5.5` → `openai`); otherwise the provider
+/// id is the lab (first-party entries like `gpt-5.5` on `openai`).
+String labIdOf(String modelId, {required String providerId}) {
+  final int slash = modelId.indexOf('/');
+  if (slash > 0) return modelId.substring(0, slash);
+  return providerId;
 }
 
 /// Raw adapter/endpoint fields models.dev publishes per provider, kept around

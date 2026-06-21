@@ -40,7 +40,7 @@ class _ModelDetailSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Text(
-                model.name,
+                model.displayName,
                 style: const TextStyle(
                   color: AppTheme.textPrimary,
                   fontSize: 20,
@@ -112,10 +112,7 @@ class _ModelDetailSheet extends StatelessWidget {
               _ModelIdRow(id: model.id),
               if (model.releaseDate != null) ...<Widget>[
                 const SizedBox(height: 16),
-                _InfoRow(
-                  label: 'Released',
-                  value: _date(model.releaseDate!),
-                ),
+                _InfoRow(label: 'Released', value: _date(model.releaseDate!)),
               ],
             ],
           ),
@@ -163,10 +160,7 @@ class _CostRow extends StatelessWidget {
         children: <Widget>[
           Text(
             label,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 14,
-            ),
+            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
           ),
           Text(
             formatPricePerMillion(value),

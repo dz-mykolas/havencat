@@ -6,6 +6,8 @@
 - For small, basic, mostly one liner changes do not run build commands. Only when you think would be good idea.
 - Do not start or restart the dev servers or apps itself.
 - When adding packages/libraries use the cleanest CLI commands for this project unless that's not possible. If not, do not do any implementation or installation and reply with why.
+- Skip writing unnecessary test files. Only when very needed
+- There is no backend service, everything is local except for APIs for tooling, LLM models etc.
 
 ## Frontend Components
 

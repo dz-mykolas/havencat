@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fuzzy/data/result.dart';
+import 'package:fuzzy/fuzzy.dart';
 
 import '../../data/services/pricing/models_dev_service.dart';
 import '../../domain/models/model_pricing.dart';
@@ -116,6 +118,88 @@ class PricingViewModel extends ChangeNotifier {
   /// The group the user drilled into, or null in [overview]/[models].
   String? _selectedGroupId;
 
+  /// Fuzzy search index over the catalog's provider/lab groups, rebuilt
+  /// alongside every catalog load. Searches the group's display name + id.
+  /// The model list is searched via [_buildModelIndex] instead — it's built
+  /// per-query so it covers whichever pool is active (canonical registry for
+  /// the Models tab, or one provider's serving entries when drilled in).
+  Fuzzy<ProviderModels>? _groupIndex;
+
+  /// Builds a fuzzy search index over [models] (name/id/provider/lab, weighted
+  /// toward the display name). `tokenize: true` + `matchAllTokens: true` so
+  /// multi-word queries like "gpt 5.5" require BOTH tokens to match — "gpt"
+  /// alone won't surface `gpt-5.5 Instant`, and "5.4" won't surface `GLM-5.2`
+  /// (no "gpt" token). `shouldNormalize: true` strips diacritics. Threshold
+  /// 0.3 is strict enough that `5.4` won't match `5.5`/`5.2` (1-char
+  /// substitution in a 3-char token = 0.33 > 0.3) while still tolerating
+  /// missing separators (`gpt5.5` → `gpt-5.5` = 1 insertion / 6 chars = 0.17).
+  static Fuzzy<PricedModel> _buildModelIndex(List<PricedModel> models) {
+    return Fuzzy<PricedModel>(
+      models,
+      options: FuzzyOptions<PricedModel>(
+        keys: <WeightedKey<PricedModel>>[
+          WeightedKey(
+            name: 'name',
+            getter: (PricedModel m) => m.name,
+            weight: 0.7,
+          ),
+          WeightedKey(name: 'id', getter: (PricedModel m) => m.id, weight: 0.5),
+          WeightedKey(
+            name: 'provider',
+            getter: (PricedModel m) => m.providerName,
+            weight: 0.3,
+          ),
+          WeightedKey(
+            name: 'lab',
+            getter: (PricedModel m) => m.labId,
+            weight: 0.3,
+          ),
+        ],
+        threshold: 0.3,
+        tokenize: true,
+        matchAllTokens: true,
+        isCaseSensitive: false,
+        shouldNormalize: true,
+      ),
+    );
+  }
+
+  /// Rebuilds the groups fuzzy index from the current catalog. Called after
+  /// every [load]/[refresh] so the search reflects the latest data.
+  void _rebuildIndexes() {
+    final ModelsCatalog? catalog = _catalog;
+    if (catalog == null) {
+      _groupIndex = null;
+      return;
+    }
+    final List<ProviderModels> allGroups = <ProviderModels>[
+      ...catalog.providers,
+      ...catalog.labs,
+    ];
+    _groupIndex = Fuzzy<ProviderModels>(
+      allGroups,
+      options: FuzzyOptions<ProviderModels>(
+        keys: <WeightedKey<ProviderModels>>[
+          WeightedKey(
+            name: 'name',
+            getter: (ProviderModels g) => g.name,
+            weight: 0.7,
+          ),
+          WeightedKey(
+            name: 'id',
+            getter: (ProviderModels g) => g.id,
+            weight: 0.5,
+          ),
+        ],
+        threshold: 0.3,
+        tokenize: true,
+        matchAllTokens: true,
+        isCaseSensitive: false,
+        shouldNormalize: true,
+      ),
+    );
+  }
+
   bool get loading => _loading;
   bool get refreshing => _refreshing;
   Object? get error => _error;
@@ -133,8 +217,7 @@ class PricingViewModel extends ChangeNotifier {
   /// True only for [PricingScope.models].
   bool get isFlatModelView => _scope == PricingScope.models;
 
-  Set<PricingFilter> get filters =>
-      Set<PricingFilter>.unmodifiable(_filters);
+  Set<PricingFilter> get filters => Set<PricingFilter>.unmodifiable(_filters);
 
   /// The group id drilled into, or null when not in [PricingView.provider].
   String? get selectedGroupId => _selectedGroupId;
@@ -144,25 +227,31 @@ class PricingViewModel extends ChangeNotifier {
 
   /// Groups for the overview grid, based on the current [scope], filtered by
   /// the active scope's search query. Empty until loaded.
-  /// Subscription/coding-plan/token-plan providers (whose models are billed via
-  /// a flat plan, not per-token) are filtered out so the Discover grid doesn't
-  /// fill with plan-only tiles that always read "No pricing" or "Free". See
-  /// [ProviderModels.isPlanOnly].
   List<ProviderModels> get groups {
     final List<ProviderModels> source = switch (_scope) {
       PricingScope.providers => _catalog?.providers ?? const [],
       PricingScope.labs => _catalog?.labs ?? const [],
       PricingScope.models => const <ProviderModels>[],
     };
-    final String q = query.trim().toLowerCase();
-    Iterable<ProviderModels> stream =
-        source.where((ProviderModels g) => !g.isPlanOnly);
+    final String q = query.trim();
+    Iterable<ProviderModels> stream = source;
     if (q.isNotEmpty) {
-      stream = stream.where(
-        (ProviderModels g) =>
-            g.name.toLowerCase().contains(q) ||
-            g.id.toLowerCase().contains(q),
-      );
+      // Fuzzy match across the scope's groups (name + id). Falls back to the
+      // full scope list if the index isn't built yet (catalog still loading).
+      final Fuzzy<ProviderModels>? index = _groupIndex;
+      if (index == null) {
+        stream = stream.where(
+          (ProviderModels g) =>
+              g.name.toLowerCase().contains(q.toLowerCase()) ||
+              g.id.toLowerCase().contains(q.toLowerCase()),
+        );
+      } else {
+        final Set<ProviderModels> matches = index
+            .search(q)
+            .map((Result<ProviderModels> r) => r.item)
+            .toSet();
+        stream = stream.where(matches.contains);
+      }
     }
     return stream.toList();
   }
@@ -225,10 +314,20 @@ class PricingViewModel extends ChangeNotifier {
       }
     }
 
-    final String q = query.trim().toLowerCase();
+    final String q = query.trim();
     Iterable<PricedModel> stream = pool;
     if (q.isNotEmpty) {
-      stream = stream.where((PricedModel m) => m.searchIndex.contains(q));
+      // Fuzzy match across name/id/provider/lab. We search the pool itself
+      // (not a global index) so the provider drill-in view matches the
+      // provider's serving entries rather than the canonical registry.
+      // Pools are small (≤220 canonical models, or one provider's entries),
+      // so building the index per query is cheap.
+      final Fuzzy<PricedModel> index = _buildModelIndex(pool);
+      final Set<PricedModel> matches = index
+          .search(q)
+          .map((Result<PricedModel> r) => r.item)
+          .toSet();
+      stream = stream.where(matches.contains);
     }
     if (_filters.isNotEmpty) {
       stream = stream.where(
@@ -248,6 +347,7 @@ class PricingViewModel extends ChangeNotifier {
     try {
       _catalog = await _service.load();
       _error = null;
+      _rebuildIndexes();
     } catch (error) {
       _error = error;
     } finally {
@@ -263,6 +363,7 @@ class PricingViewModel extends ChangeNotifier {
     try {
       _catalog = await _service.refresh();
       _error = null;
+      _rebuildIndexes();
     } catch (error) {
       // Keep showing whatever we had; surface the error only if we have nothing.
       if (_catalog == null) _error = error;
@@ -375,7 +476,7 @@ class PricingViewModel extends ChangeNotifier {
   }
 
   int _byName(PricedModel a, PricedModel b) =>
-      a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
 
   int _byPrice(PricedModel a, PricedModel b, {required bool ascending}) {
     // Rank by output price (the figure that usually dominates spend), then
