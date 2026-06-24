@@ -51,7 +51,9 @@ class CodexVersionResolver {
       options: Options(headers: resolved.headers),
     );
     final Object? data = response.data;
-    final Object? version = data is Map<String, dynamic> ? data['version'] : null;
+    final Object? version = data is Map<String, dynamic>
+        ? data['version']
+        : null;
     final Match? match = version is String ? _semver.firstMatch(version) : null;
     if (match != null) return match.group(0)!;
     throw StateError('No usable version in registry response.');

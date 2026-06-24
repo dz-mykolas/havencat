@@ -4,14 +4,14 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:havencat/data/repositories/provider_account_repository.dart';
-import 'package:havencat/data/services/auth/chatgpt_oauth_flow.dart';
-import 'package:havencat/data/services/auth/chatgpt_token_service.dart';
-import 'package:havencat/data/services/auth/secret_store.dart';
-import 'package:havencat/data/services/storage/account_store.dart';
-import 'package:havencat/domain/models/adapter_kind.dart';
-import 'package:havencat/domain/models/oauth_tokens.dart';
-import 'package:havencat/domain/models/provider_account.dart';
+import 'package:app/data/repositories/provider_account_repository.dart';
+import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
+import 'package:app/data/services/auth/chatgpt_token_service.dart';
+import 'package:app/data/services/auth/secret_store.dart';
+import 'package:app/data/services/storage/account_store.dart';
+import 'package:app/domain/models/adapter_kind.dart';
+import 'package:app/domain/models/oauth_tokens.dart';
+import 'package:app/domain/models/provider_account.dart';
 
 /// Tests for the persistence + token-lifecycle layer added so a login survives
 /// an app restart / browser refresh in this fully-local (no backend) app.

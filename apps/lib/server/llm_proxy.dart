@@ -147,12 +147,16 @@ Handler llmProxyHandler({
     try {
       upstreamResponse = await httpClient.send(upstreamRequest);
     } on Object catch (e) {
-      trace('xx  ${upstream.host}${upstream.path} failed after '
-          '${sw.elapsedMilliseconds}ms: $e');
+      trace(
+        'xx  ${upstream.host}${upstream.path} failed after '
+        '${sw.elapsedMilliseconds}ms: $e',
+      );
       return Response(502, body: 'Upstream request failed: $e', headers: cors);
     }
-    trace('<-- ${upstreamResponse.statusCode} ${upstream.host}${upstream.path} '
-        '(${sw.elapsedMilliseconds}ms)');
+    trace(
+      '<-- ${upstreamResponse.statusCode} ${upstream.host}${upstream.path} '
+      '(${sw.elapsedMilliseconds}ms)',
+    );
 
     // Forward the response, streaming the body so SSE flows token-by-token.
     final Map<String, String> responseHeaders = <String, String>{};

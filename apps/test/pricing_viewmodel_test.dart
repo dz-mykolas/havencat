@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:havencat/data/services/pricing/models_dev_service.dart';
-import 'package:havencat/domain/models/model_pricing.dart';
-import 'package:havencat/ui/pricing/pricing_viewmodel.dart';
-import 'package:havencat/ui/pricing/quick_add_resolver.dart';
+import 'package:app/data/services/pricing/models_dev_service.dart';
+import 'package:app/domain/models/model_pricing.dart';
+import 'package:app/ui/pricing/pricing_viewmodel.dart';
+import 'package:app/ui/pricing/quick_add_resolver.dart';
 
 /// Unit tests for [PricingViewModel]'s multi-step Discover state: provider
 /// drill-in, "browse all", search, and sort. The catalog is built directly from

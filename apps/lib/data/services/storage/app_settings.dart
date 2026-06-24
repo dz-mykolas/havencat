@@ -9,8 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppSettings extends ChangeNotifier {
   AppSettings({SharedPreferences? prefs})
     : _prefs = prefs,
-      _showHiddenModels =
-          prefs?.getBool(_showHiddenModelsKey) ?? false;
+      _showHiddenModels = prefs?.getBool(_showHiddenModelsKey) ?? false;
 
   final SharedPreferences? _prefs;
 

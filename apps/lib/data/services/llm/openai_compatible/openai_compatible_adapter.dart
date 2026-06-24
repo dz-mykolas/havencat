@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
 import '../../../../domain/models/llm_model.dart';
+import '../../../../domain/models/message.dart';
 import '../../../../domain/models/provider_account.dart';
 import '../llm_adapter.dart';
 import '../llm_endpoint.dart';
@@ -24,8 +25,11 @@ import 'sse_client.dart';
 /// The API key comes in via [secret] (resolved from secure storage by the
 /// repository), never from [config].
 class OpenAiCompatibleAdapter implements LlmAdapter {
-  OpenAiCompatibleAdapter({Dio? dio, SseClient? sseClient, LlmEndpoint? endpoint})
-    : this._(dio ?? Dio(), sseClient, endpoint);
+  OpenAiCompatibleAdapter({
+    Dio? dio,
+    SseClient? sseClient,
+    LlmEndpoint? endpoint,
+  }) : this._(dio ?? Dio(), sseClient, endpoint);
 
   OpenAiCompatibleAdapter._(
     this._dio,
@@ -100,7 +104,10 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   }) async {
     final String baseUrl = _readBaseUrl(account);
     final Map<String, String> headers = _readHeaders(account, secret);
-    final ResolvedRequest resolved = _endpoint.resolve('$baseUrl/models', headers);
+    final ResolvedRequest resolved = _endpoint.resolve(
+      '$baseUrl/models',
+      headers,
+    );
 
     final Response<dynamic> response = await _dio.get<dynamic>(
       resolved.url,
@@ -161,27 +168,81 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   }
 
   Map<String, Object?> _buildBody(LlmRequest request, String model) {
+    final List<Map<String, Object?>> messages =
+        request.messages
+            .where((m) => m.text.trim().isNotEmpty || m.toolCalls.isNotEmpty)
+            .map(_messageToJson)
+            .toList();
+    if (request.systemPrompt != null && request.systemPrompt!.isNotEmpty) {
+      messages.insert(
+        0,
+        <String, Object?>{
+          'role': 'system',
+          'content': request.systemPrompt,
+        },
+      );
+    }
     return <String, Object?>{
       'model': model,
       'stream': true,
-      'messages': request.messages
-          .where((m) => m.text.trim().isNotEmpty)
-          .map(
-            (m) => <String, Object?>{
-              'role': m.isUser ? 'user' : 'assistant',
-              'content': m.text,
-            },
-          )
-          .toList(),
+      'messages': messages,
       if (request.temperature != null) 'temperature': request.temperature,
       if (request.maxTokens != null) 'max_tokens': request.maxTokens,
+      if (request.tools.isNotEmpty)
+        'tools': request.tools
+            .map(
+              (t) => <String, Object?>{
+                'type': 'function',
+                'function': <String, Object?>{
+                  'name': t.name,
+                  'description': t.description,
+                  'parameters': t.parameters,
+                },
+              },
+            )
+            .toList(),
     };
+  }
+
+  /// Serialize a [ChatMessage] to the OpenAI chat-completions JSON shape.
+  /// Handles plain user/assistant text, assistant messages with tool_calls,
+  /// and tool-result messages.
+  Map<String, Object?> _messageToJson(ChatMessage m) {
+    if (m.isTool) {
+      return <String, Object?>{
+        'role': 'tool',
+        'tool_call_id': m.toolCallId,
+        'content': m.text,
+      };
+    }
+    final Map<String, Object?> json = <String, Object?>{
+      'role': m.isUser ? 'user' : 'assistant',
+      'content': m.text,
+    };
+    if (m.toolCalls.isNotEmpty) {
+      json['tool_calls'] = m.toolCalls
+          .map(
+            (tc) => <String, Object?>{
+              'id': tc.id,
+              'type': 'function',
+              'function': <String, Object?>{
+                'name': tc.name,
+                'arguments': tc.args,
+              },
+            },
+          )
+          .toList();
+    }
+    return json;
   }
 
   /// Parse one `data:` payload from the SSE stream into an [LlmEvent].
   ///
   /// Returns null for keep-alive/empty chunks. Emits [DoneEvent] when the
-  /// provider signals completion via `finish_reason`.
+  /// provider signals completion via `finish_reason`. Emits [ToolCallEvent]s
+  /// as tool calls accumulate in the delta — note that OpenAI streams
+  /// tool_calls in fragments (id/function name first, then argument tokens),
+  /// so the repository must accumulate them by index.
   LlmEvent? _parseChunk(String data) {
     if (data.trim().isEmpty) return null;
     final Object? decoded = jsonDecode(data);
@@ -194,6 +255,26 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     final Map<String, dynamic>? delta =
         choice['delta'] as Map<String, dynamic>?;
     final String? finishReason = choice['finish_reason'] as String?;
+
+    // Tool calls stream in fragments: the first chunk carries the id + name,
+    // subsequent chunks carry argument tokens. We surface each fragment as a
+    // ToolCallEvent with the same id so the repository can accumulate by index.
+    final List<dynamic>? toolCalls = delta?['tool_calls'] as List<dynamic>?;
+    if (toolCalls != null && toolCalls.isNotEmpty) {
+      final Map<String, dynamic> tc = toolCalls.first as Map<String, dynamic>;
+      final String? id = tc['id'] as String?;
+      final Map<String, dynamic>? function =
+          tc['function'] as Map<String, dynamic>?;
+      final String? name = function?['name'] as String?;
+      final String? argsFragment = function?['arguments'] as String?;
+      if (id != null || name != null || argsFragment != null) {
+        return ToolCallEvent(
+          id: id ?? '',
+          name: name ?? '',
+          args: argsFragment ?? '',
+        );
+      }
+    }
 
     if (finishReason != null) {
       return DoneEvent(finishReason: finishReason);

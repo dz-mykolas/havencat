@@ -49,8 +49,7 @@ class ModelsDevService {
     _memory ??= cached;
 
     final bool fresh =
-        cached != null &&
-        DateTime.now().difference(cached.fetchedAt) < _ttl;
+        cached != null && DateTime.now().difference(cached.fetchedAt) < _ttl;
     if (cached != null && fresh && !forceRefresh) {
       return cached;
     }

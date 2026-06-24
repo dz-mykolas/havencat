@@ -918,7 +918,7 @@ class _AccountChips extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
             itemCount: sorted.length,
-            separatorBuilder: (BuildContext _, __) => const SizedBox(width: 8),
+            separatorBuilder: (BuildContext _, _) => const SizedBox(width: 8),
             itemBuilder: (BuildContext context, int index) {
               final ProviderAccount a = sorted[index];
               final bool active = a.id == activeId;

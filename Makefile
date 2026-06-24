@@ -13,11 +13,11 @@ RUN_ARGS := -d $(DEVICE)
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)
 # In the browser, LLM calls go through the local reverse proxy (CORS). Point
-# the web build at it; run `make proxy` in another terminal alongside this.
+# the web build at it; run `make server` in another terminal alongside this.
 RUN_ARGS += --dart-define=LLM_PROXY=http://localhost:$(SERVE_PORT)/proxy
 endif
 
-.PHONY: install run run-profile run-release proxy serve check format build-play build-apk build-ios build-web build-desktop clean
+.PHONY: install run run-profile run-release server serve rust check format build-play build-apk build-ios build-web build-desktop clean
 
 # Install the pinned Flutter SDK and project dependencies.
 install:
@@ -67,9 +67,16 @@ build-web:
 serve: build-web
 	cd $(APP) && PORT=$(SERVE_PORT) $(DART) run bin/serve.dart
 
-# Run ONLY the LLM reverse proxy. Use this in a second terminal next to
+# Build the Rust crate (cdylib) that the server + native apps load via FFI.
+# `dart run` and `flutter run` don't trigger Cargokit for the server path,
+# so this must run first whenever Rust code changes.
+rust:
+	cd rust && cargo build --release
+
+# Run the local server: LLM reverse proxy (CORS bypass) + web retrieval API
+# (Rust-backed search/fetch/cache). Use this in a second terminal next to
 # `make run` for hot-reload web development against real providers.
-proxy:
+server: rust
 	cd $(APP) && PORT=$(SERVE_PORT) $(DART) run bin/serve.dart
 
 # Build desktop app for the current OS.

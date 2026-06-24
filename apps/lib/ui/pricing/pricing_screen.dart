@@ -104,10 +104,7 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
 
     switch (vm.view) {
       case PricingView.overview:
-        return _Overview(
-          vm: vm,
-          onOpenProvider: vm.openProvider,
-        );
+        return _Overview(vm: vm, onOpenProvider: vm.openProvider);
       case PricingView.provider:
       case PricingView.all:
         return _ModelList(
@@ -120,10 +117,7 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
 }
 
 class _Overview extends StatelessWidget {
-  const _Overview({
-    required this.vm,
-    required this.onOpenProvider,
-  });
+  const _Overview({required this.vm, required this.onOpenProvider});
 
   final PricingViewModel vm;
   final ValueChanged<String> onOpenProvider;
@@ -149,7 +143,9 @@ class _Overview extends StatelessWidget {
             ],
           ),
         ),
-        Expanded(child: ProviderGrid(providers: vm.providers, onTap: onOpenProvider)),
+        Expanded(
+          child: ProviderGrid(providers: vm.providers, onTap: onOpenProvider),
+        ),
       ],
     );
   }
@@ -249,10 +245,7 @@ class _ResultsGrid extends StatelessWidget {
                 final PricedModel model = results[index];
                 cells.add(
                   Expanded(
-                    child: ModelCard(
-                      model: model,
-                      onTap: () => onTap(model),
-                    ),
+                    child: ModelCard(model: model, onTap: () => onTap(model)),
                   ),
                 );
               } else {

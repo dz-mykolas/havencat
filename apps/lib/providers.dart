@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +14,9 @@ import 'data/services/llm/model_service.dart';
 import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
+import 'data/services/web_retrieval/http_web_retrieval_adapter.dart';
+import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
+import 'data/services/web_retrieval/web_retrieval.dart';
 
 /// Secure storage for secrets (API keys + OAuth token bundles).
 ///
@@ -125,9 +129,35 @@ final modelServiceProvider = Provider<ModelService>((ref) {
 /// Source of truth for conversations + the streaming reply flow.
 final conversationRepositoryProvider =
     ChangeNotifierProvider<ConversationRepository>((ref) {
+      final WebRetrievalAdapter? webRetrieval = ref.watch(webRetrievalProvider);
       return ConversationRepository(
         providerRepository: ref.watch(providerAccountRepositoryProvider),
         adapterRegistry: ref.watch(adapterRegistryProvider),
         credentialResolver: ref.watch(credentialResolverProvider),
+        webRetrieval: webRetrieval,
+        // ref.read (not ref.watch) so toggling doesn't recreate the repository
+        // and wipe conversations. The chat screen syncs the flag at runtime
+        // via the toolsEnabled setter.
+        toolsEnabled: ref.read(toolsEnabledProvider),
       );
     });
+
+/// The web retrieval backend. On native (mobile/desktop) this is a
+/// [RustWebRetrievalAdapter] calling Rust via FRB FFI directly. On web it's an
+/// [HttpWebRetrievalAdapter] that calls the local server's `/api/*` JSON
+/// routes (the server itself uses [RustWebRetrievalAdapter] under the hood, so
+/// the same Rust crate backs both paths).
+///
+/// `main()` calls `configure()` on the native adapter at startup; tests can
+/// override this provider with a mock.
+final webRetrievalProvider = Provider<WebRetrievalAdapter>((ref) {
+  if (kIsWeb) {
+    return HttpWebRetrievalAdapter();
+  }
+  return RustWebRetrievalAdapter();
+});
+
+/// Whether tools (web search/fetch, etc.) are attached to outgoing chat
+/// messages. Toggled from the chat input's "+" menu. Persists across rebuilds
+/// (StateProvider); custom per-tool configuration can come later.
+final toolsEnabledProvider = StateProvider<bool>((ref) => false);

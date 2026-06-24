@@ -1,7 +1,10 @@
 import 'dart:io';
 
-import 'package:havencat/branding.dart';
-import 'package:havencat/server/llm_proxy.dart';
+import 'package:app/branding.dart';
+import 'package:app/data/services/web_retrieval/rust_web_retrieval_adapter.dart';
+import 'package:app/server/llm_proxy.dart';
+import 'package:app/server/web_retrieval_api.dart';
+import 'package:app/src/rust/frb_generated.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_static/shelf_static.dart';
@@ -43,6 +46,21 @@ Future<void> main(List<String> args) async {
     log: (String message) => stdout.writeln('[proxy] $message'),
   );
 
+  // Initialize the Rust web_retrieval subsystem (SQLite cache + provider
+  // fan-out). The server is the only path for the web build to reach Rust;
+  // native apps call the adapter directly via FRB FFI.
+  await RustLib.init();
+  final RustWebRetrievalAdapter webRetrieval = RustWebRetrievalAdapter();
+  await webRetrieval.configure(
+    dbPath: '', // in-memory; TODO: persist to a file next to the server
+    searchProviders: const [ProviderSlotConfig(kind: 'exa')],
+    fetchProviders: const [
+      ProviderSlotConfig(kind: 'direct_http'),
+      ProviderSlotConfig(kind: 'jina_reader'),
+    ],
+  );
+  final Handler webRetrievalApi = webRetrievalApiHandler(webRetrieval);
+
   Handler handler;
   if (Directory(webRoot).existsSync()) {
     // Try the proxy first; fall through to static files for everything else.
@@ -55,13 +73,15 @@ Future<void> main(List<String> args) async {
     // static 404.
     handler = Cascade(
       statusCodes: const <int>{404},
-    ).add(proxy).add(static).handler;
+    ).add(proxy).add(webRetrievalApi).add(static).handler;
   } else {
     stderr.writeln(
       'WEB_ROOT "$webRoot" not found — serving the proxy only. '
       'Run `flutter build web` to serve the app too.',
     );
-    handler = proxy;
+    handler = Cascade(
+      statusCodes: const <int>{404},
+    ).add(proxy).add(webRetrievalApi).handler;
   }
 
   final Handler pipeline = const Pipeline()
@@ -81,6 +101,7 @@ Future<void> main(List<String> args) async {
     ..writeln('$appName server ready')
     ..writeln('  url        http://$host:${server.port}')
     ..writeln('  llm proxy  http://$host:${server.port}/proxy')
+    ..writeln('  web api    http://$host:${server.port}/api/search|fetch|cache')
     ..writeln('  web root   $webRoot')
     ..writeln('  allowlist  $allowList')
     ..writeln('  requests are logged below as they arrive')

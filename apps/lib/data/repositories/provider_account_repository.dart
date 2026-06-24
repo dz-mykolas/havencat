@@ -81,7 +81,9 @@ class ProviderAccountRepository extends ChangeNotifier {
       _loaded = true;
       return;
     }
-    final List<ProviderAccount> migrated = persisted.map(_migrateEnabledModels).toList();
+    final List<ProviderAccount> migrated = persisted
+        .map(_migrateEnabledModels)
+        .toList();
     _accounts
       ..clear()
       ..addAll(migrated);
@@ -93,13 +95,12 @@ class ProviderAccountRepository extends ChangeNotifier {
     _loaded = true;
     // If any account was migrated (config changed), persist the new shape so
     // future loads skip the migration path.
-    final bool migratedAny = List.generate(persisted.length, (i) => persisted[i]).any(
-      (p) {
-        final m = _migrateEnabledModels(p);
-        return m.config['enabledModels'] != null &&
-            p.config['enabledModels'] == null;
-      },
-    );
+    final bool migratedAny =
+        List.generate(persisted.length, (i) => persisted[i]).any((p) {
+          final m = _migrateEnabledModels(p);
+          return m.config['enabledModels'] != null &&
+              p.config['enabledModels'] == null;
+        });
     if (migratedAny) {
       await _persist();
     }

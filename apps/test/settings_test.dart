@@ -1,15 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:havencat/app.dart';
-import 'package:havencat/data/repositories/provider_account_repository.dart';
-import 'package:havencat/data/services/auth/chatgpt_oauth_flow.dart';
-import 'package:havencat/data/services/auth/chatgpt_token_service.dart';
-import 'package:havencat/data/services/auth/secret_store.dart';
-import 'package:havencat/data/services/storage/account_store.dart';
-import 'package:havencat/domain/models/provider_account.dart';
-import 'package:havencat/ui/settings/settings_screen.dart';
-import 'package:havencat/ui/settings/settings_viewmodel.dart';
+import 'package:app/app.dart';
+import 'package:app/data/repositories/provider_account_repository.dart';
+import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
+import 'package:app/data/services/auth/chatgpt_token_service.dart';
+import 'package:app/data/services/auth/secret_store.dart';
+import 'package:app/data/services/storage/account_store.dart';
+import 'package:app/domain/models/provider_account.dart';
+import 'package:app/ui/settings/settings_screen.dart';
+import 'package:app/ui/settings/settings_viewmodel.dart';
 
 /// Settings tests.
 ///

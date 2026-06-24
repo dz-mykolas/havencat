@@ -109,15 +109,9 @@ class ModelCard extends StatelessWidget {
                       label: 'Reasoning',
                     ),
                   if (model.toolCall)
-                    const _CapChip(
-                      icon: Icons.build_outlined,
-                      label: 'Tools',
-                    ),
+                    const _CapChip(icon: Icons.build_outlined, label: 'Tools'),
                   if (model.supportsVision)
-                    const _CapChip(
-                      icon: Icons.image_outlined,
-                      label: 'Vision',
-                    ),
+                    const _CapChip(icon: Icons.image_outlined, label: 'Vision'),
                   if (model.openWeights)
                     const _CapChip(
                       icon: Icons.lock_open_outlined,
@@ -178,10 +172,7 @@ class _PricePill extends StatelessWidget {
           const SizedBox(height: 1),
           Text(
             kPerMillionCaption,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 10,
-            ),
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10),
           ),
         ],
       ),

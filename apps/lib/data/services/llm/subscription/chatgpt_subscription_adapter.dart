@@ -44,7 +44,12 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     );
   }
 
-  ChatGptSubscriptionAdapter._(this._dio, this._sse, this._endpoint, this._version);
+  ChatGptSubscriptionAdapter._(
+    this._dio,
+    this._sse,
+    this._endpoint,
+    this._version,
+  );
 
   final Dio _dio;
   final SseClient _sse;
@@ -91,7 +96,12 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
         method: 'POST',
         headers: resolved.headers,
         body: jsonEncode(
-          CodexProtocol.buildBody(model: model, messages: request.messages),
+          CodexProtocol.buildBody(
+            model: model,
+            messages: request.messages,
+            instructions: request.systemPrompt ?? '',
+            tools: request.tools,
+          ),
         ),
         cancelToken: cancelToken,
       );
@@ -154,7 +164,8 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     List<dynamic>? entries;
     if (body is Map<String, dynamic>) {
       entries =
-          (body['models'] as List<dynamic>?) ?? (body['data'] as List<dynamic>?);
+          (body['models'] as List<dynamic>?) ??
+          (body['data'] as List<dynamic>?);
     } else if (body is List) {
       entries = body;
     }
@@ -189,8 +200,9 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
   /// Parse one Responses API SSE payload into an [LlmEvent].
   ///
   /// Events are typed via the `type` field. We surface assistant text deltas,
-  /// reasoning-summary deltas, completion, and errors; everything else (item
-  /// lifecycle, tool calls, etc.) is ignored for a plain chat client.
+  /// reasoning-summary deltas, function-call arguments (tool calls),
+  /// completion, and errors; everything else (item lifecycle, etc.) is
+  /// ignored.
   LlmEvent? _parseEvent(String data) {
     final String trimmed = data.trim();
     if (trimmed.isEmpty) return null;
@@ -209,6 +221,24 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
         return (delta != null && delta.isNotEmpty)
             ? ReasoningEvent(delta)
             : null;
+      // Responses API: function call arguments stream as deltas. The first
+      // event for a call carries the call_id + name; subsequent ones carry
+      // argument fragments. We surface each as a ToolCallEvent so the
+      // repository can accumulate by id.
+      case 'response.function_call_arguments.delta':
+        final String? callId = decoded['call_id'] as String?;
+        final String? name = decoded['name'] as String?;
+        final String? argsDelta = decoded['delta'] as String?;
+        if (argsDelta == null || argsDelta.isEmpty) return null;
+        return ToolCallEvent(
+          id: callId ?? '',
+          name: name ?? '',
+          args: argsDelta,
+        );
+      case 'response.function_call_arguments.done':
+        // The full arguments are now available; the repository has already
+        // accumulated the deltas. Nothing to emit here.
+        return null;
       case 'response.completed':
         return const DoneEvent(finishReason: 'stop');
       case 'response.failed':

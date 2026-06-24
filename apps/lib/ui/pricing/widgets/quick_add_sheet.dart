@@ -23,17 +23,14 @@ Future<void> showQuickAdd(
   ProviderModels group,
   ProviderDefinition definition,
 ) async {
-  final bool wide =
-      MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint;
+  final bool wide = MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint;
   if (wide) {
     await showDialog<void>(
       context: context,
       builder: (BuildContext ctx) => Dialog(
         backgroundColor: AppTheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
           child: Padding(
@@ -41,22 +38,23 @@ Future<void> showQuickAdd(
             child: _QuickAddContent(
               group: group,
               definition: definition,
-              onSubmit: ({
-                required String displayName,
-                required String apiKey,
-                required String? baseUrl,
-                required List<String> enabledModels,
-              }) async {
-                await vm.addApiKeyAccount(
-                  definitionId: definition.id,
-                  displayName: displayName,
-                  apiKey: apiKey,
-                  config: baseUrl == null
-                      ? null
-                      : <String, Object?>{'baseUrl': baseUrl},
-                  enabledModels: enabledModels,
-                );
-              },
+              onSubmit:
+                  ({
+                    required String displayName,
+                    required String apiKey,
+                    required String? baseUrl,
+                    required List<String> enabledModels,
+                  }) async {
+                    await vm.addApiKeyAccount(
+                      definitionId: definition.id,
+                      displayName: displayName,
+                      apiKey: apiKey,
+                      config: baseUrl == null
+                          ? null
+                          : <String, Object?>{'baseUrl': baseUrl},
+                      enabledModels: enabledModels,
+                    );
+                  },
               onDone: () => Navigator.of(ctx).maybePop(),
             ),
           ),
@@ -85,22 +83,23 @@ Future<void> showQuickAdd(
             child: _QuickAddContent(
               group: group,
               definition: definition,
-              onSubmit: ({
-                required String displayName,
-                required String apiKey,
-                required String? baseUrl,
-                required List<String> enabledModels,
-              }) async {
-                await vm.addApiKeyAccount(
-                  definitionId: definition.id,
-                  displayName: displayName,
-                  apiKey: apiKey,
-                  config: baseUrl == null
-                      ? null
-                      : <String, Object?>{'baseUrl': baseUrl},
-                  enabledModels: enabledModels,
-                );
-              },
+              onSubmit:
+                  ({
+                    required String displayName,
+                    required String apiKey,
+                    required String? baseUrl,
+                    required List<String> enabledModels,
+                  }) async {
+                    await vm.addApiKeyAccount(
+                      definitionId: definition.id,
+                      displayName: displayName,
+                      apiKey: apiKey,
+                      config: baseUrl == null
+                          ? null
+                          : <String, Object?>{'baseUrl': baseUrl},
+                      enabledModels: enabledModels,
+                    );
+                  },
               onDone: () => Navigator.of(ctx).maybePop(),
             ),
           ),
@@ -130,7 +129,8 @@ class _QuickAddContent extends StatefulWidget {
     required String apiKey,
     required String? baseUrl,
     required List<String> enabledModels,
-  }) onSubmit;
+  })
+  onSubmit;
 
   /// Called after a successful submit; dismisses the dialog/drawer.
   final VoidCallback onDone;
@@ -150,8 +150,8 @@ class _QuickAddContentState extends State<_QuickAddContent> {
   @override
   void initState() {
     super.initState();
-    final String? templateBaseUrl = widget.definition.configTemplate['baseUrl']
-        as String?;
+    final String? templateBaseUrl =
+        widget.definition.configTemplate['baseUrl'] as String?;
     _name = TextEditingController(text: widget.group.name);
     _key = TextEditingController();
     _baseUrl = TextEditingController(text: templateBaseUrl ?? '');
@@ -175,8 +175,8 @@ class _QuickAddContentState extends State<_QuickAddContent> {
       _error = null;
     });
     try {
-      final String? templateBaseUrl = widget.definition.configTemplate['baseUrl']
-          as String?;
+      final String? templateBaseUrl =
+          widget.definition.configTemplate['baseUrl'] as String?;
       final bool hasUrlField = templateBaseUrl != null;
       await widget.onSubmit(
         displayName: _name.text.trim(),
@@ -198,8 +198,8 @@ class _QuickAddContentState extends State<_QuickAddContent> {
 
   @override
   Widget build(BuildContext context) {
-    final String? templateBaseUrl = widget.definition.configTemplate['baseUrl']
-        as String?;
+    final String? templateBaseUrl =
+        widget.definition.configTemplate['baseUrl'] as String?;
     final bool hasUrlField = templateBaseUrl != null;
     final String? apiKeyUrl = widget.definition.apiKeyUrl;
 
@@ -208,19 +208,13 @@ class _QuickAddContentState extends State<_QuickAddContent> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _Header(
-            title: 'Add ${widget.group.name}',
-            apiKeyUrl: apiKeyUrl,
-          ),
+          _Header(title: 'Add ${widget.group.name}', apiKeyUrl: apiKeyUrl),
           const SizedBox(height: 14),
           _LabeledField(
             label: 'Display name',
             child: TextField(
               controller: _name,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 14,
-              ),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
               decoration: const _FieldDecoration(),
             ),
           ),
@@ -230,10 +224,7 @@ class _QuickAddContentState extends State<_QuickAddContent> {
             child: TextField(
               controller: _key,
               obscureText: true,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 14,
-              ),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
               decoration: const _FieldDecoration(
                 hintText: 'Paste your API key',
               ),
@@ -395,15 +386,15 @@ class _FieldDecoration extends InputDecoration {
 
   @override
   InputBorder get focusedBorder => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppTheme.brandViolet),
-      );
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: AppTheme.brandViolet),
+  );
 
   @override
   InputBorder get enabledBorder => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: AppTheme.outline),
-      );
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: AppTheme.outline),
+  );
 }
 
 class _ModelSection extends StatelessWidget {
@@ -421,7 +412,8 @@ class _ModelSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool allSelected = selected.length == models.length && models.isNotEmpty;
+    final bool allSelected =
+        selected.length == models.length && models.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -473,14 +465,14 @@ class _ModelSection extends StatelessWidget {
               return InkWell(
                 onTap: () => onToggle(m),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
                   child: Row(
                     children: <Widget>[
                       Icon(
-                        on
-                            ? Icons.check_box
-                            : Icons.check_box_outline_blank,
+                        on ? Icons.check_box : Icons.check_box_outline_blank,
                         size: 18,
                         color: on
                             ? AppTheme.brandViolet
@@ -514,14 +506,10 @@ class _ModelSection extends StatelessWidget {
                         ),
                       ),
                       if (free)
-                        _Pill(
-                          label: 'Free',
-                          color: AppTheme.brandBlue,
-                        )
+                        _Pill(label: 'Free', color: AppTheme.brandBlue)
                       else if (m.cost?.output != null)
                         _Pill(
-                          label:
-                              '${formatPricePerMillion(m.cost!.output)}/1M',
+                          label: '${formatPricePerMillion(m.cost!.output)}/1M',
                           color: AppTheme.textSecondary,
                         ),
                     ],

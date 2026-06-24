@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:havencat/data/services/llm/llm_endpoint.dart';
+import 'package:app/data/services/llm/llm_endpoint.dart';
 
 /// [LlmEndpoint] decides direct (native) vs proxied (web) transport.
 void main() {

@@ -24,7 +24,8 @@ final class ReasoningEvent extends LlmEvent {
   final String delta;
 }
 
-/// The model invoked a tool. Future: tool-call approval + result round-trip.
+/// The model invoked a tool. The repository executes the call and appends a
+/// tool-result message, then re-streams so the model can use the results.
 final class ToolCallEvent extends LlmEvent {
   const ToolCallEvent({
     required this.id,
@@ -83,15 +84,35 @@ final class UnknownError extends LlmError {
   const UnknownError(super.message);
 }
 
+/// A function/tool the model can call (OpenAI `tools` shape). The model emits
+/// a [ToolCallEvent] with matching [name] + JSON [args]; the caller executes
+/// it and appends a tool-result message to continue the conversation.
+class ToolDefinition {
+  const ToolDefinition({
+    required this.name,
+    required this.description,
+    required this.parameters,
+  });
+
+  final String name;
+  final String description;
+
+  /// JSON Schema describing the arguments object, e.g.
+  /// `{'type': 'object', 'properties': {'query': {'type': 'string'}}, ...}`.
+  final Map<String, Object?> parameters;
+}
+
 /// What the adapter should generate, derived from a conversation + the user's
 /// latest message. The repository builds this; the adapter consumes it.
 class LlmRequest {
   const LlmRequest({
     required this.messages,
     required this.model,
+    this.systemPrompt,
     this.temperature,
     this.maxTokens,
     this.signal,
+    this.tools = const <ToolDefinition>[],
   });
 
   /// Full conversation history, oldest first, ending with the user's prompt.
@@ -100,10 +121,19 @@ class LlmRequest {
   /// Provider-specific model id, e.g. 'gpt-4o-mini' or 'qwen-max'.
   final String model;
 
+  /// System prompt prepended to the conversation. Adapters that speak the
+  /// OpenAI chat-completions shape emit it as a `role: system` message;
+  /// adapters with a native instructions field (e.g. Codex Responses) pass it
+  /// there. Null = no system prompt.
+  final String? systemPrompt;
+
   final double? temperature;
   final int? maxTokens;
 
   /// Cancellation signal. Adapters that support cancellation should abort the
   /// in-flight request when this fires.
   final Future<void> Function()? signal;
+
+  /// Tools the model may call this turn. Empty = no tools (plain completion).
+  final List<ToolDefinition> tools;
 }

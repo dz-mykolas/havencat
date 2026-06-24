@@ -5,22 +5,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 
-import 'package:havencat/data/repositories/provider_account_repository.dart';
-import 'package:havencat/data/services/auth/chatgpt_oauth_flow.dart';
-import 'package:havencat/data/services/auth/chatgpt_token_service.dart';
-import 'package:havencat/data/services/auth/credential_resolver.dart';
-import 'package:havencat/data/services/auth/secret_store.dart';
-import 'package:havencat/data/services/llm/account_models_service.dart';
-import 'package:havencat/data/services/llm/adapter_registry.dart';
-import 'package:havencat/data/services/llm/openai_compatible/openai_compatible_adapter.dart';
-import 'package:havencat/data/services/storage/account_store.dart';
-import 'package:havencat/data/services/storage/app_settings.dart';
-import 'package:havencat/domain/models/adapter_kind.dart';
-import 'package:havencat/domain/models/llm_model.dart';
-import 'package:havencat/domain/models/provider_account.dart';
-import 'package:havencat/providers.dart';
-import 'package:havencat/ui/chat/model_selector_viewmodel.dart';
-import 'package:havencat/ui/chat/widgets/model_selector_bar.dart';
+import 'package:app/data/repositories/provider_account_repository.dart';
+import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
+import 'package:app/data/services/auth/chatgpt_token_service.dart';
+import 'package:app/data/services/auth/credential_resolver.dart';
+import 'package:app/data/services/auth/secret_store.dart';
+import 'package:app/data/services/llm/account_models_service.dart';
+import 'package:app/data/services/llm/adapter_registry.dart';
+import 'package:app/data/services/llm/openai_compatible/openai_compatible_adapter.dart';
+import 'package:app/data/services/storage/account_store.dart';
+import 'package:app/data/services/storage/app_settings.dart';
+import 'package:app/domain/models/adapter_kind.dart';
+import 'package:app/domain/models/llm_model.dart';
+import 'package:app/domain/models/provider_account.dart';
+import 'package:app/providers.dart';
+import 'package:app/ui/chat/model_selector_viewmodel.dart';
+import 'package:app/ui/chat/widgets/model_selector_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

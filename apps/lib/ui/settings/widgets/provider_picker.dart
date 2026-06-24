@@ -123,8 +123,7 @@ class _ProviderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color fg =
-        disabled ? AppTheme.textSecondary : AppTheme.textPrimary;
+    final Color fg = disabled ? AppTheme.textSecondary : AppTheme.textPrimary;
     final Color iconColor = disabled
         ? AppTheme.textSecondary
         : AppTheme.textSecondary;
@@ -139,11 +138,7 @@ class _ProviderTile extends StatelessWidget {
       ),
       title: Text(
         definition.displayName,
-        style: TextStyle(
-          color: fg,
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-        ),
+        style: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.w500),
       ),
       subtitle: Text(
         disabled ? 'Already connected' : definition.description,

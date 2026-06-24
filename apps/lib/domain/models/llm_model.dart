@@ -17,9 +17,8 @@ class LlmModel {
   final bool hidden;
 
   /// What to show in the UI.
-  String get label => (displayName != null && displayName!.isNotEmpty)
-      ? displayName!
-      : id;
+  String get label =>
+      (displayName != null && displayName!.isNotEmpty) ? displayName! : id;
 
   @override
   bool operator ==(Object other) =>

@@ -25,11 +25,11 @@ import 'llm_adapter.dart';
 /// for the models.dev catalog.
 class AccountModelsService extends ChangeNotifier {
   AccountModelsService({
-    SharedPreferences? prefs,
+    this._prefs,
     required this._providers,
     required this._adapters,
     required this._credentials,
-  }) : _prefs = prefs {
+  }) {
     _providers.addListener(_onAccountsChanged);
   }
 

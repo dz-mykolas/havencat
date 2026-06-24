@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
 
-import 'package:havencat/server/llm_proxy.dart';
+import 'package:app/server/llm_proxy.dart';
 
 /// Tests for the bundled Shelf reverse proxy that lets the web build reach
 /// non-CORS LLM providers from the same origin.

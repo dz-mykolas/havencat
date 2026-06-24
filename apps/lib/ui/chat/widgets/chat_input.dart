@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../branding.dart';
+import '../../../data/services/web_retrieval/web_retrieval.dart';
 import '../../core/theme/app_theme.dart';
+import 'chat_tools_sheet.dart';
 
 /// The bottom input bar: a multiline text field inside a pill whose border
 /// becomes an animated, rotating brand gradient while the assistant is
@@ -14,11 +16,19 @@ class ChatInput extends StatefulWidget {
     required this.textController,
     required this.isGenerating,
     required this.onSend,
+    required this.toolsEnabled,
+    required this.onToggleTools,
+    required this.webRetrievalAdapter,
   });
 
   final TextEditingController textController;
   final bool isGenerating;
   final ValueChanged<String> onSend;
+  final bool toolsEnabled;
+
+  /// Called with the new desired enabled value on every toggle.
+  final ValueChanged<bool> onToggleTools;
+  final WebRetrievalAdapter webRetrievalAdapter;
 
   @override
   State<ChatInput> createState() => _ChatInputState();
@@ -41,9 +51,11 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
   );
 
   final FocusNode _focusNode = FocusNode();
+  final GlobalKey _plusButtonKey = GlobalKey();
   bool _hasText = false;
   bool _focused = false;
   bool _hovered = false;
+  bool _popoverOpen = false;
 
   @override
   void initState() {
@@ -119,7 +131,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
     // expands upward and outward from where it sits.
     const double growY = 0.03;
     const double growX = 2 * growY;
-    final bool grown = _hovered || _focused;
+    final bool grown = _hovered || _focused || _popoverOpen;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -155,10 +167,37 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
                   color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(26),
                 ),
-                padding: const EdgeInsets.fromLTRB(20, 4, 6, 4),
+                padding: const EdgeInsets.fromLTRB(16, 4, 6, 4),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
+                    _PlusButton(
+                      key: _plusButtonKey,
+                      active: widget.toolsEnabled,
+                      popoverOpen: _popoverOpen,
+                      onTap: () async {
+                        // Guard against re-entry: a tap while the popover is
+                        // already open (or opening) is a no-op. Without this,
+                        // spamming the button stacks multiple dialogs, each
+                        // with its own switch, and their toggles fight.
+                        if (_popoverOpen) return;
+                        setState(() => _popoverOpen = true);
+                        try {
+                          await showChatToolsMenu(
+                            context: context,
+                            enabled: widget.toolsEnabled,
+                            onToggle: widget.onToggleTools,
+                            adapter: widget.webRetrievalAdapter,
+                            anchorKey: _plusButtonKey,
+                          );
+                        } finally {
+                          if (mounted) {
+                            setState(() => _popoverOpen = false);
+                          }
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: widget.textController,
@@ -190,6 +229,51 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
                   ],
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The "+" affordance on the left of the input. When web search is enabled,
+/// it lights up with the brand gradient so the user can see at a glance that
+/// the next message will pull fresh context from the web.
+class _PlusButton extends StatelessWidget {
+  const _PlusButton({
+    super.key,
+    required this.active,
+    required this.popoverOpen,
+    required this.onTap,
+  });
+
+  final bool active;
+  final bool popoverOpen;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool highlighted = active || popoverOpen;
+    return Tooltip(
+      message: active ? 'Tools on' : 'Tools',
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: Material(
+          color: highlighted
+              ? AppTheme.brandViolet.withValues(alpha: 0.15)
+              : Colors.transparent,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Icon(
+              active ? Icons.travel_explore_rounded : Icons.add_rounded,
+              size: 22,
+              color: highlighted
+                  ? AppTheme.brandViolet
+                  : AppTheme.textSecondary,
             ),
           ),
         ),

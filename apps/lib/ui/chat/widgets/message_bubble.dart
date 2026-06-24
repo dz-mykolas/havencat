@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../domain/models/message.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/typing_indicator.dart';
+import 'chat_markdown.dart';
 
 /// Renders a single [ChatMessage].
 ///
@@ -37,14 +38,7 @@ class MessageBubble extends StatelessWidget {
           ),
           border: Border.all(color: AppTheme.outline),
         ),
-        child: Text(
-          message.text,
-          style: const TextStyle(
-            color: AppTheme.textPrimary,
-            fontSize: 15,
-            height: 1.4,
-          ),
-        ),
+        child: ChatMarkdown(text: message.text, selectable: true),
       ),
     );
   }
@@ -67,14 +61,7 @@ class MessageBubble extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       child: TypingIndicator(),
                     )
-                  : Text(
-                      message.text,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 15,
-                        height: 1.5,
-                      ),
-                    ),
+                  : ChatMarkdown(text: message.text, selectable: true),
             ),
           ),
         ],

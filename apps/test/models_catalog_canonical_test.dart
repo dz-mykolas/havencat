@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:havencat/domain/models/model_pricing.dart';
+import 'package:app/domain/models/model_pricing.dart';
 
 /// Tests for [ModelsCatalog.fromCatalogJson] — the simple iteration + `split("/")`
 /// approach to building the three Discover tabs (Models / Providers / Labs)
@@ -221,10 +221,10 @@ Map<String, Object?> _provider(
 }) => <String, Object?>{
   'id': id,
   'name': name,
-  if (npm != null) 'npm': npm,
-  if (api != null) 'api': api,
-  if (doc != null) 'doc': doc,
-  if (models != null) 'models': models,
+  'npm': ?npm,
+  'api': ?api,
+  'doc': ?doc,
+  'models': ?models,
 };
 
 Map<String, Object?> _servingModel(String id, String name) => <String, Object?>{

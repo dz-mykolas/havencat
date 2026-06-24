@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../branding.dart';
+import '../../data/services/web_retrieval/web_retrieval.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/animated_background.dart';
 import '../core/widgets/gradient_text.dart';
@@ -98,6 +99,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildInput() {
     final ChatViewModel vm = ref.watch(chatViewModelProvider);
+    final bool toolsEnabled = ref.watch(toolsEnabledProvider);
+    final WebRetrievalAdapter webRetrieval = ref.watch(webRetrievalProvider);
     return ListenableBuilder(
       listenable: vm,
       builder: (BuildContext context, _) {
@@ -105,6 +108,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           textController: _textController,
           isGenerating: vm.isGenerating,
           onSend: _send,
+          toolsEnabled: toolsEnabled,
+          onToggleTools: (bool next) {
+            ref.read(toolsEnabledProvider.notifier).state = next;
+            ref.read(conversationRepositoryProvider).toolsEnabled = next;
+          },
+          webRetrievalAdapter: webRetrieval,
         );
       },
     );

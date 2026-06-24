@@ -5,12 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 
-import 'package:havencat/data/services/llm/subscription/chatgpt_subscription_adapter.dart';
-import 'package:havencat/data/services/llm/subscription/codex_protocol.dart';
-import 'package:havencat/domain/models/adapter_kind.dart';
-import 'package:havencat/domain/models/llm_model.dart';
-import 'package:havencat/domain/models/message.dart';
-import 'package:havencat/domain/models/provider_account.dart';
+import 'package:app/data/services/llm/subscription/chatgpt_subscription_adapter.dart';
+import 'package:app/data/services/llm/subscription/codex_protocol.dart';
+import 'package:app/domain/models/adapter_kind.dart';
+import 'package:app/domain/models/llm_model.dart';
+import 'package:app/domain/models/message.dart';
+import 'package:app/domain/models/provider_account.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -68,9 +68,7 @@ void main() {
       final String jwt =
           '${seg(<String, Object?>{'alg': 'none'})}.'
           '${seg(<String, Object?>{
-            'https://api.openai.com/auth': <String, Object?>{
-              'chatgpt_account_id': 'acct-123',
-            },
+            'https://api.openai.com/auth': <String, Object?>{'chatgpt_account_id': 'acct-123'},
           })}.'
           'sig';
 
@@ -123,9 +121,10 @@ void main() {
         'gpt-5.2-codex',
         'codex-auto-review',
       ]);
-      expect(models.where((LlmModel m) => m.hidden).map((LlmModel m) => m.id), <String>[
-        'codex-auto-review',
-      ]);
+      expect(
+        models.where((LlmModel m) => m.hidden).map((LlmModel m) => m.id),
+        <String>['codex-auto-review'],
+      );
     });
 
     test('propagates upstream failures so the UI can retry', () async {

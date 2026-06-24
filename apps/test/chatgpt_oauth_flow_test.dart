@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 
-import 'package:havencat/data/services/auth/chatgpt_oauth_flow.dart';
+import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
 
 /// Tests for the ChatGPT device-code OAuth flow.
 ///
