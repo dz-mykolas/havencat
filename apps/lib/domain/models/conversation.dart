@@ -127,4 +127,30 @@ class Conversation {
   }
 
   bool get isEmpty => messages.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'messages': messages.map((m) => m.toJson()).toList(),
+    'providerAccountId': providerAccountId,
+    'createdAt': createdAt?.toIso8601String(),
+    'currentLeafId': currentLeafId,
+  };
+
+  factory Conversation.fromJson(Map<String, dynamic> json) {
+    final conv = Conversation(
+      id: json['id'] as String,
+      title: json['title'] as String? ?? 'New chat',
+      messages:
+          (json['messages'] as List<dynamic>?)
+              ?.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          <ChatMessage>[],
+      providerAccountId: json['providerAccountId'] as String?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : null,
+    )..currentLeafId = json['currentLeafId'] as String?;
+    return conv;
+  }
 }

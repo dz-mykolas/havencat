@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../branding.dart';
 import '../../core/theme/app_theme.dart';
@@ -27,15 +28,104 @@ class ConversationSidebar extends StatefulWidget {
 
 class _ConversationSidebarState extends State<ConversationSidebar> {
   bool _collapsed = false;
+  String _searchQuery = '';
 
   static const double _expandedWidth = 280;
   static const double _collapsedWidth = 60;
 
   void _toggle() => setState(() => _collapsed = !_collapsed);
 
+  List<ConversationView> get _filtered {
+    final List<ConversationView> all = widget.viewModel.conversations;
+    if (_searchQuery.isEmpty) return all;
+    final String q = _searchQuery.toLowerCase();
+    return all.where((c) => c.title.toLowerCase().contains(q)).toList();
+  }
+
   void _newChat() {
     widget.viewModel.newConversation();
     widget.onClose?.call();
+  }
+
+  void _showRenameDialog(String id, String currentTitle) {
+    final TextEditingController controller = TextEditingController(
+      text: currentTitle,
+    );
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Rename chat'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(fontSize: 15),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Title',
+            ),
+            onSubmitted: (v) {
+              widget.viewModel.renameConversation(id, v);
+              Navigator.of(context).pop();
+            },
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                widget.viewModel.renameConversation(id, controller.text);
+                Navigator.of(context).pop();
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDeleteConfirm(String id, String title) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete chat?'),
+          content: Text(
+            '“$title” will be permanently deleted. This cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.tonal(
+              style: FilledButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () {
+                widget.viewModel.deleteConversation(id);
+                Navigator.of(context).pop();
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _exportConversation(String id, String title) async {
+    final String markdown = widget.viewModel.exportConversation(id);
+    if (markdown.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: markdown));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('“$title” copied as Markdown'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -94,14 +184,60 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: _NewChatButton(onTap: _newChat),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Material(
+            color: Colors.transparent,
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Search chats…',
+                hintStyle: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                ),
+                prefixIcon: const Icon(Icons.search, size: 18),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                filled: true,
+                fillColor: AppTheme.surfaceHigh,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         const Divider(height: 1),
         Expanded(
           child: ListenableBuilder(
             listenable: widget.viewModel,
             builder: (BuildContext context, _) {
-              final List<ConversationView> items =
-                  widget.viewModel.conversations;
+              final List<ConversationView> items = _filtered;
+              if (items.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _searchQuery.isEmpty
+                          ? 'No conversations yet'
+                          : 'No matches',
+                      style: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              }
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 itemCount: items.length,
@@ -115,6 +251,9 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
                       widget.viewModel.selectConversation(c.id);
                       widget.onClose?.call();
                     },
+                    onRename: () => _showRenameDialog(c.id, c.title),
+                    onDelete: () => _showDeleteConfirm(c.id, c.title),
+                    onExport: () => _exportConversation(c.id, c.title),
                   );
                 },
               );
@@ -271,11 +410,17 @@ class _ConversationTile extends StatelessWidget {
     required this.title,
     required this.active,
     required this.onTap,
+    required this.onRename,
+    required this.onDelete,
+    required this.onExport,
   });
 
   final String title;
   final bool active;
   final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -310,6 +455,55 @@ class _ConversationTile extends StatelessWidget {
                       fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(
+                    Icons.more_horiz,
+                    size: 18,
+                    color: AppTheme.textSecondary,
+                  ),
+                  tooltip: 'More',
+                  itemBuilder: (BuildContext context) =>
+                      <PopupMenuEntry<String>>[
+                        const PopupMenuItem<String>(
+                          value: 'rename',
+                          child: ListTile(
+                            leading: Icon(Icons.edit_outlined, size: 20),
+                            title: Text('Rename'),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'export',
+                          child: ListTile(
+                            leading: Icon(Icons.ios_share, size: 20),
+                            title: Text('Export as Markdown'),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem<String>(
+                          value: 'delete',
+                          child: ListTile(
+                            leading: Icon(Icons.delete_outline, size: 20),
+                            title: Text('Delete'),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
+                  onSelected: (String value) {
+                    switch (value) {
+                      case 'rename':
+                        onRename();
+                      case 'export':
+                        onExport();
+                      case 'delete':
+                        onDelete();
+                    }
+                  },
                 ),
               ],
             ),

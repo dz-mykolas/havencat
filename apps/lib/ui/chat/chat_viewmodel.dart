@@ -49,6 +49,16 @@ class ChatViewModel extends ChangeNotifier {
   void selectSibling(String id, int direction) =>
       _conversations.selectSibling(id, direction);
 
+  /// Rename a conversation.
+  void renameConversation(String id, String newTitle) =>
+      _conversations.renameConversation(id, newTitle);
+
+  /// Delete a conversation. If active, switches to the next one.
+  void deleteConversation(String id) => _conversations.deleteConversation(id);
+
+  /// Export a conversation as Markdown.
+  String exportConversation(String id) => _conversations.exportConversation(id);
+
   // --- Pass-through getters so the view doesn't reach into the repository ---
 
   List<ConversationView> get conversations =>
@@ -56,7 +66,7 @@ class ChatViewModel extends ChangeNotifier {
 
   ConversationView get active => _toView(_conversations.active);
 
-  String get activeId => _conversations.activeId;
+  String? get activeId => _conversations.activeId;
 
   bool get isGenerating => _conversations.isGenerating;
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
@@ -16,6 +17,7 @@ import 'domain/models/provider_account.dart';
 import 'providers.dart';
 import 'server/app_config.dart';
 import 'server/logging.dart';
+import 'src/rust/api/conversations.dart' as rust_conversations;
 import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -56,6 +58,13 @@ Future<void> main() async {
   // Default providers are always enabled so the toggle in the chat input
   // works out of the box. Custom per-provider configuration can come later.
   if (!kIsWeb) {
+    // Configure the conversations SQLite database. On native the DB file
+    // lives in the app's support directory (persistent, not user-visible,
+    // auto-created by path_provider).
+    final String convDbPath =
+        '${(await getApplicationSupportDirectory()).path}/conversations.db';
+    await rust_conversations.configureConversations(dbPath: convDbPath);
+
     final RustWebRetrievalAdapter adapter =
         container.read(webRetrievalProvider) as RustWebRetrievalAdapter;
     await adapter.configure(

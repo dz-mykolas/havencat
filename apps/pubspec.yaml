@@ -59,6 +59,7 @@ dependencies:
   gpt_markdown: ^1.1.7
   web: ^1.1.1
   flutter_highlight: ^0.7.0
+  path_provider: ^2.1.6
 dev_dependencies:
   flutter_test:
     sdk: flutter

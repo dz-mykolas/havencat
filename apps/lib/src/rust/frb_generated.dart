@@ -3,7 +3,9 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/conversations.dart';
 import 'api/web_retrieval.dart';
+import 'conversations/db.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
@@ -65,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.10.0';
 
   @override
-  int get rustContentHash => 1889254799;
+  int get rustContentHash => -1493713572;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -76,13 +78,25 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<void> crateApiConversationsConfigureConversations({
+    required String dbPath,
+  });
+
   Future<void> crateApiWebRetrievalConfigureWebRetrieval({
     required String dbPath,
     required List<ProviderConfig> searchProviders,
     required List<ProviderConfig> fetchProviders,
   });
 
+  Future<void> crateApiConversationsDeleteConversation({required String id});
+
   Future<void> crateApiSimpleInitApp();
+
+  Future<List<StoredConversation>> crateApiConversationsLoadConversations();
+
+  Future<void> crateApiConversationsUpsertConversation({
+    required StoredConversation conv,
+  });
 
   Future<FetchedPage> crateApiWebRetrievalUrlFetch({
     required String url,
@@ -111,6 +125,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<void> crateApiConversationsConfigureConversations({
+    required String dbPath,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dbPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsConfigureConversationsConstMeta,
+        argValues: [dbPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsConfigureConversationsConstMeta =>
+      const TaskConstMeta(
+        debugName: "configure_conversations",
+        argNames: ["dbPath"],
+      );
+
+  @override
   Future<void> crateApiWebRetrievalConfigureWebRetrieval({
     required String dbPath,
     required List<ProviderConfig> searchProviders,
@@ -126,7 +173,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 2,
             port: port_,
           );
         },
@@ -148,6 +195,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiConversationsDeleteConversation({required String id}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsDeleteConversationConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsDeleteConversationConstMeta =>
+      const TaskConstMeta(debugName: "delete_conversation", argNames: ["id"]);
+
+  @override
   Future<void> crateApiSimpleInitApp() {
     return handler.executeNormal(
       NormalTask(
@@ -156,7 +231,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 4,
             port: port_,
           );
         },
@@ -175,6 +250,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
+  Future<List<StoredConversation>> crateApiConversationsLoadConversations() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_stored_conversation,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadConversationsConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsLoadConversationsConstMeta =>
+      const TaskConstMeta(debugName: "load_conversations", argNames: []);
+
+  @override
+  Future<void> crateApiConversationsUpsertConversation({
+    required StoredConversation conv,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_stored_conversation(conv, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsUpsertConversationConstMeta,
+        argValues: [conv],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsUpsertConversationConstMeta =>
+      const TaskConstMeta(debugName: "upsert_conversation", argNames: ["conv"]);
+
+  @override
   Future<FetchedPage> crateApiWebRetrievalUrlFetch({
     required String url,
     required String format,
@@ -188,7 +320,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 7,
             port: port_,
           );
         },
@@ -215,7 +347,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 8,
             port: port_,
           );
         },
@@ -247,7 +379,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 9,
             port: port_,
           );
         },
@@ -282,7 +414,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 10,
             port: port_,
           );
         },
@@ -316,9 +448,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  StoredConversation dco_decode_box_autoadd_stored_conversation(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_stored_conversation(raw);
   }
 
   @protected
@@ -366,6 +510,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<StoredConversation> dco_decode_list_stored_conversation(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_stored_conversation).toList();
+  }
+
+  @protected
+  List<StoredMessage> dco_decode_list_stored_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_stored_message).toList();
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
@@ -405,6 +561,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StoredConversation dco_decode_stored_conversation(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return StoredConversation(
+      id: dco_decode_String(arr[0]),
+      title: dco_decode_String(arr[1]),
+      providerAccount: dco_decode_opt_String(arr[2]),
+      createdAt: dco_decode_String(arr[3]),
+      currentLeafId: dco_decode_opt_String(arr[4]),
+      updatedAt: dco_decode_i_64(arr[5]),
+      messages: dco_decode_list_stored_message(arr[6]),
+    );
+  }
+
+  @protected
+  StoredMessage dco_decode_stored_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    return StoredMessage(
+      id: dco_decode_String(arr[0]),
+      conversationId: dco_decode_String(arr[1]),
+      role: dco_decode_String(arr[2]),
+      text: dco_decode_String(arr[3]),
+      parentId: dco_decode_opt_String(arr[4]),
+      childrenIds: dco_decode_String(arr[5]),
+      originalContent: dco_decode_opt_String(arr[6]),
+      hasError: dco_decode_bool(arr[7]),
+      activeChildId: dco_decode_opt_String(arr[8]),
+      toolCallId: dco_decode_opt_String(arr[9]),
+      toolCallsJson: dco_decode_opt_String(arr[10]),
+      createdAt: dco_decode_String(arr[11]),
+    );
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -437,9 +632,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  StoredConversation sse_decode_box_autoadd_stored_conversation(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_stored_conversation(deserializer));
   }
 
   @protected
@@ -511,6 +720,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<StoredConversation> sse_decode_list_stored_conversation(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <StoredConversation>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_stored_conversation(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<StoredMessage> sse_decode_list_stored_message(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <StoredMessage>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_stored_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -558,6 +795,60 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StoredConversation sse_decode_stored_conversation(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_title = sse_decode_String(deserializer);
+    var var_providerAccount = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_String(deserializer);
+    var var_currentLeafId = sse_decode_opt_String(deserializer);
+    var var_updatedAt = sse_decode_i_64(deserializer);
+    var var_messages = sse_decode_list_stored_message(deserializer);
+    return StoredConversation(
+      id: var_id,
+      title: var_title,
+      providerAccount: var_providerAccount,
+      createdAt: var_createdAt,
+      currentLeafId: var_currentLeafId,
+      updatedAt: var_updatedAt,
+      messages: var_messages,
+    );
+  }
+
+  @protected
+  StoredMessage sse_decode_stored_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_conversationId = sse_decode_String(deserializer);
+    var var_role = sse_decode_String(deserializer);
+    var var_text = sse_decode_String(deserializer);
+    var var_parentId = sse_decode_opt_String(deserializer);
+    var var_childrenIds = sse_decode_String(deserializer);
+    var var_originalContent = sse_decode_opt_String(deserializer);
+    var var_hasError = sse_decode_bool(deserializer);
+    var var_activeChildId = sse_decode_opt_String(deserializer);
+    var var_toolCallId = sse_decode_opt_String(deserializer);
+    var var_toolCallsJson = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_String(deserializer);
+    return StoredMessage(
+      id: var_id,
+      conversationId: var_conversationId,
+      role: var_role,
+      text: var_text,
+      parentId: var_parentId,
+      childrenIds: var_childrenIds,
+      originalContent: var_originalContent,
+      hasError: var_hasError,
+      activeChildId: var_activeChildId,
+      toolCallId: var_toolCallId,
+      toolCallsJson: var_toolCallsJson,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -581,12 +872,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
-  }
-
-  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -602,12 +887,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_stored_conversation(
+    StoredConversation self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_stored_conversation(self, serializer);
   }
 
   @protected
@@ -672,6 +972,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_stored_conversation(
+    List<StoredConversation> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_stored_conversation(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_stored_message(
+    List<StoredMessage> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_stored_message(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -715,6 +1039,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_stored_conversation(
+    StoredConversation self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.title, serializer);
+    sse_encode_opt_String(self.providerAccount, serializer);
+    sse_encode_String(self.createdAt, serializer);
+    sse_encode_opt_String(self.currentLeafId, serializer);
+    sse_encode_i_64(self.updatedAt, serializer);
+    sse_encode_list_stored_message(self.messages, serializer);
+  }
+
+  @protected
+  void sse_encode_stored_message(StoredMessage self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.conversationId, serializer);
+    sse_encode_String(self.role, serializer);
+    sse_encode_String(self.text, serializer);
+    sse_encode_opt_String(self.parentId, serializer);
+    sse_encode_String(self.childrenIds, serializer);
+    sse_encode_opt_String(self.originalContent, serializer);
+    sse_encode_bool(self.hasError, serializer);
+    sse_encode_opt_String(self.activeChildId, serializer);
+    sse_encode_opt_String(self.toolCallId, serializer);
+    sse_encode_opt_String(self.toolCallsJson, serializer);
+    sse_encode_String(self.createdAt, serializer);
+  }
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
@@ -735,11 +1091,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }

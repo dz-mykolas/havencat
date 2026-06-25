@@ -1,3 +1,8 @@
 # Local env files (keep .env.example tracked)
 .env
 .env.local
+
+# Runtime SQLite databases (conversations, etc.)
+*.db
+*.db-shm
+*.db-wal

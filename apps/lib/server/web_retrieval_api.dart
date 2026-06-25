@@ -23,17 +23,27 @@ Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
     // this API (e.g. dev server on :8080 → API on :8088). These routes use
     // simple GET/POST with safelisted headers, so no preflight is needed,
     // but the response must carry Access-Control-Allow-Origin. OPTIONS is
-    // answered directly as a defensive measure.
+    // answered directly as a defensive measure — but only for our own
+    // routes, so other handlers in the Cascade (e.g. conversations_api,
+    // which allows PUT/DELETE) can answer their own preflights.
     final origin = request.headers['origin'];
-    if (request.method == 'OPTIONS' && origin != null) {
-      return Response.ok(null, headers: _corsHeaders(origin));
-    }
 
     // Shelf serves request.url path relative to the handler's mount point.
     // This handler is mounted at the root, so paths arrive as
     // `api/search`, `api/fetch`, etc. Strip the leading `api/` segment.
     final path = request.url.path;
     final subPath = path.startsWith('api/') ? path.substring(4) : path;
+
+    if (request.method == 'OPTIONS' && origin != null) {
+      final isOurRoute =
+          subPath == 'search' ||
+          subPath == 'fetch' ||
+          subPath.startsWith('cache/');
+      if (!isOurRoute) {
+        return Response.notFound('Not a web_retrieval route.');
+      }
+      return Response.ok(null, headers: _corsHeaders(origin));
+    }
 
     try {
       final Response response;

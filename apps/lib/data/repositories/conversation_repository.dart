@@ -11,6 +11,7 @@ import '../services/llm/adapter_registry.dart';
 import '../services/llm/llm_adapter.dart';
 import '../services/llm/llm_event.dart';
 import '../services/llm/system_prompts.dart';
+import '../services/storage/conversation_store.dart';
 import '../services/web_retrieval/web_retrieval.dart';
 import '../services/web_retrieval/web_search_tools.dart';
 import 'provider_account_repository.dart';
@@ -29,16 +30,45 @@ class ConversationRepository extends ChangeNotifier {
     required ProviderAccountRepository providerRepository,
     required AdapterRegistry adapterRegistry,
     required CredentialResolver credentialResolver,
+    ConversationStore? conversationStore,
     WebRetrievalAdapter? webRetrieval,
     bool toolsEnabled = false,
   }) : _providers = providerRepository,
        adapterRegistry = adapterRegistry,
        _credentials = credentialResolver,
+       _store = conversationStore ?? InMemoryConversationStore(),
        _webRetrieval = webRetrieval,
        _toolsEnabled = toolsEnabled {
-    _conversations.add(Conversation(id: _newId(), createdAt: DateTime.now()));
-    _activeId = _conversations.first.id;
+    _init();
     _providers.addListener(_onProvidersChanged);
+  }
+
+  final ConversationStore _store;
+
+  Future<void> _init() async {
+    final List<Conversation> loaded = await _store.load();
+    // Don't persist streaming state — if the app crashed mid-stream, mark
+    // those messages as done so they don't hang on reload.
+    for (final Conversation c in loaded) {
+      for (final ChatMessage m in c.messages) {
+        m.isStreaming = false;
+      }
+    }
+    _conversations.addAll(loaded);
+    // Don't auto-select the latest chat — start on the welcome/empty state.
+    // The user picks a conversation from the sidebar or starts a new one.
+    _loaded = true;
+    notifyListeners();
+  }
+
+  bool _loaded = false;
+
+  /// Whether the initial load from the store has completed.
+  bool get isLoaded => _loaded;
+  String? _activeId;
+
+  void _persist(Conversation conversation) {
+    _store.upsert(conversation);
   }
 
   static final Logger _log = Logger('conversation');
@@ -51,7 +81,6 @@ class ConversationRepository extends ChangeNotifier {
   final WebSearchTools _webSearchTools = const WebSearchTools();
 
   final List<Conversation> _conversations = <Conversation>[];
-  late String _activeId;
   bool _isGenerating = false;
   StreamSubscription<LlmEvent>? _replySub;
   int _counter = 0;
@@ -77,10 +106,22 @@ class ConversationRepository extends ChangeNotifier {
     _toolsEnabled = value;
   }
 
-  Conversation get active =>
-      _conversations.firstWhere((Conversation c) => c.id == _activeId);
+  Conversation get active {
+    if (_activeId == null) {
+      // No active conversation (initial load or "new chat" empty state).
+      // Return a transient placeholder so the UI can render the welcome
+      // screen; it is never persisted or added to [_conversations].
+      return _placeholderConversation ??= Conversation(
+        id: '__empty__',
+        createdAt: DateTime.now(),
+      );
+    }
+    return _conversations.firstWhere((Conversation c) => c.id == _activeId);
+  }
 
-  String get activeId => _activeId;
+  Conversation? _placeholderConversation;
+
+  String? get activeId => _activeId;
 
   /// The account the active conversation is bound to, falling back to the
   /// user's currently-active account.
@@ -96,13 +137,10 @@ class ConversationRepository extends ChangeNotifier {
   }
 
   void newConversation() {
-    if (active.isEmpty) return; // Don't stack empty "New chat" entries.
-    final Conversation conversation = Conversation(
-      id: _newId(),
-      createdAt: DateTime.now(),
-    );
-    _conversations.insert(0, conversation);
-    _activeId = conversation.id;
+    // Just show the empty/welcome state — no draft is created until the
+    // user actually sends the first message (see [sendMessage]).
+    _activeId = null;
+    _placeholderConversation = null;
     notifyListeners();
   }
 
@@ -121,7 +159,15 @@ class ConversationRepository extends ChangeNotifier {
     final String trimmed = text.trim();
     if (trimmed.isEmpty || _isGenerating) return;
 
-    final Conversation conversation = active;
+    // If there's no active conversation (welcome state / "new chat"),
+    // create one now — lazily, only when the first message is sent.
+    Conversation conversation = active;
+    if (_activeId == null) {
+      conversation = Conversation(id: _newId(), createdAt: DateTime.now());
+      _conversations.insert(0, conversation);
+      _activeId = conversation.id;
+      _placeholderConversation = null;
+    }
     final bool wasEmpty = conversation.isEmpty;
 
     conversation.add(
@@ -133,6 +179,7 @@ class ConversationRepository extends ChangeNotifier {
       ),
     );
     if (wasEmpty) conversation.title = _titleFrom(trimmed);
+    _persist(conversation);
 
     await _streamReply();
   }
@@ -178,6 +225,7 @@ class ConversationRepository extends ChangeNotifier {
     } else {
       original.originalContent ??= original.text;
       original.text = trimmed;
+      _persist(conversation);
       notifyListeners();
     }
   }
@@ -189,6 +237,7 @@ class ConversationRepository extends ChangeNotifier {
     if (msg == null || msg.originalContent == null) return;
     msg.text = msg.originalContent!;
     msg.originalContent = null;
+    _persist(active);
     notifyListeners();
   }
 
@@ -253,6 +302,7 @@ class ConversationRepository extends ChangeNotifier {
       node = conversation.byId(leafId);
     }
     conversation.currentLeafId = leafId;
+    _persist(conversation);
     notifyListeners();
   }
 
@@ -282,6 +332,7 @@ class ConversationRepository extends ChangeNotifier {
         ),
       );
       _isGenerating = false;
+      _persist(conversation);
       notifyListeners();
       return;
     }
@@ -449,6 +500,7 @@ class ConversationRepository extends ChangeNotifier {
           _log.info('reply complete: round=$round toolCalls=0');
         }
         _isGenerating = false;
+        _persist(conversation);
         notifyListeners();
         return;
       }
@@ -510,6 +562,7 @@ class ConversationRepository extends ChangeNotifier {
     // Exhausted the round cap — stop gracefully.
     _log.warning('tool-call loop exhausted maxRounds=$maxRounds');
     _isGenerating = false;
+    _persist(conversation);
     notifyListeners();
   }
 
@@ -526,6 +579,7 @@ class ConversationRepository extends ChangeNotifier {
       );
       assistant.isStreaming = false;
       _isGenerating = false;
+      _persist(conversation);
       notifyListeners();
     }
   }
@@ -534,6 +588,53 @@ class ConversationRepository extends ChangeNotifier {
     // If the active account changed, the UI may want to reflect it. Nothing
     // to do to in-flight conversations — they keep their bound account.
     notifyListeners();
+  }
+
+  /// Renames a conversation by [id].
+  void renameConversation(String id, String newTitle) {
+    final String trimmed = newTitle.trim();
+    if (trimmed.isEmpty) return;
+    final int idx = _conversations.indexWhere((c) => c.id == id);
+    if (idx < 0) return;
+    _conversations[idx].title = trimmed;
+    _persist(_conversations[idx]);
+    notifyListeners();
+  }
+
+  /// Deletes a conversation by [id]. If it's the active one, returns to
+  /// the welcome/empty state.
+  void deleteConversation(String id) {
+    _conversations.removeWhere((c) => c.id == id);
+    if (_activeId == id) {
+      _activeId = null;
+      _placeholderConversation = null;
+    }
+    _store.delete(id);
+    notifyListeners();
+  }
+
+  /// Exports a conversation as Markdown.
+  String exportConversation(String id) {
+    final Conversation? conv = _conversations
+        .where((c) => c.id == id)
+        .firstOrNull;
+    if (conv == null) return '';
+    final StringBuffer buf = StringBuffer();
+    buf.writeln('# ${conv.title}');
+    buf.writeln();
+    for (final ChatMessage m in conv.activePath) {
+      if (m.role == MessageRole.tool) continue;
+      final String role = m.isUser
+          ? 'User'
+          : m.role == MessageRole.assistant
+          ? 'Assistant'
+          : 'System';
+      buf.writeln('### $role');
+      buf.writeln();
+      buf.writeln(m.text);
+      buf.writeln();
+    }
+    return buf.toString();
   }
 
   static String _titleFrom(String text) {

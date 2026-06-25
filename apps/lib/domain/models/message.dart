@@ -16,6 +16,14 @@ class ToolCall {
 
   /// Raw JSON arguments string as the model emitted it.
   String args;
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'args': args};
+
+  factory ToolCall.fromJson(Map<String, dynamic> json) => ToolCall(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    args: json['args'] as String,
+  );
 }
 
 /// A single message in a conversation.
@@ -95,4 +103,43 @@ class ChatMessage {
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;
   bool get isTool => role == MessageRole.tool;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'role': role.name,
+    'text': text,
+    'isStreaming': isStreaming,
+    'createdAt': createdAt?.toIso8601String(),
+    'toolCalls': toolCalls.map((tc) => tc.toJson()).toList(),
+    'toolCallId': toolCallId,
+    'parentId': parentId,
+    'childrenIds': childrenIds,
+    'originalContent': originalContent,
+    'hasError': hasError,
+    'activeChildId': activeChildId,
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) =>
+      ChatMessage(
+          id: json['id'] as String,
+          role: MessageRole.values.byName(json['role'] as String),
+          text: json['text'] as String? ?? '',
+          isStreaming: json['isStreaming'] as bool? ?? false,
+          createdAt: json['createdAt'] != null
+              ? DateTime.parse(json['createdAt'] as String)
+              : null,
+          toolCalls:
+              (json['toolCalls'] as List<dynamic>?)
+                  ?.map((e) => ToolCall.fromJson(e as Map<String, dynamic>))
+                  .toList() ??
+              const <ToolCall>[],
+          toolCallId: json['toolCallId'] as String?,
+          parentId: json['parentId'] as String?,
+          children: (json['childrenIds'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList(),
+          originalContent: json['originalContent'] as String?,
+        )
+        ..hasError = json['hasError'] as bool? ?? false
+        ..activeChildId = json['activeChildId'] as String?;
 }

@@ -14,6 +14,7 @@ import 'data/services/llm/model_service.dart';
 import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
+import 'data/services/storage/conversation_store.dart';
 import 'data/services/web_retrieval/http_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/web_retrieval.dart';
@@ -130,10 +131,18 @@ final modelServiceProvider = Provider<ModelService>((ref) {
 final conversationRepositoryProvider =
     ChangeNotifierProvider<ConversationRepository>((ref) {
       final WebRetrievalAdapter? webRetrieval = ref.watch(webRetrievalProvider);
+      String? httpBaseUrl;
+      if (kIsWeb) {
+        final String proxy = AppConfig.load().llmProxy;
+        httpBaseUrl = proxy.endsWith('/proxy')
+            ? proxy.substring(0, proxy.length - '/proxy'.length)
+            : proxy;
+      }
       return ConversationRepository(
         providerRepository: ref.watch(providerAccountRepositoryProvider),
         adapterRegistry: ref.watch(adapterRegistryProvider),
         credentialResolver: ref.watch(credentialResolverProvider),
+        conversationStore: createConversationStore(httpBaseUrl: httpBaseUrl),
         webRetrieval: webRetrieval,
         // ref.read (not ref.watch) so toggling doesn't recreate the repository
         // and wipe conversations. The chat screen syncs the flag at runtime

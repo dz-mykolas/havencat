@@ -3,7 +3,9 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/conversations.dart';
 import 'api/web_retrieval.dart';
+import 'conversations/db.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
@@ -26,7 +28,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  bool dco_decode_bool(dynamic raw);
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  StoredConversation dco_decode_box_autoadd_stored_conversation(dynamic raw);
 
   @protected
   FetchedPage dco_decode_fetched_page(dynamic raw);
@@ -47,6 +55,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<SearchResult> dco_decode_list_search_result(dynamic raw);
 
   @protected
+  List<StoredConversation> dco_decode_list_stored_conversation(dynamic raw);
+
+  @protected
+  List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -57,6 +71,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SearchResult dco_decode_search_result(dynamic raw);
+
+  @protected
+  StoredConversation dco_decode_stored_conversation(dynamic raw);
+
+  @protected
+  StoredMessage dco_decode_stored_message(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -74,7 +94,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  StoredConversation sse_decode_box_autoadd_stored_conversation(
+    SseDeserializer deserializer,
+  );
 
   @protected
   FetchedPage sse_decode_fetched_page(SseDeserializer deserializer);
@@ -99,6 +127,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<StoredConversation> sse_decode_list_stored_conversation(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<StoredMessage> sse_decode_list_stored_message(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
@@ -109,6 +147,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SearchResult sse_decode_search_result(SseDeserializer deserializer);
+
+  @protected
+  StoredConversation sse_decode_stored_conversation(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -123,9 +169,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer);
-
-  @protected
   void sse_encode_AnyhowException(
     AnyhowException self,
     SseSerializer serializer,
@@ -135,8 +178,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_stored_conversation(
+    StoredConversation self,
     SseSerializer serializer,
   );
 
@@ -171,6 +223,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_stored_conversation(
+    List<StoredConversation> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_stored_message(
+    List<StoredMessage> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
@@ -189,6 +253,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_search_result(SearchResult self, SseSerializer serializer);
 
   @protected
+  void sse_encode_stored_conversation(
+    StoredConversation self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
 
   @protected
@@ -199,9 +272,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer);
 }
 
 // Section: wire_class

@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:app/branding.dart';
+import 'package:app/data/services/storage/conversation_store.dart';
 import 'package:app/data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'package:app/server/app_config.dart';
-import 'package:app/server/llm_proxy.dart';
+import 'package:app/server/conversations_api.dart';
 import 'package:app/server/logging.dart';
+import 'package:app/server/llm_proxy.dart';
 import 'package:app/server/web_retrieval_api.dart';
+import 'package:app/src/rust/api/conversations.dart' as rust_conversations;
 import 'package:app/src/rust/frb_generated.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
@@ -71,6 +74,20 @@ Future<void> main(List<String> args) async {
   );
   final Handler webRetrievalApi = webRetrievalApiHandler(webRetrieval);
 
+  // Initialize the conversations SQLite database (server-side, for web).
+  // Native apps call configureConversations directly via FRB FFI.
+  // Resolve relative to the script location (apps/bin → repo root) so the
+  // DB lives at the repo root regardless of the working directory.
+  final String repoRoot = File.fromUri(
+    Uri.parse(Platform.script.toString()),
+  ).parent.parent.parent.path;
+  await rust_conversations.configureConversations(
+    dbPath: '$repoRoot/conversations.db',
+  );
+  final Handler conversationsApi = conversationsApiHandler(
+    RustConversationStore(),
+  );
+
   Handler handler;
   if (Directory(webRoot).existsSync()) {
     // Try the proxy first; fall through to static files for everything else.
@@ -83,7 +100,7 @@ Future<void> main(List<String> args) async {
     // static 404.
     handler = Cascade(
       statusCodes: const <int>{404},
-    ).add(proxy).add(webRetrievalApi).add(static).handler;
+    ).add(proxy).add(webRetrievalApi).add(conversationsApi).add(static).handler;
   } else {
     _log.warning(
       'WEB_ROOT "$webRoot" not found — serving the proxy only. '
@@ -91,7 +108,7 @@ Future<void> main(List<String> args) async {
     );
     handler = Cascade(
       statusCodes: const <int>{404},
-    ).add(proxy).add(webRetrievalApi).handler;
+    ).add(proxy).add(webRetrievalApi).add(conversationsApi).handler;
   }
 
   final Handler pipeline = const Pipeline()
