@@ -29,6 +29,26 @@ class ChatViewModel extends ChangeNotifier {
   Future<void> sendMessage(String text) => _conversations.sendMessage(text);
   Future<void> cancelGeneration() => _conversations.cancelGeneration();
 
+  /// Edit a message. [resend] = true creates a sibling + re-streams; false
+  /// mutates in place.
+  Future<void> editMessage(String id, String text, {required bool resend}) =>
+      _conversations.editMessage(id, text, resend: resend);
+
+  /// Regenerate an assistant reply from its parent user message.
+  Future<void> regenerate(String id, {String? suggestionPrompt}) =>
+      _conversations.regenerate(id, suggestionPrompt: suggestionPrompt);
+
+  /// Revert an in-place edit, restoring the original text.
+  void revertEdit(String id) => _conversations.revertEdit(id);
+
+  /// The last stream error message (for toast display). Null after cleared.
+  String? get lastStreamError => _conversations.lastStreamError;
+  void clearStreamError() => _conversations.clearStreamError();
+
+  /// Switch active branch. direction = -1 (prev) or +1 (next).
+  void selectSibling(String id, int direction) =>
+      _conversations.selectSibling(id, direction);
+
   // --- Pass-through getters so the view doesn't reach into the repository ---
 
   List<ConversationView> get conversations =>

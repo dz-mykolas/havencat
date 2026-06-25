@@ -56,6 +56,14 @@ class ConversationRepository extends ChangeNotifier {
   StreamSubscription<LlmEvent>? _replySub;
   int _counter = 0;
 
+  /// Set when the last stream failed and was rolled back. The UI shows a
+  /// toast and clears it. Null when no error or after the UI acknowledged it.
+  String? _lastStreamError;
+  String? get lastStreamError => _lastStreamError;
+  void clearStreamError() {
+    _lastStreamError = null;
+  }
+
   List<Conversation> get conversations => List.unmodifiable(_conversations);
   bool get isGenerating => _isGenerating;
   bool get toolsEnabled => _toolsEnabled;
@@ -116,7 +124,7 @@ class ConversationRepository extends ChangeNotifier {
     final Conversation conversation = active;
     final bool wasEmpty = conversation.isEmpty;
 
-    conversation.messages.add(
+    conversation.add(
       ChatMessage(
         id: _newId(),
         role: MessageRole.user,
@@ -126,12 +134,146 @@ class ConversationRepository extends ChangeNotifier {
     );
     if (wasEmpty) conversation.title = _titleFrom(trimmed);
 
+    await _streamReply();
+  }
+
+  /// Edits a message. When [resend] is true, creates a new sibling user
+  /// message with [newText] (preserving the original as a sibling branch)
+  /// and streams a fresh assistant reply from it. When false, mutates the
+  /// message text in place (stashing the original in [ChatMessage.originalContent]
+  /// for undo) without re-contacting the model.
+  Future<void> editMessage(
+    String id,
+    String newText, {
+    required bool resend,
+  }) async {
+    if (_isGenerating) return;
+    final String trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+
+    final Conversation conversation = active;
+    final ChatMessage? original = conversation.byId(id);
+    if (original == null) return;
+
+    if (resend) {
+      final ChatMessage edited = ChatMessage(
+        id: _newId(),
+        role: original.role,
+        text: trimmed,
+        createdAt: DateTime.now(),
+      );
+      // Sibling: same parent as the original. If the original is a root
+      // (parentId is null), pass isRoot so add() doesn't fall back to
+      // currentLeafId (which would append to the current branch instead
+      // of creating a sibling).
+      conversation.add(
+        edited,
+        parentId: original.parentId,
+        isRoot: original.parentId == null,
+      );
+      notifyListeners();
+      if (edited.isUser) {
+        await _streamReply();
+      }
+    } else {
+      original.originalContent ??= original.text;
+      original.text = trimmed;
+      notifyListeners();
+    }
+  }
+
+  /// Reverts an in-place edit, restoring [ChatMessage.originalContent] back
+  /// to [ChatMessage.text]. No-op if the message was never edited in place.
+  void revertEdit(String id) {
+    final ChatMessage? msg = active.byId(id);
+    if (msg == null || msg.originalContent == null) return;
+    msg.text = msg.originalContent!;
+    msg.originalContent = null;
+    notifyListeners();
+  }
+
+  /// Regenerates an assistant message by re-streaming from its parent user
+  /// message. Creates a new assistant sibling (the old reply is preserved as
+  /// a sibling branch). [suggestionPrompt], if given, is appended to the user
+  /// message text for this turn only (not persisted) — used by the
+  /// "Add Details" / "More Concise" regenerate menu.
+  Future<void> regenerate(
+    String assistantId, {
+    String? suggestionPrompt,
+  }) async {
+    if (_isGenerating) return;
+    final Conversation conversation = active;
+    final ChatMessage? assistant = conversation.byId(assistantId);
+    if (assistant == null) return;
+    final String? userId = assistant.parentId;
+    if (userId == null) return;
+
+    // Point the active leaf at the parent so _streamReply appends a new
+    // assistant sibling under it.
+    conversation.currentLeafId = userId;
+    notifyListeners();
+    await _streamReply(extraPrompt: suggestionPrompt);
+  }
+
+  /// Switches the active branch to a sibling of [currentId]. [direction] is
+  /// -1 for the previous sibling or +1 for the next. After switching, walks
+  /// down to the deepest leaf of the new branch so the full downstream
+  /// thread is visible (matches Open WebUI / ChatGPT behavior).
+  void selectSibling(String currentId, int direction) {
+    final Conversation conversation = active;
+    final ChatMessage? current = conversation.byId(currentId);
+    if (current == null) return;
+
+    // Get siblings — for root messages, all roots are siblings.
+    final List<String> siblings = conversation.siblingsOf(currentId);
+    if (siblings.isEmpty) return;
+
+    final int idx = siblings.indexOf(currentId);
+    if (idx < 0) return;
+    final int nextIdx = (idx + direction).clamp(0, siblings.length - 1);
+    final String newSiblingId = siblings[nextIdx];
+
+    // Update the parent's activeChildId so this choice is remembered.
+    final ChatMessage? parent = current.parentId == null
+        ? null
+        : conversation.byId(current.parentId!);
+    if (parent != null) {
+      parent.activeChildId = newSiblingId;
+    }
+
+    // Walk down to the deepest leaf, preferring the remembered active child
+    // at each level (instead of always picking the newest child).
+    String leafId = newSiblingId;
+    ChatMessage? node = conversation.byId(leafId);
+    while (node != null && node.childrenIds.isNotEmpty) {
+      final String? active = node.activeChildId;
+      leafId = (active != null && node.childrenIds.contains(active))
+          ? active
+          : node.childrenIds.last;
+      node = conversation.byId(leafId);
+    }
+    conversation.currentLeafId = leafId;
+    notifyListeners();
+  }
+
+  /// Streams an assistant reply for the active conversation, appending to the
+  /// current leaf. Called by [sendMessage], [editMessage] (resend), and
+  /// [regenerate]. [extraPrompt] is appended to the trailing user message
+  /// for this request only (not persisted). [fromLeafId] overrides the
+  /// starting leaf (used when the caller has already set currentLeafId).
+  Future<void> _streamReply({String? extraPrompt}) async {
+    final Conversation conversation = active;
+
+    // Remember the leaf before we start streaming so we can roll back on
+    // error (optimistic rollback — the failed branch stays as a sibling).
+    final String? previousLeaf = conversation.currentLeafId;
+
     _isGenerating = true;
     notifyListeners();
 
     final ProviderAccount? account = activeAccount;
     if (account == null) {
-      conversation.messages.add(
+      conversation.add(
         ChatMessage(
           id: _newId(),
           role: MessageRole.assistant,
@@ -153,6 +295,32 @@ class ConversationRepository extends ChangeNotifier {
       'model=$model tools=${_toolsEnabled && _webRetrieval != null ? 'on' : 'off'}',
     );
 
+    // Build the request messages from the active path. If an extraPrompt is
+    // given (regenerate suggestion), append it to the last user message for
+    // this request only — the stored message is untouched.
+    List<ChatMessage> requestMessages = conversation.activePath
+        .where((m) => !m.isStreaming)
+        .toList();
+    if (extraPrompt != null && extraPrompt.isNotEmpty) {
+      requestMessages = List<ChatMessage>.from(requestMessages);
+      for (int i = requestMessages.length - 1; i >= 0; i--) {
+        if (requestMessages[i].isUser) {
+          final ChatMessage orig = requestMessages[i];
+          requestMessages[i] = ChatMessage(
+            id: orig.id,
+            role: orig.role,
+            text: '${orig.text}\n\n$extraPrompt',
+            createdAt: orig.createdAt,
+            toolCalls: orig.toolCalls,
+            toolCallId: orig.toolCallId,
+            parentId: orig.parentId,
+            children: orig.childrenIds,
+          );
+          break;
+        }
+      }
+    }
+
     // Tool-call loop: stream → if the model emitted tool calls, execute them,
     // append tool-result messages, and re-stream. Caps at a few rounds so a
     // misbehaving model can't loop forever.
@@ -168,7 +336,7 @@ class ConversationRepository extends ChangeNotifier {
         isStreaming: true,
         createdAt: DateTime.now(),
       );
-      conversation.messages.add(assistant);
+      conversation.add(assistant);
       notifyListeners();
 
       final List<ToolCall> pendingCalls = <ToolCall>[];
@@ -182,9 +350,11 @@ class ConversationRepository extends ChangeNotifier {
       _replySub = adapter
           .stream(
             request: LlmRequest(
-              messages: conversation.messages
-                  .where((m) => !m.isStreaming)
-                  .toList(),
+              messages: (round == 0 && extraPrompt != null)
+                  ? requestMessages
+                  : conversation.activePath
+                        .where((m) => !m.isStreaming)
+                        .toList(),
               model: model,
               systemPrompt: SystemPrompts.base,
               tools: _toolsEnabled && _webRetrieval != null
@@ -268,6 +438,13 @@ class ConversationRepository extends ChangeNotifier {
       if (hadError || pendingCalls.isEmpty) {
         if (hadError) {
           _log.warning('tool-call loop ended with error at round=$round');
+          // Optimistic rollback: mark the failed assistant message and
+          // restore the active leaf to where it was before streaming.
+          assistant.hasError = true;
+          if (previousLeaf != null) {
+            conversation.currentLeafId = previousLeaf;
+          }
+          _lastStreamError = assistant.text;
         } else {
           _log.info('reply complete: round=$round toolCalls=0');
         }
@@ -286,7 +463,7 @@ class ConversationRepository extends ChangeNotifier {
         // No adapter configured — surface the calls but skip execution.
         _log.warning('web retrieval adapter is null — skipping tool execution');
         for (final ToolCall tc in pendingCalls) {
-          conversation.messages.add(
+          conversation.add(
             ChatMessage(
               id: _newId(),
               role: MessageRole.tool,
@@ -315,7 +492,7 @@ class ConversationRepository extends ChangeNotifier {
             _log.severe('tool execution failed: name=${tc.name}', e, stack);
             result = 'Error executing tool "${tc.name}": $e';
           }
-          conversation.messages.add(
+          conversation.add(
             ChatMessage(
               id: _newId(),
               role: MessageRole.tool,
@@ -341,9 +518,11 @@ class ConversationRepository extends ChangeNotifier {
     await _replySub?.cancel();
     _replySub = null;
     if (_isGenerating) {
-      final ChatMessage assistant = active.messages.lastWhere(
+      final Conversation conversation = active;
+      final List<ChatMessage> path = conversation.activePath;
+      final ChatMessage assistant = path.lastWhere(
         (m) => m.isStreaming,
-        orElse: () => active.messages.last,
+        orElse: () => path.last,
       );
       assistant.isStreaming = false;
       _isGenerating = false;

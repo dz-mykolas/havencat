@@ -8,6 +8,7 @@ import '../core/widgets/animated_background.dart';
 import '../core/widgets/gradient_text.dart';
 import '../../data/repositories/conversation_repository.dart';
 import '../../domain/models/conversation.dart';
+import '../../domain/models/message.dart';
 import '../../providers.dart';
 import '../settings/settings_screen.dart';
 import 'chat_viewmodel.dart';
@@ -62,6 +63,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom(force: true);
     await ref.read(chatViewModelProvider).sendMessage(text);
     _scrollToBottom(force: true);
+  }
+
+  void _checkStreamError(ChatViewModel vm) {
+    final String? error = vm.lastStreamError;
+    if (error == null) return;
+    vm.clearStreamError();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.startsWith('⚠️') ? error : '⚠️ $error'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
   }
 
   void _prefill(String suggestion) {
@@ -136,8 +153,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // next to the logo so the bar still fits.
     final bool wide = MediaQuery.of(context).size.width >= 720;
 
-    return Scaffold(
-      drawer: ConversationDrawer(viewModel: vm),
+    final Widget chatScaffold = Scaffold(
+      drawer: wide ? null : ConversationDrawer(viewModel: vm),
       appBar: AppBar(
         titleSpacing: wide ? 16 : 8,
         title: wide
@@ -198,6 +215,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 }
                 // Keep pinned to the newest content as tokens stream in.
                 _scrollToBottom();
+                _checkStreamError(vm);
+                final List<ChatMessage> activePath = conversation.activePath;
                 return Stack(
                   children: <Widget>[
                     // ListView extends full height; text scrolls behind the
@@ -209,16 +228,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                        itemCount: conversation.messages.length,
+                        itemCount: activePath.length,
+                        cacheExtent: 1500,
                         itemBuilder: (BuildContext context, int index) {
+                          final ChatMessage message = activePath[index];
+                          // Visible messages on the active path after this
+                          // one (excluding hidden tool-result messages) —
+                          // these are what branch off when editing+resending.
+                          final int downstreamCount = activePath
+                              .sublist(index + 1)
+                              .where((m) => !m.isTool)
+                              .length;
                           return Center(
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(
                                 maxWidth: AppTheme.contentMaxWidth,
                               ),
                               child: MessageBubble(
-                                message: conversation.messages[index],
-                                messages: conversation.messages,
+                                key: ValueKey<String>(message.id),
+                                message: message,
+                                messages: activePath,
+                                siblings: conversation.siblingsOf(message.id),
+                                isLast: index == activePath.length - 1,
+                                isGenerating: vm.isGenerating,
+                                descendantCount: downstreamCount,
+                                onEditUser: message.isUser
+                                    ? (newText, resend) => vm.editMessage(
+                                        message.id,
+                                        newText,
+                                        resend: resend,
+                                      )
+                                    : null,
+                                onRegenerate: message.isAssistant
+                                    ? ({String? suggestion}) => vm.regenerate(
+                                        message.id,
+                                        suggestionPrompt: suggestion,
+                                      )
+                                    : null,
+                                onRevert: message.isEdited
+                                    ? () => vm.revertEdit(message.id)
+                                    : null,
+                                onPrevSibling: () =>
+                                    vm.selectSibling(message.id, -1),
+                                onNextSibling: () =>
+                                    vm.selectSibling(message.id, 1),
                               ),
                             ),
                           );
@@ -226,22 +279,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                     // Gradient that fades text out before the pill.
+                    // Constrained to content width + centered so it doesn't
+                    // paint over the scrollbar (which lives in the right
+                    // margin of the full-width ListView).
                     Positioned(
                       left: 0,
                       right: 0,
                       bottom: 0,
                       child: IgnorePointer(
-                        child: Container(
-                          height: 120,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: <Color>[
-                                AppTheme.background.withValues(alpha: 0),
-                                AppTheme.background,
-                              ],
-                              stops: const <double>[0, 0.5],
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: AppTheme.contentMaxWidth,
+                            ),
+                            child: Container(
+                              height: 120,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: <Color>[
+                                    AppTheme.background.withValues(alpha: 0),
+                                    AppTheme.background,
+                                  ],
+                                  stops: const <double>[0, 0.5],
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -272,5 +335,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+
+    // On wide screens, show the sidebar as a persistent panel that pushes
+    // content to the right. On narrow screens, it's a drawer overlay.
+    if (wide) {
+      return Row(
+        children: <Widget>[
+          ConversationSidebar(viewModel: vm),
+          Expanded(child: chatScaffold),
+        ],
+      );
+    }
+    return chatScaffold;
   }
 }

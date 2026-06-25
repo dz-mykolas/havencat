@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../domain/models/message.dart';
 import '../../core/theme/app_theme.dart';
@@ -18,23 +19,150 @@ import 'chat_markdown.dart';
 /// assistant reply is rendered as a normal chat message after the card, not
 /// inside it. Tool-result messages ([MessageRole.tool]) are skipped here
 /// because they're inlined into the originating tool-call row.
-class MessageBubble extends StatelessWidget {
+///
+/// Editing: user messages show a pencil affordance on hover; tapping swaps
+/// the bubble for a textarea with Save (in-place) and Send (resend) buttons.
+/// Assistant messages show a regenerate button. When a message has siblings
+/// (alternate versions from edits/regenerations), a `‹ 2/3 ›` counter lets
+/// the user switch branches.
+class MessageBubble extends StatefulWidget {
   const MessageBubble({
     super.key,
     required this.message,
     this.messages = const <ChatMessage>[],
+    this.siblings = const <String>[],
+    this.isLast = false,
+    this.isGenerating = false,
+    this.descendantCount = 0,
+    this.onEditUser,
+    this.onRegenerate,
+    this.onRevert,
+    this.onPrevSibling,
+    this.onNextSibling,
   });
 
   final ChatMessage message;
   final List<ChatMessage> messages;
 
+  /// Sibling message ids of [message.id] (including itself). Empty for a root
+  /// or a message with no alternate versions.
+  final List<String> siblings;
+
+  /// True when this is the last message on the active path. Used to decide
+  /// whether to show the regenerate affordance (only on the last assistant).
+  final bool isLast;
+
+  /// True while the repository is streaming a reply. Disables edit/regenerate
+  /// actions to avoid racing the stream.
+  final bool isGenerating;
+
+  /// Number of messages downstream of this one. Used to show a cache-cost
+  /// hint when editing a message that has descendants.
+  final int descendantCount;
+
+  /// Called when the user saves an edit to a user message. [resend] = true
+  /// creates a sibling and re-streams; false mutates in place. Null when the
+  /// message isn't editable (non-user, or generation in flight).
+  final void Function(String newText, bool resend)? onEditUser;
+
+  /// Called when the user requests regeneration of an assistant message. The
+  /// optional [suggestion] is appended to the parent user message for this
+  /// turn only. Null when regeneration isn't available.
+  final void Function({String? suggestion})? onRegenerate;
+
+  /// Called when the user reverts an in-place edit. Null when the message
+  /// wasn't edited in place.
+  final VoidCallback? onRevert;
+
+  /// Navigate to the previous / next sibling branch. Null when there are no
+  /// siblings (counter hidden).
+  final VoidCallback? onPrevSibling;
+  final VoidCallback? onNextSibling;
+
+  @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble>
+    with AutomaticKeepAliveClientMixin {
+  bool _editing = false;
+  late final TextEditingController _editController;
+  late final FocusNode _editFocus;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _editController = TextEditingController(text: widget.message.text);
+    _editFocus = FocusNode();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the underlying message changed (e.g. branch switch) while not
+    // editing, sync the controller so a future edit starts from current text.
+    if (!_editing && oldWidget.message.text != widget.message.text) {
+      _editController.text = widget.message.text;
+    }
+  }
+
+  @override
+  void dispose() {
+    _editController.dispose();
+    _editFocus.dispose();
+    super.dispose();
+  }
+
+  void _startEdit() {
+    _editController.text = widget.message.text;
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _editFocus.requestFocus(),
+    );
+  }
+
+  /// Breakdown of messages below this one on the active path, e.g.
+  /// "1 reply, 2 user messages, 2 replies" — shown as a tooltip on the
+  /// cost hint so the user knows what they're replacing.
+  String get _downstreamBreakdown {
+    final int idx = widget.messages.indexOf(widget.message);
+    if (idx < 0) return '';
+    final List<ChatMessage> below = widget.messages.sublist(idx + 1);
+    final int replies = below.where((m) => m.isAssistant).length;
+    final int userMsgs = below.where((m) => m.isUser).length;
+    final List<String> parts = <String>[];
+    if (replies > 0) {
+      parts.add('$replies repl${replies == 1 ? 'y' : 'ies'}');
+    }
+    if (userMsgs > 0) {
+      parts.add('$userMsgs user message${userMsgs == 1 ? '' : 's'}');
+    }
+    return parts.isEmpty ? 'Nothing below' : parts.join(', ');
+  }
+
+  void _cancelEdit() => setState(() => _editing = false);
+
+  void _save(bool resend) {
+    final String text = _editController.text.trim();
+    if (text.isEmpty) return;
+    widget.onEditUser?.call(text, resend);
+    setState(() => _editing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (message.isTool) return const SizedBox.shrink();
-    return message.isUser ? _buildUser(context) : _buildAssistant(context);
+    super.build(context);
+    if (widget.message.isTool) return const SizedBox.shrink();
+    return widget.message.isUser
+        ? _buildUser(context)
+        : _buildAssistant(context);
   }
 
   Widget _buildUser(BuildContext context) {
+    if (_editing) return _buildUserEditor(context);
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
@@ -55,11 +183,106 @@ class MessageBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+          children: <Widget>[
             ChatMarkdown(
-              text: message.text,
+              text: widget.message.text,
               selectable: true,
               fillWidth: false,
+            ),
+            _buildActionsRow(context, isUser: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserEditor(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.all(8),
+        constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth * 0.85),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceHigh,
+          borderRadius: const BorderRadius.all(Radius.circular(20)),
+          border: Border.all(color: AppTheme.outline),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: <Widget>[
+            KeyboardListener(
+              focusNode: FocusNode(),
+              onKeyEvent: (KeyEvent e) {
+                if (e is KeyDownEvent &&
+                    e.logicalKey == LogicalKeyboardKey.escape) {
+                  _cancelEdit();
+                }
+              },
+              child: TextField(
+                controller: _editController,
+                focusNode: _editFocus,
+                minLines: 1,
+                maxLines: 12,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                  border: InputBorder.none,
+                ),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (widget.descendantCount > 0)
+              Tooltip(
+                message: _downstreamBreakdown,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.info_outline,
+                        size: 13,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.4),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${widget.descendantCount} '
+                        'message${widget.descendantCount == 1 ? '' : 's'} '
+                        'below will branch off',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextButton(onPressed: _cancelEdit, child: const Text('Cancel')),
+                const SizedBox(width: 4),
+                TextButton(
+                  onPressed: () => _save(false),
+                  child: const Text('Save'),
+                ),
+                const SizedBox(width: 4),
+                FilledButton(
+                  onPressed: () => _save(true),
+                  child: const Text('Send'),
+                ),
+              ],
             ),
           ],
         ),
@@ -68,25 +291,188 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildAssistant(BuildContext context) {
-    final bool showTyping = message.isStreaming && message.text.isEmpty;
+    final bool showTyping =
+        widget.message.isStreaming && widget.message.text.isEmpty;
 
     // Assistant message with tool calls → grouped tool-step card.
-    if (message.toolCalls.isNotEmpty) {
-      return _ToolStepCard(assistant: message, messages: messages);
+    if (widget.message.toolCalls.isNotEmpty) {
+      return _ToolStepCard(
+        assistant: widget.message,
+        messages: widget.messages,
+      );
     }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: showTyping
-          ? const Align(
-              alignment: Alignment.centerLeft,
-              child: TypingIndicator(),
-            )
-          : ChatMarkdown(
-              text: message.text,
-              selectable: true,
-              streaming: message.isStreaming,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          showTyping
+              ? const Align(
+                  alignment: Alignment.centerLeft,
+                  child: TypingIndicator(),
+                )
+              : ChatMarkdown(
+                  text: widget.message.text,
+                  selectable: true,
+                  streaming: widget.message.isStreaming,
+                ),
+          _buildActionsRow(context, isUser: false),
+        ],
+      ),
+    );
+  }
+
+  /// Row of hover-visible actions: sibling counter (if siblings > 1),
+  /// edit (user only), regenerate menu (assistant, last only, not while
+  /// generating), revert (if edited in place).
+  Widget _buildActionsRow(BuildContext context, {required bool isUser}) {
+    final bool canEdit =
+        isUser && widget.onEditUser != null && !widget.isGenerating;
+    final bool canRegenerate =
+        !isUser &&
+        widget.isLast &&
+        widget.onRegenerate != null &&
+        !widget.isGenerating;
+    final bool canRevert =
+        isUser && widget.message.isEdited && widget.onRevert != null;
+    final bool hasSiblings = widget.siblings.length > 1;
+
+    if (!canEdit && !canRegenerate && !hasSiblings && !canRevert) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        children: <Widget>[
+          if (hasSiblings) _buildSiblingCounter(context),
+          if (canRevert)
+            _IconButton(
+              icon: Icons.undo,
+              tooltip: 'Revert edit',
+              onTap: widget.onRevert,
             ),
+          if (canEdit)
+            _IconButton(
+              icon: Icons.edit_outlined,
+              tooltip: 'Edit',
+              onTap: _startEdit,
+            ),
+          if (canRegenerate) _buildRegenerateMenu(context),
+        ],
+      ),
+    );
+  }
+
+  /// Regenerate button with a dropdown menu of suggestion prompts.
+  Widget _buildRegenerateMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Regenerate',
+      icon: Icon(
+        Icons.refresh,
+        size: 16,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+      ),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      onSelected: (String? suggestion) {
+        widget.onRegenerate?.call(suggestion: suggestion);
+      },
+      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(value: '', child: Text('Regenerate')),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'Please provide more details and elaboration.',
+          child: Text('Add Details'),
+        ),
+        const PopupMenuItem<String>(
+          value: 'Please be more concise and to the point.',
+          child: Text('More Concise'),
+        ),
+        const PopupMenuItem<String>(
+          value: 'Please be more specific and precise.',
+          child: Text('Be More Specific'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSiblingCounter(BuildContext context) {
+    final int idx = widget.siblings.indexOf(widget.message.id);
+    final int pos = idx < 0 ? 1 : idx + 1;
+    final theme = Theme.of(context);
+    final bool failed = widget.message.hasError;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _IconButton(
+          icon: Icons.chevron_left,
+          tooltip: 'Previous version',
+          onTap: widget.onPrevSibling,
+        ),
+        Text(
+          '$pos/${widget.siblings.length}',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: failed
+                ? theme.colorScheme.error
+                : theme.colorScheme.onSurface.withValues(alpha: 0.55),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (failed)
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Icon(
+              Icons.error_outline,
+              size: 14,
+              color: theme.colorScheme.error,
+            ),
+          ),
+        _IconButton(
+          icon: Icons.chevron_right,
+          tooltip: 'Next version',
+          onTap: widget.onNextSibling,
+        ),
+      ],
+    );
+  }
+}
+
+/// A compact hover-visible icon button used in message action rows.
+class _IconButton extends StatelessWidget {
+  const _IconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            icon,
+            size: 16,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+          ),
+        ),
+      ),
     );
   }
 }

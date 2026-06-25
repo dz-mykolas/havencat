@@ -23,6 +23,12 @@ class ToolCall {
 /// Plain mutable class (no freezed/codegen). The assistant message's [text]
 /// grows token-by-token while [isStreaming] is true; the repository/viewmodel
 /// mutate it in place and notify listeners.
+///
+/// Messages form a tree via [parentId] / [childrenIds]. The "active thread"
+/// is the path from the conversation's [Conversation.currentLeafId] back to
+/// the root. Editing/regenerating creates siblings rather than overwriting,
+/// so prior branches are preserved. For a linear (non-branched) conversation
+/// the tree degenerates to a linked list and activePath equals messages.
 class ChatMessage {
   ChatMessage({
     required this.id,
@@ -32,7 +38,10 @@ class ChatMessage {
     this.createdAt,
     this.toolCalls = const <ToolCall>[],
     this.toolCallId,
-  });
+    this.parentId,
+    List<String>? children,
+    this.originalContent,
+  }) : childrenIds = children ?? <String>[];
 
   final String id;
   final MessageRole role;
@@ -52,6 +61,36 @@ class ChatMessage {
 
   /// For [MessageRole.tool] messages: the id of the call this is a result for.
   final String? toolCallId;
+
+  /// Id of the message this one replies to. Null for the conversation root.
+  /// Siblings (alternate versions of the same logical turn) share a parentId.
+  String? parentId;
+
+  /// Ids of messages that reply to this one. Empty for a leaf.
+  final List<String> childrenIds;
+
+  /// Snapshot of [text] before an in-place edit, so the edit can be reverted
+  /// without spawning a new branch. Null when the message was never edited
+  /// in place. Only set on the first in-place edit; subsequent edits keep the
+  /// original snapshot.
+  String? originalContent;
+
+  /// True when the stream that produced this message failed. The message is
+  /// kept in the tree as a sibling (so the user can inspect it) but the active
+  /// branch rolls back to the previous leaf. Used to show a failed indicator
+  /// in the sibling counter.
+  bool hasError = false;
+
+  bool get isLeaf => childrenIds.isEmpty;
+
+  /// Which child is the currently-selected branch. Used by
+  /// [Conversation.selectSibling] to remember the chosen fork at each level
+  /// when walking down to a leaf, instead of always picking the newest child.
+  /// Null when there are no children or no selection has been made yet.
+  String? activeChildId;
+
+  /// True when [text] was changed in place (not via a new sibling branch).
+  bool get isEdited => originalContent != null;
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;

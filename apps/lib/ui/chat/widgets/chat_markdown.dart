@@ -116,6 +116,21 @@ class _ChatMarkdownState extends State<ChatMarkdown>
   @override
   void didUpdateWidget(covariant ChatMarkdown oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // If the text changed to a completely different message (not just
+    // appended tokens during streaming), snap to full reveal immediately.
+    // This happens on branch switches — re-animating would look like the
+    // message is regenerating.
+    final bool isExtension =
+        oldWidget.text.isEmpty || widget.text.startsWith(oldWidget.text);
+    if (!isExtension) {
+      _revealed = widget.text.length.toDouble();
+      _lastTarget = widget.text.length;
+      _lastTargetTime = Duration.zero;
+      _modelCps = 0;
+      _stopTicker();
+      setState(() {});
+      return;
+    }
     if (widget.text.length < _revealed.round()) {
       _revealed = widget.text.length.toDouble();
       _lastTarget = widget.text.length;
