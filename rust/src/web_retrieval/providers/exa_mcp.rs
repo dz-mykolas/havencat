@@ -83,9 +83,8 @@ impl ExaMcpProvider {
         }
 
         let text = resp.text().await?;
-        parse_mcp_response(&text).ok_or_else(|| {
-            WebRetrievalError::Network("exa: empty/unparseable response".into())
-        })
+        parse_mcp_response(&text)
+            .ok_or_else(|| WebRetrievalError::Network("exa: empty/unparseable response".into()))
     }
 }
 
@@ -115,18 +114,21 @@ impl WebSearchProvider for ExaMcpProvider {
             "livecrawl": "fallback",
         });
         let text = self.call_tool(&endpoint, "web_search_exa", args).await?;
-        let parsed: ExaSearchResponse = serde_json::from_str(&text).unwrap_or_default();
-        Ok(parsed
-            .results
-            .into_iter()
-            .map(|r| SearchResult {
-                title: r.title,
-                url: r.url,
-                snippet: r.text.unwrap_or_default(),
-                published_at: None,
-                provider: "exa".into(),
-            })
-            .collect())
+        tracing::debug!(query = query, response = %text, "exa raw search response");
+
+        // Exa's MCP tools/call returns results as markdown text, not JSON:
+        //   Title: ...
+        //   URL: ...
+        //   Published: ...
+        //   Author: ...
+        //   Highlights:
+        //   <snippet text>
+        //   ---
+        //   Title: ...
+        //   ...
+        let results = parse_exa_search_markdown(&text);
+        tracing::info!(query = query, count = results.len(), "exa search parsed");
+        Ok(results)
     }
 }
 
@@ -191,20 +193,118 @@ fn parse_payload(payload: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct ExaSearchResponse {
-    #[serde(default)]
-    results: Vec<ExaSearchItem>,
+/// Parse Exa's markdown-formatted search response into [SearchResult]s.
+///
+/// Each result is a block with fields like `Title:`, `URL:`, `Published:`,
+/// `Author:`, and `Highlights:` (the snippet). Blocks are separated by `---`.
+fn parse_exa_search_markdown(text: &str) -> Vec<SearchResult> {
+    // Split on `---` separators (possibly surrounded by whitespace).
+    let blocks: Vec<&str> = text.split("\n---\n").collect();
+    let mut results = Vec::new();
+
+    for block in blocks {
+        let block = block.trim();
+        if block.is_empty() {
+            continue;
+        }
+
+        let mut title = String::new();
+        let mut url = String::new();
+        let mut snippet = String::new();
+        let mut published_at: Option<i64> = None;
+        let mut in_highlights = false;
+
+        for line in block.lines() {
+            let line = line.trim_end();
+
+            if in_highlights {
+                // Everything after "Highlights:" until the next field or block
+                // is the snippet text.
+                if line.starts_with("Title:")
+                    || line.starts_with("URL:")
+                    || line.starts_with("Published:")
+                    || line.starts_with("Author:")
+                {
+                    in_highlights = false;
+                    // Re-process this line as a field below.
+                } else {
+                    if !snippet.is_empty() {
+                        snippet.push(' ');
+                    }
+                    snippet.push_str(line.trim());
+                    continue;
+                }
+            }
+
+            if let Some(val) = line.strip_prefix("Title:") {
+                title = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("URL:") {
+                url = val.trim().to_string();
+            } else if let Some(val) = line.strip_prefix("Published:") {
+                let val = val.trim();
+                if val != "N/A" && !val.is_empty() {
+                    published_at = parse_exa_date(val);
+                }
+            } else if let Some(_val) = line.strip_prefix("Author:") {
+                // Author is not part of SearchResult; skip.
+            } else if line.starts_with("Highlights:") {
+                in_highlights = true;
+                let rest = line.strip_prefix("Highlights:").unwrap_or("").trim();
+                if !rest.is_empty() {
+                    snippet = rest.to_string();
+                }
+            }
+        }
+
+        // Only add if we got at least a URL (filters out empty blocks).
+        if !url.is_empty() {
+            results.push(SearchResult {
+                title,
+                url,
+                snippet,
+                published_at,
+                provider: "exa".into(),
+            });
+        }
+    }
+
+    results
 }
 
-#[derive(Serialize, Deserialize)]
-struct ExaSearchItem {
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    url: String,
-    #[serde(default)]
-    text: Option<String>,
+/// Parse an Exa date string (ISO 8601, e.g. "2009-03-02T12:55:27.000Z") into
+/// Unix epoch seconds. Returns None if parsing fails.
+fn parse_exa_date(s: &str) -> Option<i64> {
+    // Exa dates look like "2009-03-02T12:55:27.000Z".
+    // We only need the date part for a rough timestamp.
+    let date_part = s.split('T').next()?;
+    let mut parts = date_part.split('-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: i64 = parts.next()?.parse().ok()?;
+    let day: i64 = parts.next()?.parse().ok()?;
+
+    // Days from Unix epoch (1970-01-01) to the given date.
+    // Simple approximation: ignore leap years beyond the standard rule.
+    let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+
+    let mut total_days: i64 = 0;
+    for y in 1970..year {
+        total_days += if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+    }
+    for m in 1..month {
+        total_days += if m == 2 && is_leap {
+            29
+        } else {
+            days_in_month[(m - 1) as usize]
+        };
+    }
+    total_days += day - 1;
+
+    Some(total_days * 86400)
 }
 
 #[derive(Serialize, Deserialize, Default)]

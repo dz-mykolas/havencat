@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:logging/logging.dart';
 
 import 'web_retrieval.dart';
 
@@ -14,6 +15,8 @@ class HttpWebRetrievalAdapter implements WebRetrievalAdapter {
   HttpWebRetrievalAdapter({String? baseUrl, http.Client? client})
     : _baseUrl = (baseUrl ?? '').replaceAll(RegExp(r'/+$'), ''),
       _client = client ?? http.Client();
+
+  static final Logger _log = Logger('web_retrieval.http');
 
   final String _baseUrl;
   final http.Client _client;
@@ -33,17 +36,23 @@ class HttpWebRetrievalAdapter implements WebRetrievalAdapter {
     final uri = Uri.parse('$_baseUrl/api/search').replace(
       queryParameters: {'q': query, 'num': options.numResults.toString()},
     );
+    _log.fine('search: GET $uri');
     final resp = await _client.get(uri, headers: _acceptJson);
     if (resp.statusCode != 200) {
+      _log.warning(
+        'search failed: ${resp.statusCode} body=${resp.body.substring(0, resp.body.length.clamp(0, 200))}',
+      );
       throw WebRetrievalException(
         'search failed: ${resp.statusCode} ${resp.body}',
       );
     }
     final List<dynamic> json = jsonDecode(resp.body) as List<dynamic>;
-    return json
+    final results = json
         .cast<Map<String, dynamic>>()
         .map(_searchResultFromJson)
         .toList();
+    _log.fine('search: query="$query" → ${results.length} results');
+    return results;
   }
 
   @override
@@ -54,14 +63,20 @@ class HttpWebRetrievalAdapter implements WebRetrievalAdapter {
     final uri = Uri.parse(
       '$_baseUrl/api/fetch',
     ).replace(queryParameters: {'url': url, 'format': _formatName(format)});
+    _log.fine('fetch: GET $uri');
     final resp = await _client.get(uri, headers: _acceptJson);
     if (resp.statusCode != 200) {
+      _log.warning(
+        'fetch failed: ${resp.statusCode} url=$url body=${resp.body.substring(0, resp.body.length.clamp(0, 200))}',
+      );
       throw WebRetrievalException(
         'fetch failed: ${resp.statusCode} ${resp.body}',
       );
     }
     final json = jsonDecode(resp.body) as Map<String, dynamic>;
-    return _fetchedPageFromJson(json);
+    final page = _fetchedPageFromJson(json);
+    _log.fine('fetch: url=$url → ${page.content.length} chars');
+    return page;
   }
 
   /// Full-text search across cached pages (BM25 ranked).

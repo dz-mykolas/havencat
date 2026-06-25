@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 
 import '../../../domain/models/conversation.dart';
 import '../../../domain/models/message.dart';
@@ -39,6 +40,8 @@ class ConversationRepository extends ChangeNotifier {
     _activeId = _conversations.first.id;
     _providers.addListener(_onProvidersChanged);
   }
+
+  static final Logger _log = Logger('conversation');
 
   final ProviderAccountRepository _providers;
   final AdapterRegistry adapterRegistry;
@@ -145,11 +148,20 @@ class ConversationRepository extends ChangeNotifier {
     final String? secret = await _credentials.resolve(account);
     final String model = (account.config['model'] as String?) ?? '';
 
+    _log.info(
+      'sendMessage: account=${account.id} kind=${account.kind.name} '
+      'model=$model tools=${_toolsEnabled && _webRetrieval != null ? 'on' : 'off'}',
+    );
+
     // Tool-call loop: stream → if the model emitted tool calls, execute them,
     // append tool-result messages, and re-stream. Caps at a few rounds so a
     // misbehaving model can't loop forever.
     const int maxRounds = 5;
     for (int round = 0; round < maxRounds; round++) {
+      _log.fine(
+        'tool-call loop: round=$round messages=${conversation.messages.length}',
+      );
+
       final ChatMessage assistant = ChatMessage(
         id: _newId(),
         role: MessageRole.assistant,
@@ -203,6 +215,7 @@ class ConversationRepository extends ChangeNotifier {
                   // first fragment carries id+name, later fragments carry
                   // argument tokens only (empty id/name).
                   if (id.isNotEmpty || name.isNotEmpty) {
+                    _log.fine('tool-call fragment: id=$id name=$name');
                     final ToolCall tc = ToolCall(
                       id: id,
                       name: name,
@@ -227,6 +240,9 @@ class ConversationRepository extends ChangeNotifier {
                   notifyListeners();
                   if (!done.isCompleted) done.complete();
                 case ErrorEvent(:final LlmError error):
+                  _log.severe(
+                    'LLM stream error: ${error.runtimeType}: ${error.message}',
+                  );
                   assistant.text = '⚠️ ${error.message}';
                   assistant.isStreaming = false;
                   hadError = true;
@@ -234,7 +250,8 @@ class ConversationRepository extends ChangeNotifier {
                   if (!done.isCompleted) done.complete();
               }
             },
-            onError: (Object error) {
+            onError: (Object error, StackTrace stack) {
+              _log.severe('LLM stream onError', error, stack);
               assistant.text = 'Something went wrong. Please try again.';
               assistant.isStreaming = false;
               hadError = true;
@@ -249,14 +266,25 @@ class ConversationRepository extends ChangeNotifier {
 
       // If the model didn't call any tools (or errored), the reply is done.
       if (hadError || pendingCalls.isEmpty) {
+        if (hadError) {
+          _log.warning('tool-call loop ended with error at round=$round');
+        } else {
+          _log.info('reply complete: round=$round toolCalls=0');
+        }
         _isGenerating = false;
         notifyListeners();
         return;
       }
 
+      _log.info(
+        'executing ${pendingCalls.length} tool call(s): '
+        '${pendingCalls.map((tc) => '${tc.name}(${tc.args.length} chars)').join(', ')}',
+      );
+
       // Execute each tool call and append a tool-result message.
       if (_webRetrieval == null) {
         // No adapter configured — surface the calls but skip execution.
+        _log.warning('web retrieval adapter is null — skipping tool execution');
         for (final ToolCall tc in pendingCalls) {
           conversation.messages.add(
             ChatMessage(
@@ -271,6 +299,7 @@ class ConversationRepository extends ChangeNotifier {
       } else {
         final WebRetrievalAdapter retrieval = _webRetrieval;
         for (final ToolCall tc in pendingCalls) {
+          _log.fine('executing tool: name=${tc.name} id=${tc.id}');
           String result;
           try {
             result = await _webSearchTools.execute(
@@ -278,7 +307,12 @@ class ConversationRepository extends ChangeNotifier {
               args: tc.args,
               adapter: retrieval,
             );
-          } catch (e) {
+            _log.fine(
+              'tool result: name=${tc.name} len=${result.length} '
+              'preview=${result.substring(0, result.length.clamp(0, 120))}',
+            );
+          } catch (e, stack) {
+            _log.severe('tool execution failed: name=${tc.name}', e, stack);
             result = 'Error executing tool "${tc.name}": $e';
           }
           conversation.messages.add(
@@ -297,6 +331,7 @@ class ConversationRepository extends ChangeNotifier {
     }
 
     // Exhausted the round cap — stop gracefully.
+    _log.warning('tool-call loop exhausted maxRounds=$maxRounds');
     _isGenerating = false;
     notifyListeners();
   }

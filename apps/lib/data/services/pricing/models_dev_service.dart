@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../domain/models/model_pricing.dart';
 
@@ -14,43 +13,28 @@ import '../../../domain/models/model_pricing.dart';
 /// per-provider serving entries (keyed by provider id). The canonical
 /// registry is what lets us collapse the same model served under different
 /// ids/names (`gpt-5.5`, `openai-gpt-5.5`, `gpt-5-5`, `GPT 5.5`…) into one
-/// lab + display name. Because it's large and rarely changes, we:
-///   1. keep an in-memory [ModelsCatalog] for the session,
-///   2. persist the raw JSON (+ fetch time) to [SharedPreferences] so a restart
-///      / browser refresh shows data instantly and works offline, and
-///   3. only re-fetch from the network when the cache is older than [_ttl] (or
-///      when the caller forces a refresh).
+/// lab + display name. Because it's large and rarely changes, we keep an
+/// in-memory [ModelsCatalog] for the session — fetch once, reuse until the
+/// app restarts or [refresh] is called.
 class ModelsDevService {
-  // Private fields can't be named initializing formals (`this._prefs`), so we
-  // assign in the initializer list and keep the public `prefs:` parameter.
-  ModelsDevService({Dio? dio, SharedPreferences? prefs})
-    : _dio = dio ?? Dio(),
-      // ignore: prefer_initializing_formals
-      _prefs = prefs;
+  ModelsDevService({Dio? dio}) : _dio = dio ?? Dio();
 
   static const String endpoint = 'https://models.dev/catalog.json';
-  static const String _cacheKey = 'models_dev_cache::v2';
-  static const String _cacheAtKey = 'models_dev_cached_at::v2';
-  static const Duration _ttl = Duration(hours: 12);
 
   final Dio _dio;
-  final SharedPreferences? _prefs;
 
   ModelsCatalog? _memory;
 
-  /// Returns the catalog, preferring a fresh in-memory/persisted copy and only
-  /// going to the network when the cache is stale or [forceRefresh] is set.
+  /// Returns the catalog, using the in-memory copy if available and only
+  /// going to the network on first call or [forceRefresh].
   ///
-  /// Throws if there is no usable cache *and* the network request fails, so the
-  /// UI can show an error + retry. If a stale cache exists but the refresh
-  /// fails, the stale cache is returned (better than nothing / offline).
+  /// Throws if there is no usable cache *and* the network request fails, so
+  /// the UI can show an error + retry. If a stale cache exists but the
+  /// refresh fails, the stale cache is returned (better than nothing / offline).
   Future<ModelsCatalog> load({bool forceRefresh = false}) async {
-    final ModelsCatalog? cached = _memory ?? _readPersisted();
-    _memory ??= cached;
+    final ModelsCatalog? cached = _memory;
 
-    final bool fresh =
-        cached != null && DateTime.now().difference(cached.fetchedAt) < _ttl;
-    if (cached != null && fresh && !forceRefresh) {
+    if (cached != null && !forceRefresh) {
       return cached;
     }
 
@@ -74,7 +58,6 @@ class ModelsDevService {
     final DateTime now = DateTime.now();
     final ModelsCatalog catalog = _parse(raw, now);
     _memory = catalog;
-    await _persist(raw, now);
     return catalog;
   }
 
@@ -84,25 +67,5 @@ class ModelsDevService {
       throw const FormatException('models.dev: unexpected payload shape');
     }
     return ModelsCatalog.fromCatalogJson(decoded, fetchedAt: fetchedAt);
-  }
-
-  ModelsCatalog? _readPersisted() {
-    final SharedPreferences? prefs = _prefs;
-    if (prefs == null) return null;
-    final String? raw = prefs.getString(_cacheKey);
-    final int? atMs = prefs.getInt(_cacheAtKey);
-    if (raw == null || atMs == null) return null;
-    try {
-      return _parse(raw, DateTime.fromMillisecondsSinceEpoch(atMs));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _persist(String raw, DateTime at) async {
-    final SharedPreferences? prefs = _prefs;
-    if (prefs == null) return;
-    await prefs.setString(_cacheKey, raw);
-    await prefs.setInt(_cacheAtKey, at.millisecondsSinceEpoch);
   }
 }

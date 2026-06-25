@@ -1,9 +1,12 @@
 import 'dart:convert';
 
+import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
 import '../data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import '../data/services/web_retrieval/web_retrieval.dart';
+
+final Logger _log = Logger('web_retrieval');
 
 /// Shelf handler exposing the Rust-backed web retrieval as same-origin JSON
 /// routes for the web build. The native (mobile/desktop) apps never use this —
@@ -16,25 +19,67 @@ import '../data/services/web_retrieval/web_retrieval.dart';
 ///   POST /api/cache/cleanup                → empty 204
 Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
   return (Request request) async {
-    final path = request.url.path;
+    // CORS: the Flutter web app may be served from a different origin than
+    // this API (e.g. dev server on :8080 → API on :8088). These routes use
+    // simple GET/POST with safelisted headers, so no preflight is needed,
+    // but the response must carry Access-Control-Allow-Origin. OPTIONS is
+    // answered directly as a defensive measure.
+    final origin = request.headers['origin'];
+    if (request.method == 'OPTIONS' && origin != null) {
+      return Response.ok(null, headers: _corsHeaders(origin));
+    }
 
-    switch (path) {
-      case 'search':
-        return _handleSearch(adapter, request);
-      case 'fetch':
-        return _handleFetch(adapter, request);
-      case 'cache/search':
-        return _handleCacheSearch(adapter, request);
-      case 'cache/cleanup':
-        if (request.method != 'POST') {
-          return Response(405);
-        }
-        await adapter.cleanupCache();
-        return Response(204);
-      default:
-        return Response.notFound('unknown web_retrieval route: $path');
+    // Shelf serves request.url path relative to the handler's mount point.
+    // This handler is mounted at the root, so paths arrive as
+    // `api/search`, `api/fetch`, etc. Strip the leading `api/` segment.
+    final path = request.url.path;
+    final subPath = path.startsWith('api/') ? path.substring(4) : path;
+
+    try {
+      final Response response;
+      switch (subPath) {
+        case 'search':
+          response = await _handleSearch(adapter, request);
+        case 'fetch':
+          response = await _handleFetch(adapter, request);
+        case 'cache/search':
+          response = await _handleCacheSearch(adapter, request);
+        case 'cache/cleanup':
+          if (request.method != 'POST') {
+            response = Response(405);
+          } else {
+            await adapter.cleanupCache();
+            response = Response(204);
+          }
+        default:
+          response = Response.notFound('unknown web_retrieval route: $path');
+      }
+      return _withCors(response, origin);
+    } catch (e, st) {
+      _log.severe('request failed: ${request.method} $path', e, st);
+      return _withCors(
+        Response.internalServerError(
+          body: jsonEncode({'error': e.toString()}),
+          headers: _jsonHeaders,
+        ),
+        origin,
+      );
     }
   };
+}
+
+Map<String, String> _corsHeaders(String origin) => <String, String>{
+  'access-control-allow-origin': origin,
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-max-age': '86400',
+  'vary': 'origin',
+};
+
+/// Adds CORS headers to [response] when the request came from a browser
+/// (i.e. carried an `origin` header). Returns [response] unchanged otherwise.
+Response _withCors(Response response, String? origin) {
+  if (origin == null) return response;
+  return response.change(headers: _corsHeaders(origin));
 }
 
 Response _badRequest(String message) =>
@@ -58,10 +103,12 @@ Future<Response> _handleSearch(
   }
   final numResults =
       int.tryParse(request.url.queryParameters['num'] ?? '5') ?? 5;
+  _log.fine('search: q="$query" num=$numResults');
   final results = await adapter.search(
     query,
     options: WebSearchOptions(numResults: numResults),
   );
+  _log.info('search: q="$query" → ${results.length} results');
   return _jsonResponse(200, results.map(_searchResultToJson).toList());
 }
 
@@ -80,7 +127,12 @@ Future<Response> _handleFetch(
     'html' => FetchFormat.html,
     _ => FetchFormat.markdown,
   };
+  _log.fine('fetch: url="$url" format=$formatName');
   final page = await adapter.fetch(url, format: format);
+  _log.info(
+    'fetch: url="$url" → ${page.content.length} chars '
+    '(${page.contentType})',
+  );
   return _jsonResponse(200, _fetchedPageToJson(page));
 }
 

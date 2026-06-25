@@ -2,12 +2,17 @@ import 'dart:io';
 
 import 'package:app/branding.dart';
 import 'package:app/data/services/web_retrieval/rust_web_retrieval_adapter.dart';
+import 'package:app/server/app_config.dart';
 import 'package:app/server/llm_proxy.dart';
+import 'package:app/server/logging.dart';
 import 'package:app/server/web_retrieval_api.dart';
 import 'package:app/src/rust/frb_generated.dart';
+import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_static/shelf_static.dart';
+
+final Logger _log = Logger('server');
 
 /// Self-host server: one lightweight Dart process that serves the
 /// built Flutter web app **and** a same-origin LLM reverse proxy. This is the
@@ -19,31 +24,38 @@ import 'package:shelf_static/shelf_static.dart';
 ///   flutter build web
 ///   dart run bin/serve.dart            # http://localhost:8088
 ///
-/// Environment:
+/// Environment (any of these may also be set in a `.env` file at the repo
+/// root; real shell env vars win over `.env`):
 ///   PORT                 listen port (default 8088)
 ///   HOST                 bind address (default 127.0.0.1 — local only)
 ///   WEB_ROOT             static files dir (default build/web)
 ///   LLM_ALLOWED_HOSTS    comma-separated upstream allowlist, or "*" for any
+///   LOG_LEVEL            Dart log level: debug/info/warning/severe (default info)
+///   RUST_LOG              Rust tracing filter: debug/trace/web_retrieval=trace
+///                         (default info)
+///   SEARCH_PROVIDERS     comma-separated search providers (default exa)
+///                         e.g. searxng:https://searx.be,exa:EXA_KEY
+///   FETCH_PROVIDERS      comma-separated fetch providers (default direct_http,jina_reader)
+///                         e.g. direct_http,jina_reader:JINA_KEY
 ///
 /// The web app must point at this proxy. Served from here it's same-origin, so
 /// the default `--dart-define=LLM_PROXY=/proxy` just works. For a hot-reload
 /// dev session, run this alongside `flutter run` and build with
 /// `--dart-define=LLM_PROXY=http://localhost:8088/proxy`.
 Future<void> main(List<String> args) async {
-  final int port = int.parse(Platform.environment['PORT'] ?? '8088');
-  final String host = Platform.environment['HOST'] ?? '127.0.0.1';
-  final String webRoot = Platform.environment['WEB_ROOT'] ?? 'build/web';
+  final AppConfig config = AppConfig.load();
 
-  final String? allowedEnv = Platform.environment['LLM_ALLOWED_HOSTS'];
-  final Set<String>? allowedHosts = allowedEnv
-      ?.split(',')
-      .map((String h) => h.trim())
-      .where((String h) => h.isNotEmpty)
-      .toSet();
+  initLogging(level: config.logLevel);
 
+  final int port = config.port;
+  final String host = config.host;
+  final String webRoot = config.webRoot;
+  final Set<String>? allowedHosts = config.allowedHosts;
+
+  final Logger proxyLog = Logger('proxy');
   final Handler proxy = llmProxyHandler(
     allowedHosts: allowedHosts,
-    log: (String message) => stdout.writeln('[proxy] $message'),
+    log: (String message) => proxyLog.info(message),
   );
 
   // Initialize the Rust web_retrieval subsystem (SQLite cache + provider
@@ -51,13 +63,11 @@ Future<void> main(List<String> args) async {
   // native apps call the adapter directly via FRB FFI.
   await RustLib.init();
   final RustWebRetrievalAdapter webRetrieval = RustWebRetrievalAdapter();
+
   await webRetrieval.configure(
     dbPath: '', // in-memory; TODO: persist to a file next to the server
-    searchProviders: const [ProviderSlotConfig(kind: 'exa')],
-    fetchProviders: const [
-      ProviderSlotConfig(kind: 'direct_http'),
-      ProviderSlotConfig(kind: 'jina_reader'),
-    ],
+    searchProviders: config.searchProviders,
+    fetchProviders: config.fetchProviders,
   );
   final Handler webRetrievalApi = webRetrievalApiHandler(webRetrieval);
 
@@ -75,7 +85,7 @@ Future<void> main(List<String> args) async {
       statusCodes: const <int>{404},
     ).add(proxy).add(webRetrievalApi).add(static).handler;
   } else {
-    stderr.writeln(
+    _log.warning(
       'WEB_ROOT "$webRoot" not found — serving the proxy only. '
       'Run `flutter build web` to serve the app too.',
     );
@@ -96,14 +106,15 @@ Future<void> main(List<String> args) async {
       : (allowedHosts.contains('*')
             ? 'any host (allowlist disabled)'
             : allowedHosts.join(', '));
-  stdout
-    ..writeln('────────────────────────────────────────────────────────')
-    ..writeln('$appName server ready')
-    ..writeln('  url        http://$host:${server.port}')
-    ..writeln('  llm proxy  http://$host:${server.port}/proxy')
-    ..writeln('  web api    http://$host:${server.port}/api/search|fetch|cache')
-    ..writeln('  web root   $webRoot')
-    ..writeln('  allowlist  $allowList')
-    ..writeln('  requests are logged below as they arrive')
-    ..writeln('────────────────────────────────────────────────────────');
+  _log
+    ..info('────────────────────────────────────────────────────────')
+    ..info('$appName server ready')
+    ..info('  url        http://$host:${server.port}')
+    ..info('  llm proxy  http://$host:${server.port}/proxy')
+    ..info('  web api    http://$host:${server.port}/api/search|fetch|cache')
+    ..info('  web root   $webRoot')
+    ..info('  allowlist  $allowList')
+    ..info('  log level  ${Logger.root.level.name}')
+    ..info('  requests are logged below as they arrive')
+    ..info('────────────────────────────────────────────────────────');
 }

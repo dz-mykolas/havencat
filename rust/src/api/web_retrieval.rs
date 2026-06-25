@@ -101,7 +101,10 @@ pub async fn web_search(query: String, num_results: u32) -> Result<Vec<SearchRes
         let mut by_provider: std::collections::HashMap<&str, Vec<SearchResult>> =
             std::collections::HashMap::new();
         for r in &results {
-            by_provider.entry(r.provider.as_str()).or_default().push(r.clone());
+            by_provider
+                .entry(r.provider.as_str())
+                .or_default()
+                .push(r.clone());
         }
         for (provider, results) in by_provider {
             cache.put_search(&query, provider, &results).await?;
@@ -139,10 +142,7 @@ pub async fn url_fetch(url: String, format: String) -> Result<FetchedPage> {
 
 /// Full-text search across all cached pages (BM25 ranked).
 #[flutter_rust_bridge::frb]
-pub async fn web_cache_search_pages(
-    query: String,
-    limit: u32,
-) -> Result<Vec<FetchedPage>> {
+pub async fn web_cache_search_pages(query: String, limit: u32) -> Result<Vec<FetchedPage>> {
     let db = db()?;
     let cache = Cache::new(db.conn());
     cache.fts_search_pages(&query, limit as i64).await
@@ -158,20 +158,22 @@ pub async fn web_cache_cleanup() -> Result<()> {
 
 fn db() -> Result<&'static SharedDb> {
     DB.get().ok_or_else(|| {
-        WebRetrievalError::Other("web_retrieval not configured; call configure_web_retrieval first".into())
+        WebRetrievalError::Other(
+            "web_retrieval not configured; call configure_web_retrieval first".into(),
+        )
     })
 }
 
 fn search_slots() -> Result<&'static Vec<SearchProviderSlot>> {
-    SEARCH_SLOTS.get().ok_or_else(|| {
-        WebRetrievalError::Other("no search providers configured".into())
-    })
+    SEARCH_SLOTS
+        .get()
+        .ok_or_else(|| WebRetrievalError::Other("no search providers configured".into()))
 }
 
 fn fetch_slots() -> Result<&'static Vec<FetchProviderSlot>> {
-    FETCH_SLOTS.get().ok_or_else(|| {
-        WebRetrievalError::Other("no fetch providers configured".into())
-    })
+    FETCH_SLOTS
+        .get()
+        .ok_or_else(|| WebRetrievalError::Other("no fetch providers configured".into()))
 }
 
 fn build_search_slot(kind: &str, secret: Option<String>) -> SearchProviderSlot {

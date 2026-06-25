@@ -45,8 +45,14 @@ fn walk(elem: &ElementRef, out: &mut String, list_depth: usize) {
                 let tag = e.name();
                 if matches!(
                     tag,
-                    "script" | "style" | "noscript" | "iframe" | "object" | "embed"
-                        | "meta" | "link"
+                    "script"
+                        | "style"
+                        | "noscript"
+                        | "iframe"
+                        | "object"
+                        | "embed"
+                        | "meta"
+                        | "link"
                 ) {
                     continue;
                 }

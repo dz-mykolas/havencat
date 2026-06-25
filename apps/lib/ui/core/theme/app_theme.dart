@@ -8,8 +8,8 @@ class AppTheme {
   AppTheme._();
 
   /// Max width for centered content (input bar, suggestions) so it never
-  /// stretches edge-to-edge on wide screens.
-  static const double contentMaxWidth = 640;
+  /// stretches edge-to-edge on wide screens. Matches ChatGPT's 48rem column.
+  static const double contentMaxWidth = 768;
 
   /// Max width for full-page panels (settings, pricing). A touch wider than
   /// [contentMaxWidth] so two-up card grids breathe on desktop. Below this the

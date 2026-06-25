@@ -3,9 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::web_retrieval::error::Result;
-use crate::web_retrieval::provider::{
-    FetchOptions, FetchedPage, UrlFetchProvider,
-};
+use crate::web_retrieval::provider::{FetchOptions, FetchedPage, UrlFetchProvider};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const JINA_READER_BASE: &str = "https://r.jina.ai/";
@@ -64,7 +62,11 @@ impl UrlFetchProvider for JinaReaderProvider {
         // r.jina.ai returns markdown; the first line is often a "Title: ..." header.
         let title = content
             .lines()
-            .find_map(|l| l.trim().strip_prefix("Title:").map(|s| s.trim().to_string()))
+            .find_map(|l| {
+                l.trim()
+                    .strip_prefix("Title:")
+                    .map(|s| s.trim().to_string())
+            })
             .unwrap_or_default();
         Ok(FetchedPage {
             url: url.to_string(),

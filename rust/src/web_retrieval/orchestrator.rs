@@ -56,7 +56,12 @@ pub async fn search_all(
                 {
                     Ok(results) => (kind, Some(results)),
                     Err(e) => {
-                        tracing::warn!(provider = kind, error = %e, "search provider failed");
+                        tracing::warn!(
+                            provider = kind,
+                            query = query,
+                            error = %e,
+                            "search provider failed"
+                        );
                         (kind, None)
                     }
                 }
@@ -65,13 +70,16 @@ pub async fn search_all(
         .collect();
 
     let outcomes = join_all(futures).await;
-    let all_results: Vec<Vec<SearchResult>> = outcomes
-        .iter()
-        .filter_map(|(_, r)| r.clone())
-        .collect();
+    let all_results: Vec<Vec<SearchResult>> =
+        outcomes.iter().filter_map(|(_, r)| r.clone()).collect();
 
     if all_results.is_empty() {
         let failed: Vec<&str> = outcomes.iter().map(|(k, _)| *k).collect();
+        tracing::error!(
+            query = query,
+            providers = ?failed,
+            "all search providers failed"
+        );
         return Err(WebRetrievalError::AllProvidersFailed(format!(
             "all search providers failed: {}",
             failed.join(", ")
@@ -108,7 +116,12 @@ pub async fn fetch_all(
                 {
                     Ok(page) => Some(page),
                     Err(e) => {
-                        tracing::warn!(provider = kind, error = %e, "fetch provider failed");
+                        tracing::warn!(
+                            provider = kind,
+                            url = url,
+                            error = %e,
+                            "fetch provider failed"
+                        );
                         None
                     }
                 }
@@ -121,7 +134,5 @@ pub async fn fetch_all(
         .into_iter()
         .flatten()
         .next()
-        .ok_or_else(|| {
-            WebRetrievalError::AllProvidersFailed("all fetch providers failed".into())
-        })
+        .ok_or_else(|| WebRetrievalError::AllProvidersFailed("all fetch providers failed".into()))
 }

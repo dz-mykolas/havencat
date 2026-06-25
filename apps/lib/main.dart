@@ -14,10 +14,14 @@ import 'data/services/storage/app_settings.dart';
 import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'domain/models/provider_account.dart';
 import 'providers.dart';
+import 'server/app_config.dart';
+import 'server/logging.dart';
 import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final AppConfig config = AppConfig.load();
+  initLogging(level: config.logLevel);
 
   // FRB loads the native library via FFI. On web there's no FFI — the web
   // build uses HttpWebRetrievalAdapter (HTTP to the local server) instead of
@@ -40,9 +44,7 @@ Future<void> main() async {
       secretStoreProvider.overrideWithValue(secretStore),
       appSettingsProvider.overrideWith((_) => AppSettings(prefs: prefs)),
       sharedPreferencesProvider.overrideWithValue(prefs),
-      modelsDevServiceProvider.overrideWithValue(
-        ModelsDevService(prefs: prefs),
-      ),
+      modelsDevServiceProvider.overrideWithValue(ModelsDevService()),
     ],
   );
   await container.read(providerAccountRepositoryProvider).load();

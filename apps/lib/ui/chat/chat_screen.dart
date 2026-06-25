@@ -15,6 +15,7 @@ import 'widgets/chat_input.dart';
 import 'widgets/conversation_drawer.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/smooth_scroll.dart';
 import 'widgets/model_selector_bar.dart';
 
 /// The main chat view: app bar, conversation drawer, message list, and the
@@ -41,22 +42,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
     if (!_scrollController.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
+      final pos = _scrollController.position;
+      // Don't fight the user: only auto-scroll if they're near the bottom.
+      final bool nearBottom = pos.maxScrollExtent - pos.pixels < 120;
+      if (!force && !nearBottom) return;
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
+        pos.maxScrollExtent,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
       );
     });
   }
 
   Future<void> _send(String text) async {
-    _scrollToBottom();
+    _scrollToBottom(force: true);
     await ref.read(chatViewModelProvider).sendMessage(text);
-    _scrollToBottom();
+    _scrollToBottom(force: true);
   }
 
   void _prefill(String suggestion) {
@@ -193,28 +198,69 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 }
                 // Keep pinned to the newest content as tokens stream in.
                 _scrollToBottom();
-                return Column(
+                return Stack(
                   children: <Widget>[
-                    Expanded(
+                    // ListView extends full height; text scrolls behind the
+                    // input pill.
+                    SmoothScroll(
+                      controller: _scrollController,
+                      scrollSpeed: 2.5,
+                      scrollAnimationLength: 600,
                       child: ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
                         itemCount: conversation.messages.length,
                         itemBuilder: (BuildContext context, int index) {
-                          return MessageBubble(
-                            message: conversation.messages[index],
+                          return Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxWidth: AppTheme.contentMaxWidth,
+                              ),
+                              child: MessageBubble(
+                                message: conversation.messages[index],
+                                messages: conversation.messages,
+                              ),
+                            ),
                           );
                         },
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: AppTheme.contentMaxWidth,
+                    // Gradient that fades text out before the pill.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          height: 120,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: <Color>[
+                                AppTheme.background.withValues(alpha: 0),
+                                AppTheme.background,
+                              ],
+                              stops: const <double>[0, 0.5],
+                            ),
                           ),
-                          child: _buildInput(),
+                        ),
+                      ),
+                    ),
+                    // Input pill floating on top, bottom-aligned.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 27),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: AppTheme.contentMaxWidth,
+                            ),
+                            child: _buildInput(),
+                          ),
                         ),
                       ),
                     ),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:logging/logging.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
 import '../../../../domain/models/llm_model.dart';
@@ -38,6 +39,8 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   ) : _sse = sseClient ?? SseClient(_dio),
       _endpoint = endpoint ?? LlmEndpoint.fromPlatform();
 
+  static final Logger _log = Logger('llm.openai_compat');
+
   final Dio _dio;
   final SseClient _sse;
   final LlmEndpoint _endpoint;
@@ -55,6 +58,11 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     final String model = _readModel(account, request);
     final Map<String, String> headers = _readHeaders(account, secret);
     final CancelToken cancelToken = CancelToken();
+
+    _log.info(
+      'stream: model=$model baseUrl=$baseUrl '
+      'messages=${request.messages.length} tools=${request.tools.length}',
+    );
 
     // Wire the request's cancellation signal (if any) to dio's CancelToken.
     final Future<void> Function()? signal = request.signal;
@@ -80,6 +88,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
 
       await for (final SseEvent event in events) {
         if (event.data == '[DONE]') {
+          _log.fine('stream: [DONE] received');
           yield const DoneEvent(finishReason: 'stop');
           return;
         }
@@ -87,10 +96,15 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
         if (parsed != null) yield parsed;
       }
       // Stream ended without an explicit [DONE] marker — still terminate.
+      _log.fine('stream: ended without [DONE]');
       yield const DoneEvent();
     } on DioException catch (e) {
+      _log.warning(
+        'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
+      );
       yield ErrorEvent(_mapDioError(e));
-    } catch (e) {
+    } catch (e, stack) {
+      _log.severe('stream: unexpected error', e, stack);
       yield ErrorEvent(UnknownError(e.toString()));
     } finally {
       await signalSub?.cancel();
@@ -168,19 +182,15 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   }
 
   Map<String, Object?> _buildBody(LlmRequest request, String model) {
-    final List<Map<String, Object?>> messages =
-        request.messages
-            .where((m) => m.text.trim().isNotEmpty || m.toolCalls.isNotEmpty)
-            .map(_messageToJson)
-            .toList();
+    final List<Map<String, Object?>> messages = request.messages
+        .where((m) => m.text.trim().isNotEmpty || m.toolCalls.isNotEmpty)
+        .map(_messageToJson)
+        .toList();
     if (request.systemPrompt != null && request.systemPrompt!.isNotEmpty) {
-      messages.insert(
-        0,
-        <String, Object?>{
-          'role': 'system',
-          'content': request.systemPrompt,
-        },
-      );
+      messages.insert(0, <String, Object?>{
+        'role': 'system',
+        'content': request.systemPrompt,
+      });
     }
     return <String, Object?>{
       'model': model,
@@ -245,7 +255,15 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   /// so the repository must accumulate them by index.
   LlmEvent? _parseChunk(String data) {
     if (data.trim().isEmpty) return null;
-    final Object? decoded = jsonDecode(data);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(data);
+    } catch (e) {
+      _log.warning(
+        'parseChunk: JSON decode failed: $e data="${data.substring(0, data.length.clamp(0, 120))}"',
+      );
+      return null;
+    }
     if (decoded is! Map<String, dynamic>) return null;
 
     final List<dynamic>? choices = decoded['choices'] as List<dynamic>?;

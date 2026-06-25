@@ -50,29 +50,6 @@ CREATE TABLE IF NOT EXISTS web_searches (
     PRIMARY KEY (query, provider)
 ) WITHOUT ROWID;
 
-CREATE VIRTUAL TABLE IF NOT EXISTS web_searches_fts USING fts5(
-    query, results_json,
-    tokenize = 'unicode61',
-    content = 'web_searches'
-);
-
-CREATE TRIGGER IF NOT EXISTS web_searches_ai AFTER INSERT ON web_searches BEGIN
-    INSERT INTO web_searches_fts(rowid, query, results_json)
-    VALUES (new.rowid, new.query, new.results_json);
-END;
-
-CREATE TRIGGER IF NOT EXISTS web_searches_ad AFTER DELETE ON web_searches BEGIN
-    INSERT INTO web_searches_fts(web_searches_fts, rowid, query, results_json)
-    VALUES ('delete', old.rowid, old.query, old.results_json);
-END;
-
-CREATE TRIGGER IF NOT EXISTS web_searches_au AFTER UPDATE ON web_searches BEGIN
-    INSERT INTO web_searches_fts(web_searches_fts, rowid, query, results_json)
-    VALUES ('delete', old.rowid, old.query, old.results_json);
-    INSERT INTO web_searches_fts(rowid, query, results_json)
-    VALUES (new.rowid, new.query, new.results_json);
-END;
-
 -- ---------------------------------------------------------------------------
 -- Provider quota tracking (rate-limit awareness)
 -- ---------------------------------------------------------------------------

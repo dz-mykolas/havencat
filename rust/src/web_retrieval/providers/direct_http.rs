@@ -4,9 +4,7 @@ use async_trait::async_trait;
 
 use crate::web_retrieval::error::{Result, WebRetrievalError};
 use crate::web_retrieval::html::{extract_title, html_to_markdown, html_to_text};
-use crate::web_retrieval::provider::{
-    FetchFormat, FetchOptions, FetchedPage, UrlFetchProvider,
-};
+use crate::web_retrieval::provider::{FetchFormat, FetchOptions, FetchedPage, UrlFetchProvider};
 
 const MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -55,7 +53,12 @@ impl DirectHttpProvider {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string();
-        let mime = content_type.split(';').next().unwrap_or("").trim().to_lowercase();
+        let mime = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
 
         // Read body with a size cap.
         let bytes = resp.bytes().await?;

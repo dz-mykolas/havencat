@@ -18,9 +18,11 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HttpClient;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:shelf/shelf.dart';
 
 /// Header carrying the real upstream URL (mirrors `LlmEndpoint.upstreamHeader`).
@@ -70,7 +72,8 @@ Handler llmProxyHandler({
   String prefix = 'proxy',
   void Function(String message)? log,
 }) {
-  final http.Client httpClient = client ?? http.Client();
+  final http.Client httpClient =
+      client ?? IOClient(HttpClient()..autoUncompress = false);
   final Set<String> allowed = allowedHosts ?? defaultAllowedUpstreamHosts;
   final bool allowAny = allowed.contains('*');
   final void Function(String) trace = log ?? (_) {};
@@ -139,6 +142,9 @@ Handler llmProxyHandler({
       }
       upstreamRequest.headers[key] = value;
     });
+    // Tell the upstream not to compress — we want raw SSE bytes to flow through
+    // token-by-token. gzip would buffer the whole stream into blocks.
+    upstreamRequest.headers['accept-encoding'] = 'identity';
     upstreamRequest.bodyBytes = await _collectBody(request);
 
     trace('--> ${request.method} ${upstream.host}${upstream.path}');

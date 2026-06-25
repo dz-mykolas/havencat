@@ -10,11 +10,30 @@ DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
 
 RUN_ARGS := -d $(DEVICE)
 
+# Load `.env` (if present) into the make environment so targets like `server`
+# and `run` pick up PORT/LOG_LEVEL/SEARCH_PROVIDERS/etc. Shell env vars still
+# win over `.env` values. Lines starting with `#` and blank lines are skipped.
+-include .env
+# Export so subprocesses (dart run, flutter run) inherit them as shell env vars.
+export PORT HOST WEB_ROOT LLM_ALLOWED_HOSTS LOG_LEVEL RUST_LOG SEARCH_PROVIDERS FETCH_PROVIDERS
+
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)
 # In the browser, LLM calls go through the local reverse proxy (CORS). Point
 # the web build at it; run `make server` in another terminal alongside this.
 RUN_ARGS += --dart-define=LLM_PROXY=http://localhost:$(SERVE_PORT)/proxy
+# Flutter apps can't read shell env vars at runtime, so forward the vars they
+# need via --dart-define (sourced from `.env` or shell). Each is only added
+# when set, so unset vars keep their in-code defaults.
+ifdef LOG_LEVEL
+RUN_ARGS += --dart-define=LOG_LEVEL=$(LOG_LEVEL)
+endif
+ifdef APP_NAME
+RUN_ARGS += --dart-define=APP_NAME=$(APP_NAME)
+endif
+ifdef CODEX_CLIENT_VERSION
+RUN_ARGS += --dart-define=CODEX_CLIENT_VERSION=$(CODEX_CLIENT_VERSION)
+endif
 endif
 
 .PHONY: install run run-profile run-release server serve rust check format build-play build-apk build-ios build-web build-desktop clean

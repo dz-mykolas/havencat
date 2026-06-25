@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:logging/logging.dart';
+
 import '../llm/llm_event.dart';
 import 'web_retrieval.dart';
 
@@ -10,6 +12,8 @@ import 'web_retrieval.dart';
 /// the model can cite them in its reply.
 class WebSearchTools {
   const WebSearchTools();
+
+  static final Logger _log = Logger('web_search_tools');
 
   /// OpenAI-shaped tool definitions for the web search + fetch capabilities.
   /// Pass these in [LlmRequest.tools] when web search is enabled.
@@ -60,8 +64,16 @@ class WebSearchTools {
     switch (name) {
       case 'web_search':
         final String query = parsed['query'] as String? ?? '';
-        if (query.isEmpty) return 'Error: missing "query" argument.';
+        if (query.isEmpty) {
+          _log.warning('web_search: missing "query" argument');
+          return 'Error: missing "query" argument.';
+        }
+        _log.fine('web_search: query="$query"');
         final List<WebSearchResult> results = await adapter.search(query);
+        _log.info(
+          'web_search: query="$query" → ${results.length} result(s) '
+          'provider=${results.isEmpty ? 'n/a' : results.first.provider}',
+        );
         if (results.isEmpty) return 'No results found for "$query".';
         return results
             .asMap()
@@ -76,13 +88,22 @@ class WebSearchTools {
             .join('\n\n');
       case 'fetch_page':
         final String url = parsed['url'] as String? ?? '';
-        if (url.isEmpty) return 'Error: missing "url" argument.';
+        if (url.isEmpty) {
+          _log.warning('fetch_page: missing "url" argument');
+          return 'Error: missing "url" argument.';
+        }
+        _log.fine('fetch_page: url=$url');
         final FetchedPage page = await adapter.fetch(url);
+        _log.info(
+          'fetch_page: url=$url → ${page.content.length} chars '
+          'contentType=${page.contentType} title="${page.title}"',
+        );
         final String body = page.content.length > 8000
             ? '${page.content.substring(0, 8000)}\n\n[...truncated, ${page.content.length - 8000} more chars]'
             : page.content;
         return 'Title: ${page.title}\nURL: ${page.url}\n\n$body';
       default:
+        _log.warning('unknown tool: name=$name');
         return 'Error: unknown tool "$name".';
     }
   }
@@ -92,9 +113,13 @@ class WebSearchTools {
     try {
       final Object? decoded = jsonDecode(args);
       if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      // Malformed JSON — let the caller see an empty arg map and surface a
-      // clear error rather than crashing the whole reply.
+      _log.warning(
+        'tool args not a JSON object: ${args.substring(0, args.length.clamp(0, 100))}',
+      );
+    } catch (e) {
+      _log.warning(
+        'tool args JSON parse failed: $e args="${args.substring(0, args.length.clamp(0, 100))}"',
+      );
     }
     return <String, dynamic>{};
   }

@@ -17,6 +17,7 @@ import 'data/services/storage/app_settings.dart';
 import 'data/services/web_retrieval/http_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/web_retrieval.dart';
+import 'server/app_config.dart';
 
 /// Secure storage for secrets (API keys + OAuth token bundles).
 ///
@@ -58,9 +59,8 @@ final adapterRegistryProvider = Provider<AdapterRegistry>((ref) {
 
 /// Public model database (pricing + capabilities) from models.dev.
 ///
-/// Default has no persistence (tests / first run). `main()` overrides this with
-/// a `SharedPreferences`-backed instance so the catalog is cached across
-/// restarts and available offline.
+/// In-memory only; re-fetches from models.dev when the cache is older than
+/// the TTL (12h) or on forced refresh.
 final modelsDevServiceProvider = Provider<ModelsDevService>((ref) {
   return ModelsDevService();
 });
@@ -152,7 +152,16 @@ final conversationRepositoryProvider =
 /// override this provider with a mock.
 final webRetrievalProvider = Provider<WebRetrievalAdapter>((ref) {
   if (kIsWeb) {
-    return HttpWebRetrievalAdapter();
+    // Derive the server base URL from the LLM proxy URL (e.g.
+    // `http://localhost:8088/proxy` → `http://localhost:8088`). When the
+    // Flutter app is served by the dev server (port 8080) rather than the
+    // Dart server (port 8088), same-origin `/api/*` would hit the dev
+    // server's 404 page instead of the API.
+    final String proxy = AppConfig.load().llmProxy;
+    final String base = proxy.endsWith('/proxy')
+        ? proxy.substring(0, proxy.length - '/proxy'.length)
+        : proxy;
+    return HttpWebRetrievalAdapter(baseUrl: base);
   }
   return RustWebRetrievalAdapter();
 });

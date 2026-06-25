@@ -226,7 +226,10 @@ impl Cache {
         let cutoff = now_secs() - ttl_secs() as i64;
         self.conn
             .call(move |c| {
-                c.execute("DELETE FROM web_pages WHERE fetched_at < ?1", params![cutoff])?;
+                c.execute(
+                    "DELETE FROM web_pages WHERE fetched_at < ?1",
+                    params![cutoff],
+                )?;
                 c.execute(
                     "DELETE FROM web_searches WHERE searched_at < ?1",
                     params![cutoff],

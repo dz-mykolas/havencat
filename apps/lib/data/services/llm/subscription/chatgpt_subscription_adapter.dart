@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:logging/logging.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
 import '../../../../domain/models/llm_model.dart';
@@ -51,6 +52,8 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     this._version,
   );
 
+  static final Logger _log = Logger('llm.chatgpt_sub');
+
   final Dio _dio;
   final SseClient _sse;
   final LlmEndpoint _endpoint;
@@ -70,6 +73,7 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     required String? secret,
   }) async* {
     if (secret == null || secret.isEmpty) {
+      _log.warning('stream: no secret (not signed in)');
       yield const ErrorEvent(AuthError('Not signed in. Re-add the account.'));
       return;
     }
@@ -77,6 +81,11 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     final String model = _resolveModel(account);
     final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
     final CancelToken cancelToken = CancelToken();
+
+    _log.info(
+      'stream: model=$model messages=${request.messages.length} '
+      'tools=${request.tools.length}',
+    );
 
     final Future<void> Function()? signal = request.signal;
     StreamSubscription<void>? signalSub;
@@ -108,14 +117,23 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
 
       await for (final SseEvent event in events) {
         final LlmEvent? parsed = _parseEvent(event.data);
+        _log.fine(
+          'sse raw: ${event.data.substring(0, event.data.length.clamp(0, 500))}'
+          ' → parsed=${parsed?.runtimeType ?? 'null'}',
+        );
         if (parsed == null) continue;
         yield parsed;
         if (parsed is DoneEvent) return;
       }
+      _log.fine('stream: ended without explicit done');
       yield const DoneEvent();
     } on DioException catch (e) {
+      _log.warning(
+        'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
+      );
       yield ErrorEvent(_mapDioError(e));
-    } catch (e) {
+    } catch (e, stack) {
+      _log.severe('stream: unexpected error', e, stack);
       yield ErrorEvent(UnknownError(e.toString()));
     } finally {
       await signalSub?.cancel();
@@ -199,10 +217,25 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
 
   /// Parse one Responses API SSE payload into an [LlmEvent].
   ///
-  /// Events are typed via the `type` field. We surface assistant text deltas,
-  /// reasoning-summary deltas, function-call arguments (tool calls),
-  /// completion, and errors; everything else (item lifecycle, etc.) is
-  /// ignored.
+  /// The Responses API streams function calls in three stages:
+  ///   1. `response.output_item.added` — announces the `function_call` item
+  ///      with its `call_id` and `name` (arguments empty).
+  ///   2. `response.function_call_arguments.delta` — partial argument
+  ///      fragments (only `item_id` + `delta`, no `call_id`/`name`).
+  ///   3. `response.function_call_arguments.done` — final `name` + complete
+  ///      `arguments` for the call.
+  ///
+  /// We emit:
+  ///   - A `ToolCallEvent(id, name, args:'')` on stage 1 to seed the
+  ///     accumulator in the repository.
+  ///   - `ToolCallEvent(id:'', name:'', args:delta)` on stage 2 so the
+  ///     repository appends argument fragments to the last call.
+  ///   - Nothing on stage 3 — the repository already accumulated the deltas.
+  ///     (We could emit a correction here if the deltas were lossy, but
+  ///     they're not.)
+  ///
+  /// Text and reasoning deltas are surfaced as [TokenEvent] / [ReasoningEvent].
+  /// Everything else (lifecycle, content parts, annotations) is ignored.
   LlmEvent? _parseEvent(String data) {
     final String trimmed = data.trim();
     if (trimmed.isEmpty) return null;
@@ -215,35 +248,45 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       case 'response.output_text.delta':
         final String? delta = decoded['delta'] as String?;
         return (delta != null && delta.isNotEmpty) ? TokenEvent(delta) : null;
+
       case 'response.reasoning_summary_text.delta':
       case 'response.reasoning_text.delta':
         final String? delta = decoded['delta'] as String?;
         return (delta != null && delta.isNotEmpty)
             ? ReasoningEvent(delta)
             : null;
-      // Responses API: function call arguments stream as deltas. The first
-      // event for a call carries the call_id + name; subsequent ones carry
-      // argument fragments. We surface each as a ToolCallEvent so the
-      // repository can accumulate by id.
+
+      // Stage 1: function_call item announced with call_id + name.
+      case 'response.output_item.added':
+        final Map<String, dynamic>? item =
+            decoded['item'] as Map<String, dynamic>?;
+        if (item != null && item['type'] == 'function_call') {
+          final String? callId = item['call_id'] as String?;
+          final String? name = item['name'] as String?;
+          if (callId != null && callId.isNotEmpty) {
+            return ToolCallEvent(id: callId, name: name ?? '', args: '');
+          }
+        }
+        return null;
+
+      // Stage 2: argument delta fragments (item_id only, no call_id/name).
       case 'response.function_call_arguments.delta':
-        final String? callId = decoded['call_id'] as String?;
-        final String? name = decoded['name'] as String?;
         final String? argsDelta = decoded['delta'] as String?;
         if (argsDelta == null || argsDelta.isEmpty) return null;
-        return ToolCallEvent(
-          id: callId ?? '',
-          name: name ?? '',
-          args: argsDelta,
-        );
+        return ToolCallEvent(id: '', name: '', args: argsDelta);
+
+      // Stage 3: arguments finalized. The repository already accumulated
+      // the deltas — nothing to emit.
       case 'response.function_call_arguments.done':
-        // The full arguments are now available; the repository has already
-        // accumulated the deltas. Nothing to emit here.
         return null;
+
       case 'response.completed':
         return const DoneEvent(finishReason: 'stop');
+
       case 'response.failed':
       case 'error':
         return ErrorEvent(UnknownError(_extractError(decoded)));
+
       default:
         return null;
     }

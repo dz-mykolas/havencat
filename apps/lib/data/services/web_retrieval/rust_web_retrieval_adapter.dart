@@ -1,3 +1,5 @@
+import 'package:logging/logging.dart';
+
 import '../../../src/rust/api/web_retrieval.dart' as rust;
 import '../../../src/rust/web_retrieval/provider.dart' as rust_types;
 import 'web_retrieval.dart';
@@ -17,6 +19,8 @@ class ProviderSlotConfig {
 class RustWebRetrievalAdapter implements WebRetrievalAdapter {
   RustWebRetrievalAdapter();
 
+  static final Logger _log = Logger('web_retrieval.rust');
+
   bool _configured = false;
 
   /// Open the cache DB at [dbPath] (empty string = in-memory) and register
@@ -28,6 +32,11 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
     required List<ProviderSlotConfig> fetchProviders,
   }) async {
     if (_configured) return;
+    _log.info(
+      'configure: dbPath="${dbPath.isEmpty ? "<in-memory>" : dbPath}" '
+      'search=${searchProviders.map((p) => p.kind).join(',')} '
+      'fetch=${fetchProviders.map((p) => p.kind).join(',')}',
+    );
     await rust.configureWebRetrieval(
       dbPath: dbPath,
       searchProviders: searchProviders
@@ -38,6 +47,7 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
           .toList(),
     );
     _configured = true;
+    _log.info('configure: done');
   }
 
   @override
@@ -48,11 +58,14 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
     String query, {
     WebSearchOptions options = const WebSearchOptions(),
   }) async {
+    _log.fine('search: query="$query" num=${options.numResults}');
     final results = await rust.webSearch(
       query: query,
       numResults: options.numResults,
     );
-    return results.map(_toDart).toList();
+    final mapped = results.map(_toDart).toList();
+    _log.fine('search: query="$query" → ${mapped.length} results');
+    return mapped;
   }
 
   @override
@@ -60,7 +73,9 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
     String url, {
     FetchFormat format = FetchFormat.markdown,
   }) async {
+    _log.fine('fetch: url=$url format=${_formatName(format)}');
     final page = await rust.urlFetch(url: url, format: _formatName(format));
+    _log.fine('fetch: url=$url → ${page.content.length} chars');
     return FetchedPage(
       url: page.url,
       title: page.title,
@@ -96,9 +111,7 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
       url: r.url,
       snippet: r.snippet,
       publishedAt: r.publishedAt != null
-          ? DateTime.fromMillisecondsSinceEpoch(
-              r.publishedAt!.toInt() * 1000,
-            )
+          ? DateTime.fromMillisecondsSinceEpoch(r.publishedAt!.toInt() * 1000)
           : null,
       provider: r.provider,
     );

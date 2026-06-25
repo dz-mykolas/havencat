@@ -44,7 +44,9 @@ impl WebSearchProvider for SearxngProvider {
     ) -> Result<Vec<SearchResult>> {
         let base = secret
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| WebRetrievalError::InvalidRequest("searxng: instance url required".into()))?
+            .ok_or_else(|| {
+                WebRetrievalError::InvalidRequest("searxng: instance url required".into())
+            })?
             .trim_end_matches('/');
 
         let resp = self
