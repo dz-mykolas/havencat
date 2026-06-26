@@ -152,7 +152,7 @@ class _SuggestionChip extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outline),
+            border: Border.all(color: AppTheme.outline, width: 0.75),
           ),
           child: Text(
             label,

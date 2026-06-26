@@ -23,14 +23,14 @@ class AppTheme {
   static const Color background = Color(0xFF0E0E11);
   static const Color surface = Color(0xFF17171C);
   static const Color surfaceHigh = Color(0xFF202028);
-  static const Color outline = Color(0xFF2C2C36);
-  static const Color textPrimary = Color(0xFFF3F3F7);
-  static const Color textSecondary = Color(0xFF9A9AA8);
+  static const Color outline = Color.fromARGB(255, 97, 88, 73);
+  static const Color textPrimary = Color(0xFFc3b091);
+  static const Color textSecondary = Color.fromARGB(255, 156, 141, 116);
 
   // Gemini-inspired brand gradient: blue -> violet -> pink.
-  static const Color brandBlue = Color(0xFF4796E3);
-  static const Color brandViolet = Color(0xFF9177C7);
-  static const Color brandPink = Color(0xFFD56F76);
+  static const Color brandBlue = Color.fromARGB(255, 227, 71, 71);
+  static const Color brandViolet = Color.fromARGB(255, 199, 171, 119);
+  static const Color brandPink = Color.fromARGB(255, 213, 211, 111);
 
   static const List<Color> brandColors = <Color>[
     brandBlue,
