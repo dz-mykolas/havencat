@@ -8,6 +8,7 @@
 - When adding packages/libraries use the cleanest CLI commands for this project unless that's not possible. If not, do not do any implementation or installation and reply with why.
 - Skip writing unnecessary test files. Only when very needed
 - There is no backend service, everything is local except for APIs for tooling, LLM models etc.
+- Don't be reluctant to use web search tools for solving things, looking up latest docs etc. before implementing things unless the problem is very simple.
 
 ## Frontend Components
 

@@ -246,6 +246,61 @@ void main() {
       expect(result.authorizationCode, 'auth-code');
     });
 
+    test(
+      'retries on transient network error (app backgrounded during sign-in)',
+      () async {
+        // Simulates the Android scenario: launchUrl opens the browser, the
+        // app is backgrounded, the in-flight poll fails with a
+        // SocketException-shaped DioException (no response, connectionError).
+        // Polling should resume and succeed once the app is foregrounded.
+        int calls = 0;
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest:
+                (RequestOptions options, RequestInterceptorHandler handler) {
+                  calls++;
+                  if (calls == 1) {
+                    handler.reject(
+                      DioException(
+                        requestOptions: options,
+                        type: DioExceptionType.connectionError,
+                        error: 'Failed host lookup: \'auth.openai.com\'',
+                      ),
+                    );
+                    return;
+                  }
+                  handler.resolve(
+                    Response<dynamic>(
+                      requestOptions: options,
+                      statusCode: 200,
+                      data: <String, dynamic>{
+                        'authorization_code': 'auth-code',
+                        'code_verifier': 'v',
+                        'code_challenge': 'c',
+                      },
+                    ),
+                  );
+                },
+          ),
+        );
+
+        final DeviceAuthCode result = await flow
+            .pollForAuthorizationCode(
+              deviceCode: const DeviceCodeResponse(
+                deviceAuthId: 'dev-auth-123',
+                userCode: 'ABCD-1234',
+                verificationUrl: '',
+                expiresIn: 900,
+                interval: 0,
+              ),
+            )
+            .timeout(const Duration(seconds: 10));
+
+        expect(calls, 2);
+        expect(result.authorizationCode, 'auth-code');
+      },
+    );
+
     test('throws on unexpected error status (500)', () async {
       adapter.onPost('https://auth.test/api/accounts/deviceauth/token', (
         MockServer server,

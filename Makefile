@@ -73,6 +73,12 @@ build-play:
 build-apk:
 	cd $(APP) && $(FLUTTER) build apk --release
 
+# Build per-ABI APKs (smaller per-device downloads) plus the fat APK (one
+# install file for any device). Gradle caches compiled artifacts, so the
+# second invocation is much faster than the first.
+build-apk-all: build-apk
+	cd $(APP) && $(FLUTTER) build apk --release --split-per-abi
+
 # Build iOS IPA. Run on macOS only.
 build-ios:
 	cd $(APP) && $(FLUTTER) build ipa

@@ -11,7 +11,7 @@ import '../../../../domain/models/provider_account.dart';
 import '../llm_adapter.dart';
 import '../llm_endpoint.dart';
 import '../llm_event.dart';
-import 'sse_client.dart';
+import '../sse/sse_client.dart';
 
 /// One generic adapter covering every OpenAI-compatible `/v1/chat/completions`
 /// endpoint: OpenAI API, Qwen DashScope, OpenRouter, Groq, Together, DeepSeek,

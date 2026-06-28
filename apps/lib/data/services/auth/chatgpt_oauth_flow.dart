@@ -180,6 +180,17 @@ class ChatGptOAuthFlow {
           await Future<void>.delayed(Duration(seconds: deviceCode.interval));
           continue;
         }
+        // Transient network errors (host lookup, connection reset, timeout)
+        // are expected here: on mobile, opening the browser to complete
+        // sign-in backgrounds the app, and the OS suspends its sockets. The
+        // in-flight poll then fails with a SocketException-shaped
+        // DioException. Treat these as "keep polling" rather than aborting
+        // the whole login — the user is mid-flow in another app.
+        if (status == null && _isTransientNetworkError(e)) {
+          onPolling?.call();
+          await Future<void>.delayed(Duration(seconds: deviceCode.interval));
+          continue;
+        }
         throw ChatGptAuthError(
           'Device auth failed: ${e.message ?? e.type.name}',
         );
@@ -359,3 +370,29 @@ final class ChatGptAuthCancelled extends ChatGptAuthException {
 /// Strips a single trailing slash from [url], if present.
 String _trimEndSlash(String url) =>
     url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+
+/// Whether [e] represents a transient network failure that should be retried
+/// rather than surfaced to the user.
+///
+/// On mobile (notably Android), when the app is backgrounded — e.g. because
+/// `launchUrl` opened the browser so the user can complete device-code
+/// sign-in — the OS suspends the app's network sockets. Any in-flight Dio
+/// request then fails with a `SocketException` ("Failed host lookup",
+/// "Connection refused", "Connection reset"). These are not real auth
+/// failures; the device code is still valid and polling should resume once
+/// the app is foregrounded again. See flutter/flutter#121143 and
+/// cfug/dio#2179.
+bool _isTransientNetworkError(DioException e) {
+  switch (e.type) {
+    case DioExceptionType.connectionTimeout:
+    case DioExceptionType.receiveTimeout:
+    case DioExceptionType.sendTimeout:
+    case DioExceptionType.connectionError:
+    case DioExceptionType.unknown:
+      return true;
+    case DioExceptionType.badCertificate:
+    case DioExceptionType.badResponse:
+    case DioExceptionType.cancel:
+      return false;
+  }
+}

@@ -11,7 +11,7 @@ import '../../auth/chatgpt_oauth_flow.dart';
 import '../llm_adapter.dart';
 import '../llm_endpoint.dart';
 import '../llm_event.dart';
-import '../openai_compatible/sse_client.dart';
+import '../sse/sse_client.dart';
 import 'codex_protocol.dart';
 import 'codex_version.dart';
 
