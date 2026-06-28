@@ -54,7 +54,6 @@ void main() {
           'device_auth_id': 'dev-auth-123',
           'user_code': 'ABCD-1234',
           'interval': '5',
-          'expires_in': '900',
         });
       }, data: Matchers.any);
 
@@ -64,7 +63,6 @@ void main() {
       expect(response.userCode, 'ABCD-1234');
       expect(response.verificationUrl, 'https://auth.test/codex/device');
       expect(response.interval, 5);
-      expect(response.expiresIn, 900);
     });
 
     test('parses the device code response (interval as number)', () async {
@@ -81,8 +79,6 @@ void main() {
       final DeviceCodeResponse response = await flow.requestDeviceCode();
 
       expect(response.interval, 10);
-      // expires_in defaults to 900 when absent.
-      expect(response.expiresIn, 900);
     });
   });
 
@@ -103,7 +99,6 @@ void main() {
           deviceAuthId: 'dev-auth-123',
           userCode: 'ABCD-1234',
           verificationUrl: 'https://auth.test/codex/device',
-          expiresIn: 900,
           interval: 5,
         ),
       );
@@ -181,7 +176,6 @@ void main() {
               deviceAuthId: 'dev-auth-123',
               userCode: 'ABCD-1234',
               verificationUrl: '',
-              expiresIn: 900,
               interval: 0, // no delay in tests
             ),
             onPolling: () => pollingTicks.add(null),
@@ -236,7 +230,6 @@ void main() {
               deviceAuthId: 'dev-auth-123',
               userCode: 'ABCD-1234',
               verificationUrl: '',
-              expiresIn: 900,
               interval: 0,
             ),
           )
@@ -290,7 +283,6 @@ void main() {
                 deviceAuthId: 'dev-auth-123',
                 userCode: 'ABCD-1234',
                 verificationUrl: '',
-                expiresIn: 900,
                 interval: 0,
               ),
             )
@@ -314,7 +306,6 @@ void main() {
             deviceAuthId: 'dev-auth-123',
             userCode: 'ABCD-1234',
             verificationUrl: '',
-            expiresIn: 900,
             interval: 0,
           ),
         ),
@@ -335,7 +326,6 @@ void main() {
             deviceAuthId: 'dev-auth-123',
             userCode: 'ABCD-1234',
             verificationUrl: '',
-            expiresIn: 900,
             interval: 0,
           ),
           shouldCancel: () async => true,

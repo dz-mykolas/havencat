@@ -38,7 +38,6 @@ class DeviceCodeResponse {
     required this.deviceAuthId,
     required this.userCode,
     required this.verificationUrl,
-    required this.expiresIn,
     required this.interval,
   });
 
@@ -47,11 +46,12 @@ class DeviceCodeResponse {
   final String userCode;
   final String verificationUrl;
 
-  /// Seconds until the device code expires.
-  final int expiresIn;
-
   /// Polling interval in seconds.
   final int interval;
+
+  /// Client-side device-code lifetime. OpenAI's usercode endpoint does not
+  /// return `expires_in`; Codex hardcodes 15 minutes and so do we.
+  static const int lifetimeSeconds = 15 * 60;
 }
 
 /// The result of step 2: the authorization code + the PKCE codes the server
@@ -121,7 +121,6 @@ class ChatGptOAuthFlow {
       userCode: body['user_code'] as String,
       verificationUrl: '${_trimEndSlash(_issuer)}/codex/device',
       // The server returns `interval` as a string; tolerate either form.
-      expiresIn: _parseInt(body['expires_in']) ?? 900,
       interval: _parseInt(body['interval']) ?? 5,
     );
   }
@@ -144,7 +143,7 @@ class ChatGptOAuthFlow {
     final String url =
         '${_trimEndSlash(_issuer)}/api/accounts/deviceauth/token';
     final DateTime expiresAt = DateTime.now().add(
-      Duration(seconds: deviceCode.expiresIn),
+      const Duration(seconds: DeviceCodeResponse.lifetimeSeconds),
     );
 
     while (true) {

@@ -129,3 +129,55 @@ Three reasons:
 When models.dev adds a `protocol` or `wire_format` field (or starts publishing
 `api` URLs for these providers), we can enable them.
 
+## ChatGPT device-code OAuth flow
+
+Sign-in with ChatGPT uses OpenAI's custom device-code flow (NOT standard RFC
+8628). The flow lives in `apps/lib/data/services/auth/chatgpt_oauth_flow.dart`
+and the UI in `apps/lib/ui/settings/widgets/chatgpt_login_dialog.dart`.
+
+### Endpoint shape
+
+`POST {issuer}/api/accounts/deviceauth/usercode` with `{"client_id": ...}`
+returns only three fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `device_auth_id` | string | Server-internal id, sent back when polling |
+| `user_code` | string | The code the user enters on the sign-in page |
+| `interval` | string \| number | Polling interval in seconds (server returns a string; we tolerate either) |
+
+**The endpoint does NOT return `expires_in`.** The 15-minute device-code
+lifetime is a **client-side convention**, not a server-provided value. This
+matches what Codex does — `codex-rs/login/src/device_code_auth.rs` hardcodes
+`Duration::from_secs(15 * 60)` for the polling deadline and prints a hardcoded
+"(expires in 15 minutes)" string in the CLI/TUI prompts. We do the same:
+`DeviceCodeResponse.lifetimeSeconds = 15 * 60`.
+
+### Polling
+
+`POST {issuer}/api/accounts/deviceauth/token` with
+`{"device_auth_id", "user_code"}`. While the user hasn't completed sign-in,
+the server returns **403 or 404** (not the RFC 8628 `400 + authorization_pending`).
+These are treated as "keep polling". On success it returns an
+`authorization_code` plus the PKCE `code_verifier` / `code_challenge` the
+server generated for this login.
+
+### Console noise on web (expected, not bugs)
+
+On web, Dio uses `XMLHttpRequest`. The browser always logs non-2xx XHR
+responses to the console at the network layer — this happens *before* the
+response reaches Dart's `onError` handler, so catching the `DioException` in
+Dart can't suppress it. Two cases appear during normal use:
+
+- **`POST .../api/accounts/deviceauth/token 403`** — the polling loop working
+  as designed. Each poll cycle logs a 403 until the user completes sign-in.
+  Caught at `chatgpt_oauth_flow.dart` and retried.
+- **`POST .../oauth/revoke 400`** — sign-out revocation. ChatGPT's revoke
+  endpoint returns 400 when the token is already expired/invalid (RFC 7009
+  says servers *should* return 200 even for invalid tokens, but OpenAI's
+  implementation returns 400). Already wrapped in a silent try/catch; the
+  account is removed regardless.
+
+Native (Android/iOS/desktop) doesn't have this issue — `dart:io` HttpClient
+doesn't log to any console.
+

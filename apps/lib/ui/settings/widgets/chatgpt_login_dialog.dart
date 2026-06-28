@@ -56,7 +56,9 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
       final DeviceCodeResponse deviceCode = await widget.viewModel
           .startChatGptLogin();
       if (!mounted) return;
-      _expiresAt = DateTime.now().add(Duration(seconds: deviceCode.expiresIn));
+      _expiresAt = DateTime.now().add(
+        const Duration(seconds: DeviceCodeResponse.lifetimeSeconds),
+      );
       _remaining = _expiresAt!.difference(DateTime.now());
       _countdown = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted || _expiresAt == null) return;
