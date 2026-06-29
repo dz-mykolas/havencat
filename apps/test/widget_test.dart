@@ -12,10 +12,9 @@ void main() {
   ) async {
     await tester.pumpWidget(const ProviderScope(child: App()));
 
-    // The empty-state greeting and a suggestion chip should be visible.
+    // The empty-state greeting should be visible.
     expect(find.text('Hello there'), findsOneWidget);
     expect(find.text('How can I help you today?'), findsOneWidget);
-    expect(find.text('Help me debug some code'), findsOneWidget);
   });
 
   testWidgets('typing in the input enables sending a message', (

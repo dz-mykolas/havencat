@@ -81,12 +81,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  void _prefill(String suggestion) {
-    _textController
-      ..text = suggestion
-      ..selection = TextSelection.collapsed(offset: suggestion.length);
-  }
-
   void _openSettings(BuildContext context) {
     Navigator.of(
       context,
@@ -193,6 +187,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Let the animated background bleed behind the transparent app bar.
       extendBodyBehindAppBar: true,
       body: Stack(
+        fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(
             child: ListenableBuilder(
@@ -203,15 +198,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
           SafeArea(
+            top: false,
             child: ListenableBuilder(
               listenable: repo,
               builder: (BuildContext context, _) {
                 final Conversation conversation = repo.active;
                 if (conversation.isEmpty) {
-                  return EmptyState(
-                    onSuggestionTap: _prefill,
-                    input: _buildInput(),
-                  );
+                  return EmptyState(input: _buildInput());
                 }
                 // Keep pinned to the newest content as tokens stream in.
                 _scrollToBottom();

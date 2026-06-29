@@ -4,35 +4,27 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/gradient_text.dart';
 
 /// The home layout shown when the active conversation has no messages: a
-/// gradient greeting sitting above center, the message [input] placed just
-/// below center, and suggestion chips that prefill the input when tapped.
+/// gradient greeting sitting above center with the message [input] placed
+/// just below center.
 class EmptyState extends StatelessWidget {
-  const EmptyState({
-    super.key,
-    required this.onSuggestionTap,
-    required this.input,
-  });
-
-  final ValueChanged<String> onSuggestionTap;
+  const EmptyState({super.key, required this.input});
 
   /// The message input bar, hosted below center on the home screen.
   final Widget input;
 
-  static const List<String> _suggestions = <String>[
-    'Explain a tricky concept simply',
-    'Draft a message for me',
-    'Brainstorm ideas for a project',
-    'Help me debug some code',
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final bool wide = MediaQuery.of(context).size.width >= 720;
+    return wide ? _buildDesktop(context) : _buildMobile(context);
+  }
+
+  /// Desktop: input bar vertically centered, greeting above, suggestions
+  /// below. The app bar is transparent and overlays the body, so the input
+  /// centers in the full viewport height.
+  Widget _buildDesktop(BuildContext context) {
     return Column(
       children: <Widget>[
-        // Greeting occupies the upper region and stays anchored just above the
-        // input. It can shrink/scroll when the keyboard appears.
         Expanded(
-          flex: 6,
           child: Align(
             alignment: Alignment.bottomCenter,
             child: SingleChildScrollView(
@@ -42,34 +34,47 @@ class EmptyState extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
         _Centered(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: input,
           ),
         ),
-        const SizedBox(height: 18),
-        _Centered(
+        const SizedBox(height: 24),
+        Expanded(child: SizedBox()),
+      ],
+    );
+  }
+
+  /// Mobile: "Hello there" greeting centered in the middle of the screen,
+  /// input bar pinned to the bottom. No suggestion chips.
+  Widget _buildMobile(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: _Greeting(),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: _suggestions
-                  .map(
-                    (String s) => _SuggestionChip(
-                      label: s,
-                      onTap: () => onSuggestionTap(s),
-                    ),
-                  )
-                  .toList(),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 27),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: AppTheme.contentMaxWidth,
+                ),
+                child: input,
+              ),
             ),
           ),
         ),
-        // Empty space below keeps the input group sitting below center.
-        const Expanded(flex: 4, child: SizedBox()),
       ],
     );
   }
@@ -129,41 +134,6 @@ class _Greeting extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _SuggestionChip extends StatelessWidget {
-  const _SuggestionChip({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.surface,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 220),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outline, width: 0.75),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 14,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

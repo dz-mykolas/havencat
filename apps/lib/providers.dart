@@ -109,11 +109,14 @@ final providerAccountRepositoryProvider =
 /// `SharedPreferences`-backed instance.
 final accountModelsServiceProvider =
     ChangeNotifierProvider<AccountModelsService>((ref) {
+      // ref.read (not ref.watch): AccountModelsService listens to
+      // ProviderAccountRepository via addListener. ref.watch would recreate
+      // this service on every notifyListeners(), wiping the in-memory cache.
       return AccountModelsService(
         prefs: ref.watch(sharedPreferencesProvider),
-        providers: ref.watch(providerAccountRepositoryProvider),
-        adapters: ref.watch(adapterRegistryProvider),
-        credentials: ref.watch(credentialResolverProvider),
+        providers: ref.read(providerAccountRepositoryProvider),
+        adapters: ref.read(adapterRegistryProvider),
+        credentials: ref.read(credentialResolverProvider),
       );
     });
 
@@ -138,10 +141,13 @@ final conversationRepositoryProvider =
             ? proxy.substring(0, proxy.length - '/proxy'.length)
             : proxy;
       }
+      // ref.read (not ref.watch) for providerRepository: ConversationRepository
+      // listens to it via addListener. ref.watch would recreate the repository
+      // on every notifyListeners(), wiping in-memory conversations.
       return ConversationRepository(
-        providerRepository: ref.watch(providerAccountRepositoryProvider),
-        adapterRegistry: ref.watch(adapterRegistryProvider),
-        credentialResolver: ref.watch(credentialResolverProvider),
+        providerRepository: ref.read(providerAccountRepositoryProvider),
+        adapterRegistry: ref.read(adapterRegistryProvider),
+        credentialResolver: ref.read(credentialResolverProvider),
         conversationStore: createConversationStore(httpBaseUrl: httpBaseUrl),
         webRetrieval: webRetrieval,
         // ref.read (not ref.watch) so toggling doesn't recreate the repository

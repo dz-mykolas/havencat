@@ -165,9 +165,12 @@ class ModelSelectorViewModel extends ChangeNotifier {
 
 final modelSelectorViewModelProvider =
     ChangeNotifierProvider<ModelSelectorViewModel>((ref) {
+      // ref.read (not ref.watch): ModelSelectorViewModel listens to all three
+      // ChangeNotifiers via addListener. ref.watch would recreate the VM on
+      // every notifyListeners(), losing its listener subscriptions mid-flight.
       return ModelSelectorViewModel(
-        ref.watch(providerAccountRepositoryProvider),
-        ref.watch(accountModelsServiceProvider),
-        ref.watch(appSettingsProvider),
+        ref.read(providerAccountRepositoryProvider),
+        ref.read(accountModelsServiceProvider),
+        ref.read(appSettingsProvider),
       );
     });

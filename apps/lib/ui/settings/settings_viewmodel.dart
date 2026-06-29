@@ -166,9 +166,12 @@ class SettingsViewModel extends ChangeNotifier {
 final settingsViewModelProvider = ChangeNotifierProvider<SettingsViewModel>((
   ref,
 ) {
+  // ref.read (not ref.watch): SettingsViewModel listens to the repository via
+  // addListener. ref.watch would recreate the VM on every notifyListeners(),
+  // losing listener subscriptions mid-flight.
   return SettingsViewModel(
-    ref.watch(providerAccountRepositoryProvider),
-    ref.watch(chatGptOAuthFlowProvider),
-    ref.watch(chatGptTokenServiceProvider),
+    ref.read(providerAccountRepositoryProvider),
+    ref.read(chatGptOAuthFlowProvider),
+    ref.read(chatGptTokenServiceProvider),
   );
 });

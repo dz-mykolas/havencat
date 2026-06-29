@@ -5,190 +5,170 @@ import '../../core/theme/app_theme.dart';
 import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/provider_account.dart';
 import '../model_selector_viewmodel.dart';
+import 'model_selector_panel.dart';
 
-/// Chat header control: a provider (adapter) picker that expands a second
-/// picker listing the models fetched dynamically for that provider.
+/// A single chip in the app bar that opens a two-column provider/model picker.
 ///
-/// Selecting a provider switches the active account and triggers a fresh model
-/// fetch; the model picker then lists whatever the provider returned, with the
-/// default already chosen from those results (never hardcoded).
+/// On wide screens it opens a centered [Dialog]; on narrow screens it opens a
+/// bottom [Drawer]. Both host the same [ModelSelectorPanel].
 class ModelSelectorBar extends ConsumerWidget {
   const ModelSelectorBar({super.key, this.compact = false});
 
-  /// Compact mode (phones): the provider pill collapses to an icon and pills
-  /// use tighter padding so the bar fits beside the logo.
+  /// Compact mode (phones): the chip collapses to an icon so it fits beside
+  /// the logo.
   final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ModelSelectorViewModel vm = ref.watch(modelSelectorViewModelProvider);
-    return ListenableBuilder(
-      listenable: vm,
-      builder: (BuildContext context, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _ProviderPicker(vm: vm, compact: compact),
-            const SizedBox(width: 8),
-            Flexible(
-              child: _ModelPicker(vm: vm, compact: compact),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _ProviderPicker extends StatelessWidget {
-  const _ProviderPicker({required this.vm, required this.compact});
-
-  final ModelSelectorViewModel vm;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final List<ProviderAccount> accounts = vm.accounts;
-    return PopupMenuButton<String>(
-      tooltip: vm.activeAccount?.displayName ?? 'Provider',
-      position: PopupMenuPosition.under,
-      color: AppTheme.surfaceHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: vm.selectProvider,
-      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        for (final ProviderAccount a in accounts)
-          // Accounts with no enabled models are rendered disabled (greyed,
-          // non-selectable). Because `PopupMenuButton.onSelected` is set at
-          // the menu level (not per item), we keep `value` on the item for
-          // identification but rely on `enabled: false` to both grey it and
-          // block selection — the framework simply doesn't fire `onSelected`
-          // for disabled items in a PopupMenu.
-          PopupMenuItem<String>(
-            value: a.id,
-            enabled: a.enabledModels.isNotEmpty,
-            child: _MenuRow(
-              label: a.displayName,
-              selected: a.id == vm.activeAccountId,
-              locked: a.enabledModels.isEmpty,
-            ),
-          ),
-      ],
+    final String label = _label(vm);
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _open(context, vm),
       child: _Chip(
-        icon: Icons.account_tree_outlined,
-        label: vm.activeAccount?.displayName ?? 'Provider',
+        icon: Icons.bubble_chart_outlined,
+        label: label,
         dense: compact,
         hideLabel: compact,
       ),
     );
   }
-}
 
-class _ModelPicker extends StatelessWidget {
-  const _ModelPicker({required this.vm, required this.compact});
-
-  final ModelSelectorViewModel vm;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    if (vm.isLoading) {
-      return _Chip(
-        icon: Icons.bubble_chart_outlined,
-        label: compact ? 'Loading…' : 'Loading models…',
-        showSpinner: true,
-        dense: compact,
-      );
-    }
-
-    if (vm.error != null) {
-      return InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: vm.refresh,
-        child: _Chip(
-          icon: Icons.error_outline,
-          label: 'Retry',
-          danger: true,
-          dense: compact,
-        ),
-      );
-    }
-
+  String _label(ModelSelectorViewModel vm) {
+    final ProviderAccount? account = vm.activeAccount;
+    if (account == null) return 'Select model';
+    final String? modelId = vm.selectedModelId;
+    if (modelId == null) return account.displayName;
     final List<LlmModel>? models = vm.models;
-    // null = not yet fetched (cache empty, no background fetch has landed).
-    if (models == null) {
-      return _Chip(
-        icon: Icons.bubble_chart_outlined,
-        label: compact ? 'Loading…' : 'Loading models…',
-        showSpinner: true,
-        dense: compact,
-      );
+    if (models == null) return account.displayName;
+    for (final LlmModel m in models) {
+      if (m.id == modelId) return '${account.displayName} · ${m.label}';
     }
-    if (models.isEmpty) {
-      return _Chip(
-        icon: Icons.bubble_chart_outlined,
-        label: 'No models',
-        dense: compact,
-      );
-    }
-
-    return PopupMenuButton<String>(
-      tooltip: 'Model',
-      position: PopupMenuPosition.under,
-      color: AppTheme.surfaceHigh,
-      constraints: const BoxConstraints(maxHeight: 360, minWidth: 220),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: vm.selectModel,
-      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        for (final LlmModel m in models)
-          PopupMenuItem<String>(
-            value: m.id,
-            child: _MenuRow(
-              label: m.label,
-              selected: m.id == vm.selectedModelId,
-            ),
-          ),
-      ],
-      child: _Chip(
-        icon: Icons.bubble_chart_outlined,
-        label: _selectedLabel(models, vm.selectedModelId),
-        dense: compact,
-      ),
-    );
+    return account.displayName;
   }
 
-  String _selectedLabel(List<LlmModel> models, String? selectedId) {
-    if (selectedId == null) return 'Select model';
-    for (final LlmModel m in models) {
-      if (m.id == selectedId) return m.label;
+  void _open(BuildContext context, ModelSelectorViewModel vm) {
+    final bool wide =
+        MediaQuery.of(context).size.width >= AppTheme.wideBreakpoint;
+    if (wide) {
+      showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return Dialog(
+            backgroundColor: AppTheme.surface,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: SizedBox(
+              width: 560,
+              height: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                    child: Row(
+                      children: <Widget>[
+                        const Text(
+                          'Select model',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListenableBuilder(
+                      listenable: vm,
+                      builder: (BuildContext context, _) {
+                        return ModelSelectorPanel(vm: vm);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: AppTheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+          ),
+        ),
+        builder: (BuildContext context) {
+          return SizedBox(
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                  child: Row(
+                    children: <Widget>[
+                      const Text(
+                        'Select model',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: vm,
+                    builder: (BuildContext context, _) {
+                      return ModelSelectorPanel(vm: vm);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
     }
-    return selectedId;
   }
 }
 
-/// The pill rendered in the app bar for both pickers.
+/// The pill rendered in the app bar.
 class _Chip extends StatelessWidget {
   const _Chip({
     required this.icon,
     required this.label,
-    this.showSpinner = false,
-    this.danger = false,
     this.dense = false,
     this.hideLabel = false,
   });
 
   final IconData icon;
   final String label;
-  final bool showSpinner;
-  final bool danger;
   final bool dense;
-
-  /// Render just the icon + chevron (used for the provider pill on phones).
   final bool hideLabel;
 
   @override
   Widget build(BuildContext context) {
-    final Color fg = danger ? AppTheme.brandPink : AppTheme.textPrimary;
-    final double spinner = dense ? 12 : 14;
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: dense ? 8 : 12,
@@ -202,14 +182,7 @@ class _Chip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (showSpinner)
-            SizedBox(
-              width: spinner,
-              height: spinner,
-              child: const CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            Icon(icon, size: 16, color: AppTheme.textSecondary),
+          Icon(icon, size: 16, color: AppTheme.textSecondary),
           if (!hideLabel) ...<Widget>[
             const SizedBox(width: 6),
             Flexible(
@@ -218,7 +191,7 @@ class _Chip extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: fg,
+                  color: AppTheme.textPrimary,
                   fontSize: dense ? 12 : 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -229,53 +202,6 @@ class _Chip extends StatelessWidget {
           Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
         ],
       ),
-    );
-  }
-}
-
-/// A row inside a popup menu, with a trailing check on the selected entry and
-/// a trailing lock icon when the item is disabled (no models enabled on that
-/// provider).
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({
-    required this.label,
-    required this.selected,
-    this.locked = false,
-  });
-
-  final String label;
-  final bool selected;
-  final bool locked;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color fg = locked ? AppTheme.textSecondary : AppTheme.textPrimary;
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: fg,
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-        ),
-        if (locked)
-          const Tooltip(
-            message: 'No models enabled for this provider',
-            child: Icon(
-              Icons.lock_outline,
-              size: 14,
-              color: AppTheme.textSecondary,
-            ),
-          )
-        else if (selected)
-          const Icon(Icons.check, size: 16, color: AppTheme.brandBlue),
-      ],
     );
   }
 }

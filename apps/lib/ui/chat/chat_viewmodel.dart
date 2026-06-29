@@ -106,8 +106,11 @@ class ConversationView {
 }
 
 final chatViewModelProvider = ChangeNotifierProvider<ChatViewModel>((ref) {
+  // ref.read (not ref.watch): ChatViewModel listens to both repositories via
+  // addListener. ref.watch would recreate the VM on every notifyListeners(),
+  // losing listener subscriptions mid-flight.
   return ChatViewModel(
-    ref.watch(conversationRepositoryProvider),
-    ref.watch(providerAccountRepositoryProvider),
+    ref.read(conversationRepositoryProvider),
+    ref.read(providerAccountRepositoryProvider),
   );
 });
