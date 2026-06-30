@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -50,8 +52,20 @@ class ModelSelectorBar extends ConsumerWidget {
   void _open(BuildContext context, ModelSelectorViewModel vm) {
     final bool wide =
         MediaQuery.of(context).size.width >= AppTheme.wideBreakpoint;
+    // Acknowledge new models once the picker closes — the user has seen the
+    // list, so the "+N new" badge should clear on next open. Fire-and-forget;
+    // failures are harmless (the badge just persists).
+    final Future<void> closed = _showPicker(context, vm, wide);
+    unawaited(closed.then((_) => vm.acknowledgeNewModels()));
+  }
+
+  Future<void> _showPicker(
+    BuildContext context,
+    ModelSelectorViewModel vm,
+    bool wide,
+  ) async {
     if (wide) {
-      showDialog<void>(
+      return showDialog<void>(
         context: context,
         builder: (BuildContext context) {
           return Dialog(
@@ -101,7 +115,7 @@ class ModelSelectorBar extends ConsumerWidget {
         },
       );
     } else {
-      showModalBottomSheet<void>(
+      return showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         backgroundColor: AppTheme.surface,

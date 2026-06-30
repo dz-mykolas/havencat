@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/model_pricing.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../../core/theme/app_theme.dart';
@@ -140,6 +141,13 @@ class _QuickAddContent extends StatefulWidget {
 }
 
 class _QuickAddContentState extends State<_QuickAddContent> {
+  /// Hard cap on how many models a single account can enable. Keeps the chat
+  /// picker usable for router accounts (OpenRouter serves 300+). First-party
+  /// labs never hit it. TODO: drop to 20 once capability filtering lands in
+  /// OpenAiCompatibleAdapter.listModels (it currently returns embeddings /
+  /// whisper / tts / dall-e entries alongside chat models).
+  static const int maxEnabled = 50;
+
   late final TextEditingController _name;
   late final TextEditingController _key;
   late final TextEditingController _baseUrl;
@@ -165,8 +173,19 @@ class _QuickAddContentState extends State<_QuickAddContent> {
     super.dispose();
   }
 
+  /// Subscription providers (ChatGPT, Poe) skip the model-pick requirement —
+  /// their model list comes from the OAuth backend, not the catalog, and is
+  /// auto-enabled on first fetch. Every other kind must pick at least one.
+  bool get _requiresModelPick =>
+      widget.definition.kind != AdapterKind.subscription;
+
+  bool get _atCap => _selected.length >= maxEnabled;
+
   bool get _canSubmit =>
-      _name.text.trim().isNotEmpty && _key.text.trim().isNotEmpty && !_saving;
+      _name.text.trim().isNotEmpty &&
+      _key.text.trim().isNotEmpty &&
+      !_saving &&
+      (!_requiresModelPick || _selected.isNotEmpty);
 
   Future<void> _submit() async {
     if (!_canSubmit) return;
@@ -250,6 +269,9 @@ class _QuickAddContentState extends State<_QuickAddContent> {
           _ModelSection(
             models: widget.group.models,
             selected: _selected,
+            maxEnabled: maxEnabled,
+            atCap: _atCap,
+            requiresPick: _requiresModelPick,
             onToggle: (PricedModel m) {
               setState(() {
                 if (!_selected.add(m.id)) {
@@ -264,7 +286,11 @@ class _QuickAddContentState extends State<_QuickAddContent> {
                 } else {
                   _selected
                     ..clear()
-                    ..addAll(widget.group.models.map((PricedModel m) => m.id));
+                    ..addAll(
+                      widget.group.models
+                          .take(maxEnabled)
+                          .map((PricedModel m) => m.id),
+                    );
                 }
               });
             },
@@ -401,12 +427,18 @@ class _ModelSection extends StatelessWidget {
   const _ModelSection({
     required this.models,
     required this.selected,
+    required this.maxEnabled,
+    required this.atCap,
+    required this.requiresPick,
     required this.onToggle,
     required this.onSelectAll,
   });
 
   final List<PricedModel> models;
   final Set<String> selected;
+  final int maxEnabled;
+  final bool atCap;
+  final bool requiresPick;
   final ValueChanged<PricedModel> onToggle;
   final VoidCallback onSelectAll;
 
@@ -421,9 +453,14 @@ class _ModelSection extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: Text(
-                'Models (${selected.length}/${models.length} selected)',
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
+                requiresPick && selected.isEmpty
+                    ? 'Pick at least one model (${models.length} available)'
+                    : 'Models (${selected.length}/${models.length} selected'
+                          '${atCap ? ' · cap $maxEnabled' : ''})',
+                style: TextStyle(
+                  color: requiresPick && selected.isEmpty
+                      ? AppTheme.brandPink
+                      : AppTheme.textSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
@@ -462,8 +499,9 @@ class _ModelSection extends StatelessWidget {
               final PricedModel m = models[index];
               final bool on = selected.contains(m.id);
               final bool free = m.cost?.isFree ?? false;
+              final bool lockedOff = !on && atCap;
               return InkWell(
-                onTap: () => onToggle(m),
+                onTap: lockedOff ? null : () => onToggle(m),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     vertical: 8,

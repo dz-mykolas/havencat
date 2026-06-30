@@ -5,8 +5,10 @@ import '../core/theme/app_theme.dart';
 import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/model_pricing.dart';
 import '../../domain/models/provider_account.dart';
+import '../chat/model_selector_viewmodel.dart';
 import '../settings/settings_viewmodel.dart';
 import '../settings/widgets/account_tile.dart';
+import '../settings/widgets/manage_models_sheet.dart';
 import '../settings/widgets/provider_picker.dart' show showProviderPicker;
 import 'pricing_viewmodel.dart';
 import 'pricing_format.dart';
@@ -1040,6 +1042,21 @@ class _AccountsView extends StatelessWidget {
                       onTap: () => settings.setActive(account.id),
                       onDelete: () =>
                           _confirmDelete(context, settings, account),
+                      onManageModels: account.kind == AdapterKind.mock
+                          ? null
+                          : () {
+                              final ModelSelectorViewModel selector =
+                                  ProviderScope.containerOf(
+                                    context,
+                                    listen: false,
+                                  ).read(modelSelectorViewModelProvider);
+                              showManageModels(
+                                context,
+                                settings,
+                                selector,
+                                account,
+                              );
+                            },
                     ),
                 ],
               ),

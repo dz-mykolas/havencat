@@ -17,12 +17,18 @@ class AccountTile extends StatelessWidget {
     required this.active,
     required this.onTap,
     required this.onDelete,
+    this.onManageModels,
   });
 
   final ProviderAccount account;
   final bool active;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+
+  /// Opens the Manage Models sheet for this account. When null, the manage
+  /// button is hidden (e.g. for the mock seed account, which has no real
+  /// provider behind it).
+  final VoidCallback? onManageModels;
 
   @override
   Widget build(BuildContext context) {
@@ -83,16 +89,33 @@ class AccountTile extends StatelessWidget {
                     ),
                   )
                 else
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    tooltip: 'Remove account',
-                    onPressed: onDelete,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (onManageModels != null)
+                        IconButton(
+                          icon: const Icon(Icons.tune, size: 18),
+                          tooltip: 'Manage models',
+                          onPressed: onManageModels,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        tooltip: 'Remove account',
+                        onPressed: onDelete,
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),

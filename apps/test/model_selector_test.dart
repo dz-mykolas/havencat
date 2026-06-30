@@ -304,4 +304,164 @@ void main() {
       );
     });
   });
+
+  group('ModelSelectorViewModel availability deltas', () {
+    /// Builds a [ModelSelectorViewModel] backed by an [AccountModelsService]
+    /// seeded with [available] models, and an account whose `enabledModels`
+    /// is [enabled]. The `seen` set is seeded with [seen] (defaults empty).
+    ModelSelectorViewModel buildVm({
+      required List<String> enabled,
+      required List<LlmModel> available,
+      List<String> seen = const <String>[],
+    }) {
+      final SecretStore secrets = SecretStore();
+      final ProviderAccountRepository providers = ProviderAccountRepository(
+        accountStore: AccountStore(),
+        secretStore: secrets,
+      );
+      final AccountModelsService accountModels = AccountModelsService(
+        providers: providers,
+        adapters: AdapterRegistry(),
+        credentials: CredentialResolver(
+          secretStore: secrets,
+          chatGptTokens: ChatGptTokenService(
+            secretStore: secrets,
+            oauthFlow: ChatGptOAuthFlow(
+              clientId: 'c',
+              issuer: 'https://auth.test',
+            ),
+          ),
+        ),
+      );
+      // Seed the cache for the mock seed account.
+      final List<ProviderAccount> accounts = providers.accounts;
+      for (final ProviderAccount a in accounts) {
+        accountModels.seedForTest(a.id, available);
+        // Seed the seen set so the "new" delta is deterministic.
+        for (final String id in seen) {
+          accountModels.seenFor(a.id).add(id);
+        }
+      }
+      // Set the account's enabled models.
+      for (final ProviderAccount a in accounts) {
+        providers.setAllowedModels(a.id, enabled);
+      }
+      return ModelSelectorViewModel(providers, accountModels, AppSettings());
+    }
+
+    test(
+      'newModelIds = available − enabled − seen (freshly-seeded account)',
+      () async {
+        // The mock seed account auto-enables all seeded models on first
+        // fetch via _autoEnableModels, but seedForTest bypasses that path —
+        // so enabledModels stays as we set it explicitly.
+        final ModelSelectorViewModel vm = buildVm(
+          enabled: const <String>['gpt-5.5'],
+          available: const <LlmModel>[
+            LlmModel(id: 'gpt-5.5'),
+            LlmModel(id: 'gpt-5.5-mini'),
+            LlmModel(id: 'o4'),
+          ],
+        );
+        await Future<void>.delayed(Duration.zero);
+        // gpt-5.5 is enabled; the other two are new (not enabled, not seen).
+        expect(vm.newModelIds, <String>{'gpt-5.5-mini', 'o4'});
+        expect(vm.newCountFor(vm.activeAccountId!), 2);
+      },
+    );
+
+    test('seen ids are excluded from newModelIds', () async {
+      final ModelSelectorViewModel vm = buildVm(
+        enabled: const <String>['gpt-5.5'],
+        available: const <LlmModel>[
+          LlmModel(id: 'gpt-5.5'),
+          LlmModel(id: 'gpt-5.5-mini'),
+          LlmModel(id: 'o4'),
+        ],
+        seen: const <String>['gpt-5.5-mini'],
+      );
+      await Future<void>.delayed(Duration.zero);
+      // gpt-5.5-mini is seen, so only o4 is new.
+      expect(vm.newModelIds, <String>{'o4'});
+      expect(vm.newCountFor(vm.activeAccountId!), 1);
+    });
+
+    test('deprecatedModelIds = enabled − available', () async {
+      final ModelSelectorViewModel vm = buildVm(
+        enabled: const <String>['gpt-5.5', 'gpt-4o-mini'],
+        available: const <LlmModel>[LlmModel(id: 'gpt-5.5')],
+      );
+      await Future<void>.delayed(Duration.zero);
+      // gpt-4o-mini is enabled but no longer served.
+      expect(vm.deprecatedModelIds, <String>{'gpt-4o-mini'});
+    });
+
+    test('isSelectedModelDeprecated tracks the active selection', () async {
+      // Start with both models available; select gpt-4o-mini.
+      final SecretStore secrets = SecretStore();
+      final ProviderAccountRepository providers = ProviderAccountRepository(
+        accountStore: AccountStore(),
+        secretStore: secrets,
+      );
+      final AccountModelsService accountModels = AccountModelsService(
+        providers: providers,
+        adapters: AdapterRegistry(),
+        credentials: CredentialResolver(
+          secretStore: secrets,
+          chatGptTokens: ChatGptTokenService(
+            secretStore: secrets,
+            oauthFlow: ChatGptOAuthFlow(
+              clientId: 'c',
+              issuer: 'https://auth.test',
+            ),
+          ),
+        ),
+      );
+      final List<ProviderAccount> accounts = providers.accounts;
+      for (final ProviderAccount a in accounts) {
+        accountModels.seedForTest(a.id, const <LlmModel>[
+          LlmModel(id: 'gpt-5.5'),
+          LlmModel(id: 'gpt-4o-mini'),
+        ]);
+      }
+      for (final ProviderAccount a in accounts) {
+        await providers.setAllowedModels(a.id, const <String>['gpt-4o-mini']);
+      }
+      final ModelSelectorViewModel vm = ModelSelectorViewModel(
+        providers,
+        accountModels,
+        AppSettings(),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(vm.selectedModelId, 'gpt-4o-mini');
+      expect(vm.isSelectedModelDeprecated, isFalse);
+
+      // Now the provider drops gpt-4o-mini — re-seed the cache without it.
+      for (final ProviderAccount a in accounts) {
+        accountModels.seedForTest(a.id, const <LlmModel>[
+          LlmModel(id: 'gpt-5.5'),
+        ]);
+      }
+      // The selection persists (the VM doesn't auto-correct on a cache
+      // update — only on provider/model change), so it's now deprecated.
+      expect(vm.selectedModelId, 'gpt-4o-mini');
+      expect(vm.isSelectedModelDeprecated, isTrue);
+    });
+
+    test('acknowledgeNewModels marks all available ids as seen', () async {
+      final ModelSelectorViewModel vm = buildVm(
+        enabled: const <String>['gpt-5.5'],
+        available: const <LlmModel>[
+          LlmModel(id: 'gpt-5.5'),
+          LlmModel(id: 'gpt-5.5-mini'),
+          LlmModel(id: 'o4'),
+        ],
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(vm.newCountFor(vm.activeAccountId!), 2);
+      await vm.acknowledgeNewModels();
+      expect(vm.newCountFor(vm.activeAccountId!), 0);
+      expect(vm.newModelIds, isEmpty);
+    });
+  });
 }

@@ -90,6 +90,94 @@ class ModelSelectorViewModel extends ChangeNotifier {
     _providers.setModel(accountId, modelId);
   }
 
+  // --- Model availability deltas -----------------------------------------
+
+  /// Models the provider currently serves (live `/listModels` cache), or null
+  /// while the cache is still loading for the active account. This is the
+  /// "available" set the deltas below are derived from.
+  List<LlmModel>? get availableModels {
+    final String? id = _providers.activeAccountId;
+    if (id == null) return null;
+    return _accountModels.modelsFor(id);
+  }
+
+  /// Ids the user has already acknowledged for the active account (seen in
+  /// the picker or Manage sheet). A model is "new" when it's available but
+  /// neither enabled nor seen.
+  Set<String> get seenModelIds {
+    final String? id = _providers.activeAccountId;
+    if (id == null) return const <String>{};
+    return _accountModels.seenFor(id);
+  }
+
+  /// New (unacknowledged, not-yet-enabled) model ids for the active account.
+  /// Drives the "+N new" badge in the chat picker's provider column.
+  Set<String> get newModelIds {
+    final List<LlmModel>? avail = availableModels;
+    if (avail == null) return const <String>{};
+    final Set<String> enabled =
+        _providers.activeAccount?.enabledModels.toSet() ?? const <String>{};
+    final Set<String> seen = seenModelIds;
+    return avail
+        .map((LlmModel m) => m.id)
+        .where((String id) => !enabled.contains(id) && !seen.contains(id))
+        .toSet();
+  }
+
+  /// Enabled ids the provider no longer serves (deprecated or inaccessible).
+  /// Drives the ⚠️ indicator in the Manage sheet and next to the selected
+  /// model in the chat picker. These models are NOT disabled — the user can
+  /// still pick them; failures surface in chat.
+  Set<String> get deprecatedModelIds {
+    final List<LlmModel>? avail = availableModels;
+    final Set<String> availableIds = avail == null
+        ? const <String>{}
+        : avail.map((LlmModel m) => m.id).toSet();
+    final Set<String> enabled =
+        _providers.activeAccount?.enabledModels.toSet() ?? const <String>{};
+    return enabled.difference(availableIds);
+  }
+
+  /// True when the currently-selected model is no longer served by the
+  /// provider. Drives the ⚠️ indicator next to the selected model chip in the
+  /// chat picker.
+  bool get isSelectedModelDeprecated {
+    final String? selected = selectedModelId;
+    if (selected == null) return false;
+    return deprecatedModelIds.contains(selected);
+  }
+
+  /// Per-account "new" count for the provider column badge. Returns 0 when
+  /// the cache hasn't loaded yet (no false positives).
+  int newCountFor(String accountId) {
+    final List<LlmModel>? avail = _accountModels.modelsFor(accountId);
+    if (avail == null) return 0;
+    ProviderAccount? account;
+    for (final ProviderAccount a in _providers.accounts) {
+      if (a.id == accountId) {
+        account = a;
+        break;
+      }
+    }
+    final Set<String> enabled =
+        account?.enabledModels.toSet() ?? const <String>{};
+    final Set<String> seen = _accountModels.seenFor(accountId);
+    return avail
+        .where((LlmModel m) => !enabled.contains(m.id) && !seen.contains(m.id))
+        .length;
+  }
+
+  /// Marks every currently-available model as acknowledged for the active
+  /// account, clearing the "+N new" badge. Called when the user opens the
+  /// chat picker or the Manage sheet.
+  Future<void> acknowledgeNewModels() async {
+    final String? id = _providers.activeAccountId;
+    if (id == null) return;
+    final List<LlmModel>? avail = _accountModels.modelsFor(id);
+    if (avail == null) return;
+    await _accountModels.markSeen(id, avail.map((LlmModel m) => m.id));
+  }
+
   /// Re-fetches the active account's models from the provider (used by the
   /// retry affordance). Delegates to [AccountModelsService.refresh].
   Future<void> refresh() async {
@@ -136,19 +224,22 @@ class ModelSelectorViewModel extends ChangeNotifier {
     if (account != null) _ensureDefaultSelected(account);
   }
 
-  /// Picks a default from the currently-visible models when the account has no
-  /// valid selection. Default = first visible model (never hardcoded).
+  /// Picks a default from the currently-visible models when the account has
+  /// no selection at all. Default = first visible model (never hardcoded).
+  ///
+  /// Does NOT auto-correct a selection that's merely absent from the visible
+  /// list (e.g. the provider dropped the model since it was selected). Those
+  /// deprecated selections are left intact so the user sees the ⚠️ indicator
+  /// and can choose to switch — failures surface in chat rather than being
+  /// silently papered over.
   void _ensureDefaultSelected([ProviderAccount? account]) {
     account ??= _providers.activeAccount;
     if (account == null) return;
     final List<LlmModel>? visible = models;
     if (visible == null || visible.isEmpty) return;
     final Object? current = account.config['model'];
-    final bool hasValid =
-        current is String &&
-        current.isNotEmpty &&
-        visible.any((LlmModel m) => m.id == current);
-    if (!hasValid) {
+    final bool hasSelection = current is String && current.isNotEmpty;
+    if (!hasSelection) {
       _providers.setModel(account.id, visible.first.id);
     }
   }

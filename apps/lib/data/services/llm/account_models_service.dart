@@ -49,8 +49,14 @@ class AccountModelsService extends ChangeNotifier {
   /// accountId -> in-flight fetch guard, so concurrent calls coalesce.
   final Map<String, Future<void>> _inFlight = <String, Future<void>>{};
 
+  /// accountId -> model ids the user has already acknowledged (seen in the
+  /// Manage sheet or the chat picker). Drives the "+N new" badge: a model is
+  /// "new" when it's in `available` but not in `enabled` and not in `seen`.
+  final Map<String, Set<String>> _seen = <String, Set<String>>{};
+
   static const String _keyPrefix = 'account_models::v1';
   static const String _errorPrefix = 'account_models_err::v1';
+  static const String _seenPrefix = 'account_models_seen::v1';
 
   /// The cached models for [accountId], or null if not yet fetched.
   List<LlmModel>? modelsFor(String accountId) => _cache[accountId];
@@ -60,6 +66,12 @@ class AccountModelsService extends ChangeNotifier {
 
   /// Whether a fetch is currently running for [accountId].
   bool isLoading(String accountId) => _inFlight.containsKey(accountId);
+
+  /// The set of model ids the user has acknowledged for [accountId]. Drives
+  /// the "+N new" delta in the chat picker — a model is "new" when it's
+  /// available but neither enabled nor seen. Mutated via [markSeen].
+  Set<String> seenFor(String accountId) =>
+      _seen.putIfAbsent(accountId, () => <String>{});
 
   /// Seeds the cache for [accountId] with [models] without a network call.
   /// Test-only helper for deterministic view-model tests.
@@ -110,6 +122,14 @@ class AccountModelsService extends ChangeNotifier {
       _cache[id] = models;
       _errors.remove(id);
       await _persist(id, models);
+      // Seed the "seen" set on first successful fetch so a freshly-connected
+      // account doesn't immediately flag every model as new. Subsequent
+      // fetches that add models will surface those as "+N new" until the user
+      // opens the picker / Manage sheet (which calls markSeen).
+      if (!_seen.containsKey(id) || _seen[id]!.isEmpty) {
+        _seen[id] = models.map((LlmModel m) => m.id).toSet();
+        await _persistSeen(id);
+      }
       // Auto-enable models when the account has none selected yet, so the
       // account is selectable in the chat picker immediately after connect.
       await _autoEnableModels(account, models);
@@ -152,12 +172,34 @@ class AccountModelsService extends ChangeNotifier {
     final Set<String> live = _providers.accounts.map((a) => a.id).toSet();
     _cache.removeWhere((String id, _) => !live.contains(id));
     _errors.removeWhere((String id, _) => !live.contains(id));
+    _seen.removeWhere((String id, _) => !live.contains(id));
     for (final ProviderAccount a in _providers.accounts) {
       if (!_cache.containsKey(a.id)) {
         unawaited(_fetch(a, silent: true));
       }
     }
     notifyListeners();
+  }
+
+  /// Marks [ids] as acknowledged for [accountId] and persists them. Called
+  /// when the user opens the Manage sheet or the chat picker (so the "+N new"
+  /// badge clears once the user has actually looked at the list).
+  Future<void> markSeen(String accountId, Iterable<String> ids) async {
+    if (ids.isEmpty) return;
+    seenFor(accountId).addAll(ids);
+    notifyListeners();
+    await _persistSeen(accountId);
+  }
+
+  Future<void> _persistSeen(String accountId) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    final Set<String>? set = _seen[accountId];
+    if (set == null) return;
+    await prefs.setString(
+      '$_seenPrefix::$accountId',
+      jsonEncode(set.toList()),
+    );
   }
 
   Future<void> _persist(String accountId, List<LlmModel> models) async {
@@ -208,6 +250,21 @@ class AccountModelsService extends ChangeNotifier {
     }
     final String? err = prefs.getString('$_errorPrefix::$accountId');
     if (err != null) _errors[accountId] = err;
+    await _loadSeen(accountId);
+  }
+
+  Future<void> _loadSeen(String accountId) async {
+    if (_seen.containsKey(accountId)) return;
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    final String? raw = prefs.getString('$_seenPrefix::$accountId');
+    if (raw == null) return;
+    try {
+      final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
+      _seen[accountId] = list.whereType<String>().toSet();
+    } catch (_) {
+      // Corrupt — ignore; next markSeen repopulates.
+    }
   }
 
   @override

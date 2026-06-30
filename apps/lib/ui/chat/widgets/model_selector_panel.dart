@@ -29,6 +29,7 @@ class ModelSelectorPanel extends StatelessWidget {
       children: <Widget>[
         Expanded(
           child: _ProviderColumn(
+            vm: vm,
             accounts: accounts,
             activeId: activeAccountId,
             onSelect: vm.selectProvider,
@@ -45,11 +46,13 @@ class ModelSelectorPanel extends StatelessWidget {
 
 class _ProviderColumn extends StatelessWidget {
   const _ProviderColumn({
+    required this.vm,
     required this.accounts,
     required this.activeId,
     required this.onSelect,
   });
 
+  final ModelSelectorViewModel vm;
   final List<ProviderAccount> accounts;
   final String? activeId;
   final ValueChanged<String> onSelect;
@@ -99,13 +102,19 @@ class _ProviderColumn extends StatelessWidget {
                     color: AppTheme.textSecondary,
                   ),
                 )
-              : (selected
-                    ? const Icon(
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (vm.newCountFor(a.id) > 0)
+                      _NewCountBadge(count: vm.newCountFor(a.id)),
+                    if (selected)
+                      const Icon(
                         Icons.check,
                         size: 16,
                         color: AppTheme.brandBlue,
-                      )
-                    : null),
+                      ),
+                  ],
+                ),
           onTap: locked ? null : () => onSelect(a.id),
         );
       },
@@ -168,11 +177,67 @@ class _ModelColumn extends StatelessWidget {
             ),
           ),
           trailing: selected
-              ? const Icon(Icons.check, size: 16, color: AppTheme.brandBlue)
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (vm.isSelectedModelDeprecated)
+                      const Tooltip(
+                        message: 'Provider no longer lists this model',
+                        child: Icon(
+                          Icons.warning_amber,
+                          size: 14,
+                          color: AppTheme.brandPink,
+                        ),
+                      ),
+                    const Icon(Icons.check, size: 16, color: AppTheme.brandBlue),
+                  ],
+                )
               : null,
           onTap: () => vm.selectModel(m.id),
         );
       },
+    );
+  }
+}
+
+/// Small "+N new" pill shown next to a provider in the chat picker when the
+/// provider has added models the user hasn't acknowledged yet. Tapping the
+/// provider row opens the picker (which calls acknowledgeNewModels), clearing
+/// the badge on next open.
+class _NewCountBadge extends StatelessWidget {
+  const _NewCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppTheme.brandBlue.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.brandBlue.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.fiber_new,
+            size: 11,
+            color: AppTheme.brandBlue,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            '$count',
+            style: const TextStyle(
+              color: AppTheme.brandBlue,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
