@@ -645,6 +645,13 @@ impl SseDecode for crate::conversations::db::StoredMessage {
         let mut var_toolCallId = <Option<String>>::sse_decode(deserializer);
         let mut var_toolCallsJson = <Option<String>>::sse_decode(deserializer);
         let mut var_createdAt = <String>::sse_decode(deserializer);
+        let mut var_cleared = <bool>::sse_decode(deserializer);
+        let mut var_clearedSummary = <Option<String>>::sse_decode(deserializer);
+        let mut var_refetchArgs = <Option<String>>::sse_decode(deserializer);
+        let mut var_isCompactionSummary = <bool>::sse_decode(deserializer);
+        let mut var_promptTokens = <Option<i64>>::sse_decode(deserializer);
+        let mut var_completionTokens = <Option<i64>>::sse_decode(deserializer);
+        let mut var_totalTokens = <Option<i64>>::sse_decode(deserializer);
         return crate::conversations::db::StoredMessage {
             id: var_id,
             conversation_id: var_conversationId,
@@ -658,6 +665,13 @@ impl SseDecode for crate::conversations::db::StoredMessage {
             tool_call_id: var_toolCallId,
             tool_calls_json: var_toolCallsJson,
             created_at: var_createdAt,
+            cleared: var_cleared,
+            cleared_summary: var_clearedSummary,
+            refetch_args: var_refetchArgs,
+            is_compaction_summary: var_isCompactionSummary,
+            prompt_tokens: var_promptTokens,
+            completion_tokens: var_completionTokens,
+            total_tokens: var_totalTokens,
         };
     }
 }
@@ -870,6 +884,13 @@ impl flutter_rust_bridge::IntoDart for crate::conversations::db::StoredMessage {
             self.tool_call_id.into_into_dart().into_dart(),
             self.tool_calls_json.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
+            self.cleared.into_into_dart().into_dart(),
+            self.cleared_summary.into_into_dart().into_dart(),
+            self.refetch_args.into_into_dart().into_dart(),
+            self.is_compaction_summary.into_into_dart().into_dart(),
+            self.prompt_tokens.into_into_dart().into_dart(),
+            self.completion_tokens.into_into_dart().into_dart(),
+            self.total_tokens.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1051,6 +1072,13 @@ impl SseEncode for crate::conversations::db::StoredMessage {
         <Option<String>>::sse_encode(self.tool_call_id, serializer);
         <Option<String>>::sse_encode(self.tool_calls_json, serializer);
         <String>::sse_encode(self.created_at, serializer);
+        <bool>::sse_encode(self.cleared, serializer);
+        <Option<String>>::sse_encode(self.cleared_summary, serializer);
+        <Option<String>>::sse_encode(self.refetch_args, serializer);
+        <bool>::sse_encode(self.is_compaction_summary, serializer);
+        <Option<i64>>::sse_encode(self.prompt_tokens, serializer);
+        <Option<i64>>::sse_encode(self.completion_tokens, serializer);
+        <Option<i64>>::sse_encode(self.total_tokens, serializer);
     }
 }
 

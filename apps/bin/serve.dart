@@ -32,7 +32,6 @@ final Logger _log = Logger('server');
 ///   PORT                 listen port (default 8088)
 ///   HOST                 bind address (default 127.0.0.1 — local only)
 ///   WEB_ROOT             static files dir (default build/web)
-///   LLM_ALLOWED_HOSTS    comma-separated upstream allowlist, or "*" for any
 ///   LOG_LEVEL            Dart log level: debug/info/warning/severe (default info)
 ///   RUST_LOG              Rust tracing filter: debug/trace/web_retrieval=trace
 ///                         (default info)
@@ -53,11 +52,9 @@ Future<void> main(List<String> args) async {
   final int port = config.port;
   final String host = config.host;
   final String webRoot = config.webRoot;
-  final Set<String>? allowedHosts = config.allowedHosts;
 
   final Logger proxyLog = Logger('proxy');
   final Handler proxy = llmProxyHandler(
-    allowedHosts: allowedHosts,
     log: (String message) => proxyLog.info(message),
   );
 
@@ -118,11 +115,6 @@ Future<void> main(List<String> args) async {
   final HttpServer server = await shelf_io.serve(pipeline, host, port);
   server.autoCompress = false; // don't buffer/compress streamed SSE responses
 
-  final String allowList = allowedHosts == null
-      ? '${defaultAllowedUpstreamHosts.length} default hosts'
-      : (allowedHosts.contains('*')
-            ? 'any host (allowlist disabled)'
-            : allowedHosts.join(', '));
   _log
     ..info('────────────────────────────────────────────────────────')
     ..info('$appName server ready')
@@ -130,7 +122,7 @@ Future<void> main(List<String> args) async {
     ..info('  llm proxy  http://$host:${server.port}/proxy')
     ..info('  web api    http://$host:${server.port}/api/search|fetch|cache')
     ..info('  web root   $webRoot')
-    ..info('  allowlist  $allowList')
+    ..info('  ssrf       deny-list (private/link-local/metadata blocked)')
     ..info('  log level  ${Logger.root.level.name}')
     ..info('  requests are logged below as they arrive')
     ..info('────────────────────────────────────────────────────────');

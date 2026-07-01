@@ -4,12 +4,15 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/provider_account.dart';
 import '../../repositories/provider_account_repository.dart';
 import '../auth/credential_resolver.dart';
+import '../pricing/models_dev_service.dart';
 import 'adapter_registry.dart';
 import 'llm_adapter.dart';
+import 'model_context_resolver.dart';
 
 /// Caches the models each configured [ProviderAccount] exposes, fetched from
 /// the provider's own "list models" endpoint.
@@ -29,7 +32,8 @@ class AccountModelsService extends ChangeNotifier {
     required this._providers,
     required this._adapters,
     required this._credentials,
-  }) {
+    ModelsDevService? modelsDev,
+  })  : _modelsDev = modelsDev {
     _providers.addListener(_onAccountsChanged);
   }
 
@@ -37,6 +41,7 @@ class AccountModelsService extends ChangeNotifier {
   final ProviderAccountRepository _providers;
   final AdapterRegistry _adapters;
   final CredentialResolver _credentials;
+  final ModelsDevService? _modelsDev;
 
   /// accountId -> cached models. Empty list = fetched but provider returned
   /// nothing (the account should be greyed out as non-selectable). Absent
@@ -119,20 +124,21 @@ class AccountModelsService extends ChangeNotifier {
         account: account,
         secret: secret,
       );
-      _cache[id] = models;
+      final List<LlmModel> enriched = await _enrichWithContextWindow(models, account);
+      _cache[id] = enriched;
       _errors.remove(id);
-      await _persist(id, models);
+      await _persist(id, enriched);
       // Seed the "seen" set on first successful fetch so a freshly-connected
       // account doesn't immediately flag every model as new. Subsequent
       // fetches that add models will surface those as "+N new" until the user
       // opens the picker / Manage sheet (which calls markSeen).
       if (!_seen.containsKey(id) || _seen[id]!.isEmpty) {
-        _seen[id] = models.map((LlmModel m) => m.id).toSet();
+        _seen[id] = enriched.map((LlmModel m) => m.id).toSet();
         await _persistSeen(id);
       }
       // Auto-enable models when the account has none selected yet, so the
       // account is selectable in the chat picker immediately after connect.
-      await _autoEnableModels(account, models);
+      await _autoEnableModels(account, enriched);
     } catch (e) {
       _errors[id] = e;
       // Keep any previously-cached models so the picker stays usable offline.
@@ -212,6 +218,7 @@ class AccountModelsService extends ChangeNotifier {
               'id': m.id,
               if (m.displayName != null) 'displayName': m.displayName,
               'hidden': m.hidden,
+              if (m.contextWindow != null) 'contextWindow': m.contextWindow,
             },
           )
           .toList(),
@@ -241,6 +248,7 @@ class AccountModelsService extends ChangeNotifier {
                 id: m['id'] as String,
                 displayName: m['displayName'] as String?,
                 hidden: (m['hidden'] as bool?) ?? false,
+                contextWindow: (m['contextWindow'] as num?)?.toInt(),
               ),
             )
             .toList();
@@ -271,5 +279,57 @@ class AccountModelsService extends ChangeNotifier {
   void dispose() {
     _providers.removeListener(_onAccountsChanged);
     super.dispose();
+  }
+
+  /// Enriches [models] with context windows from the models.dev catalog.
+  ///
+  /// Returns the original list unchanged when the catalog isn't available
+  /// (offline, not yet fetched) — the caller falls back to
+  /// [kFallbackContextWindow] at the compaction call site. Never throws.
+  Future<List<LlmModel>> _enrichWithContextWindow(
+    List<LlmModel> models,
+    ProviderAccount account,
+  ) async {
+    final ModelsDevService? svc = _modelsDev;
+    if (svc == null || models.isEmpty) return models;
+    try {
+      final catalog = await svc.load();
+      final resolver = ModelContextResolver(catalog);
+      return resolver.enrich(models, providerId: _providerIdFor(account));
+    } catch (_) {
+      // Catalog unavailable — return models without context windows.
+      // The compaction call site falls back to kFallbackContextWindow.
+      return models;
+    }
+  }
+
+  /// Maps a [ProviderAccount]'s kind to the models.dev provider id used for
+  /// catalog lookups. Returns null for kinds without a clear mapping.
+  String? _providerIdFor(ProviderAccount account) {
+    switch (account.kind) {
+      case AdapterKind.openaiCompatible:
+        // Derive from the base URL host when possible.
+        final String baseUrl =
+            (account.config['baseUrl'] as String?) ?? '';
+        if (baseUrl.contains('openrouter')) return 'openrouter';
+        if (baseUrl.contains('groq')) return 'groq';
+        if (baseUrl.contains('together')) return 'together';
+        if (baseUrl.contains('deepseek')) return 'deepseek';
+        if (baseUrl.contains('dashscope') || baseUrl.contains('qwen')) {
+          return 'qwen';
+        }
+        if (baseUrl.contains('openai.com') || baseUrl.isEmpty) {
+          return 'openai';
+        }
+        return null;
+      case AdapterKind.anthropic:
+        return 'anthropic';
+      case AdapterKind.geminiNative:
+        return 'google';
+      case AdapterKind.subscription:
+      case AdapterKind.onDevice:
+      case AdapterKind.mock:
+        return null;
+    }
   }
 }

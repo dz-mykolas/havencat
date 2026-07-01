@@ -60,6 +60,7 @@ dependencies:
   web: ^1.1.1
   flutter_highlight: ^0.7.0
   path_provider: ^2.1.6
+  intl: ^0.20.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

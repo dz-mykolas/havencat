@@ -86,18 +86,32 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
         cancelToken: cancelToken,
       );
 
+      // Buffer finish_reason and usage so we can emit a single DoneEvent
+      // carrying both. OpenAI sends finish_reason on the last content chunk
+      // and usage in a separate empty-choices chunk (when include_usage is
+      // set); some providers send them together. Either way, we hold off on
+      // emitting DoneEvent until the stream ends so the repository's
+      // done-completer fires once with the real usage.
+      String? finishReason;
+      LlmUsage? usage;
       await for (final SseEvent event in events) {
         if (event.data == '[DONE]') {
           _log.fine('stream: [DONE] received');
-          yield const DoneEvent(finishReason: 'stop');
-          return;
+          break;
         }
         final LlmEvent? parsed = _parseChunk(event.data);
-        if (parsed != null) yield parsed;
+        if (parsed == null) continue;
+        if (parsed is DoneEvent) {
+          finishReason ??= parsed.finishReason;
+          usage ??= parsed.usage;
+        } else {
+          yield parsed;
+        }
       }
-      // Stream ended without an explicit [DONE] marker — still terminate.
-      _log.fine('stream: ended without [DONE]');
-      yield const DoneEvent();
+      yield DoneEvent(
+        finishReason: finishReason ?? 'stop',
+        usage: usage,
+      );
     } on DioException catch (e) {
       _log.warning(
         'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
@@ -195,6 +209,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     return <String, Object?>{
       'model': model,
       'stream': true,
+      'stream_options': <String, Object?>{'include_usage': true},
       'messages': messages,
       if (request.temperature != null) 'temperature': request.temperature,
       if (request.maxTokens != null) 'max_tokens': request.maxTokens,
@@ -266,8 +281,18 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
     if (decoded is! Map<String, dynamic>) return null;
 
+    // When stream_options.include_usage is set, OpenAI sends the usage in a
+    // final chunk with an empty choices array. Emit it as a DoneEvent so the
+    // repository can capture prompt_tokens. If a finish_reason was already
+    // seen on a prior chunk (without usage), this supplements it.
     final List<dynamic>? choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) return null;
+    if (choices == null || choices.isEmpty) {
+      final LlmUsage? usage = _parseUsage(decoded);
+      if (usage != null) {
+        return DoneEvent(finishReason: 'stop', usage: usage);
+      }
+      return null;
+    }
 
     final Map<String, dynamic> choice = choices.first as Map<String, dynamic>;
     final Map<String, dynamic>? delta =
@@ -295,7 +320,9 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
 
     if (finishReason != null) {
-      return DoneEvent(finishReason: finishReason);
+      // Don't emit DoneEvent here — the stream loop buffers it so usage
+      // (which arrives in a separate empty-choices chunk) isn't lost.
+      return DoneEvent(finishReason: finishReason, usage: _parseUsage(decoded));
     }
 
     final String? content = delta?['content'] as String?;
@@ -310,6 +337,20 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
 
     return null;
+  }
+
+  /// Parse the top-level `usage` object from a streaming chunk. OpenAI sends
+  /// usage in the final chunk (the one with `finish_reason` or an empty
+  /// choices array) when `stream_options.include_usage` is set. Returns null
+  /// when the chunk carries no usage.
+  LlmUsage? _parseUsage(Map<String, dynamic> decoded) {
+    final Object? usageJson = decoded['usage'];
+    if (usageJson is! Map<String, dynamic>) return null;
+    return LlmUsage(
+      promptTokens: (usageJson['prompt_tokens'] as num?)?.toInt(),
+      completionTokens: (usageJson['completion_tokens'] as num?)?.toInt(),
+      totalTokens: (usageJson['total_tokens'] as num?)?.toInt(),
+    );
   }
 
   LlmError _mapDioError(DioException e) {

@@ -1,20 +1,43 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
 import '../../../domain/models/conversation.dart';
+import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/provider_account.dart';
 import '../services/auth/credential_resolver.dart';
+import '../services/llm/account_models_service.dart';
 import '../services/llm/adapter_registry.dart';
+import '../services/llm/context_compaction.dart';
 import '../services/llm/llm_adapter.dart';
 import '../services/llm/llm_event.dart';
+import '../services/llm/request_messages.dart';
 import '../services/llm/system_prompts.dart';
+import '../services/llm/token_estimator.dart';
+import '../services/storage/app_settings.dart';
 import '../services/storage/conversation_store.dart';
 import '../services/web_retrieval/web_retrieval.dart';
 import '../services/web_retrieval/web_search_tools.dart';
 import 'provider_account_repository.dart';
+
+/// Token overhead the provider counts against `input_tokens`/`prompt_tokens`
+/// but which isn't in [estimateMessagesTokens] for the messages array: the
+/// system prompt and tool definitions. Included in `lastEstimatedTokens` so
+/// the estimate matches what the provider actually bills against.
+int _estimateRequestOverhead(String? systemPrompt, List<ToolDefinition> tools) {
+  int n = 0;
+  if (systemPrompt != null && systemPrompt.isNotEmpty) {
+    n += estimateTokens(systemPrompt) + 4;
+  }
+  for (final ToolDefinition t in tools) {
+    n += estimateTokens(t.name) + estimateTokens(t.description) + 8;
+    n += estimateTokens(jsonEncode(t.parameters));
+  }
+  return n;
+}
 
 /// Source of truth for conversations and the streaming reply flow.
 ///
@@ -33,12 +56,16 @@ class ConversationRepository extends ChangeNotifier {
     ConversationStore? conversationStore,
     WebRetrievalAdapter? webRetrieval,
     bool toolsEnabled = false,
+    AppSettings? appSettings,
+    AccountModelsService? accountModels,
   }) : _providers = providerRepository,
        adapterRegistry = adapterRegistry,
        _credentials = credentialResolver,
        _store = conversationStore ?? InMemoryConversationStore(),
        _webRetrieval = webRetrieval,
-       _toolsEnabled = toolsEnabled {
+       _toolsEnabled = toolsEnabled,
+       _appSettings = appSettings,
+       _accountModels = accountModels {
     _init();
     _providers.addListener(_onProvidersChanged);
   }
@@ -79,6 +106,49 @@ class ConversationRepository extends ChangeNotifier {
   final WebRetrievalAdapter? _webRetrieval;
   bool _toolsEnabled;
   final WebSearchTools _webSearchTools = const WebSearchTools();
+  final AppSettings? _appSettings;
+  final AccountModelsService? _accountModels;
+
+  /// Resolves the context window for the active account's selected model.
+  /// Falls back to [kFallbackContextWindow] when the model isn't found in
+  /// the cache or its context window is unknown.
+  int _resolveContextWindow(ProviderAccount account, String modelId) {
+    if (_accountModels == null) return kFallbackContextWindow;
+    final List<LlmModel>? models = _accountModels.modelsFor(account.id);
+    if (models == null) return kFallbackContextWindow;
+    for (final LlmModel m in models) {
+      if (m.id == modelId && m.contextWindow != null) {
+        return m.contextWindow!;
+      }
+    }
+    return kFallbackContextWindow;
+  }
+
+  /// Computes a calibration ratio for the char/4 estimator from the last
+  /// provider-reported prompt-token count vs. our estimate for that same
+  /// request. Returns null when no calibration data is available (first turn,
+  /// or provider doesn't report usage like Ollama).
+  double? _calibrationRatio(Conversation c) {
+    final int? actual = c.lastPromptTokens;
+    final int? estimated = c.lastEstimatedTokens;
+    if (actual == null || estimated == null || estimated == 0) return null;
+    return actual / estimated;
+  }
+
+  /// Builds [CompactionSettings] from the user's [AppSettings], or defaults
+  /// when AppSettings isn't injected (tests).
+  CompactionSettings _compactionSettings() {
+    final AppSettings? s = _appSettings;
+    if (s == null) return const CompactionSettings();
+    return CompactionSettings(
+      redactSecrets: s.redactSecrets,
+      temporalAnchoring: s.temporalAnchoring,
+      antiThrash: s.antiThrash,
+      staticFallback: s.staticFallback,
+      abortOnSummaryFailure: s.abortOnSummaryFailure,
+      autoFocusTopic: s.autoFocusTopic,
+    );
+  }
 
   final List<Conversation> _conversations = <Conversation>[];
   bool _isGenerating = false;
@@ -122,6 +192,17 @@ class ConversationRepository extends ChangeNotifier {
   Conversation? _placeholderConversation;
 
   String? get activeId => _activeId;
+
+  /// Resolves the context window (in tokens) for the active conversation's
+  /// bound account + model. Falls back to [kFallbackContextWindow] when the
+  /// model isn't found or its context window is unknown.
+  int get activeContextWindow {
+    final ProviderAccount? account = activeAccount;
+    if (account == null) return kFallbackContextWindow;
+    final String model = (account.config['model'] as String?) ?? '';
+    if (model.isEmpty) return kFallbackContextWindow;
+    return _resolveContextWindow(account, model);
+  }
 
   /// The account the active conversation is bound to, falling back to the
   /// user's currently-active account.
@@ -376,6 +457,20 @@ class ConversationRepository extends ChangeNotifier {
     // append tool-result messages, and re-stream. Caps at a few rounds so a
     // misbehaving model can't loop forever.
     const int maxRounds = 5;
+    // IDs of messages added during this sendMessage call (assistant replies
+    // and tool results from the tool loop). Their tool results are never
+    // cleared by the request builder — the model is actively using them.
+    final Set<String> currentTurnMessageIds = <String>{};
+    // Compactor for context compaction. Built once per reply; reuses the
+    // active adapter/account/secret.
+    final ContextCompactor? compactor = LlmContextCompactor(
+      adapter: adapter,
+      account: account,
+      secret: secret,
+      model: model,
+      settings: _compactionSettings(),
+    );
+
     for (int round = 0; round < maxRounds; round++) {
       _log.fine(
         'tool-call loop: round=$round messages=${conversation.messages.length}',
@@ -388,6 +483,7 @@ class ConversationRepository extends ChangeNotifier {
         createdAt: DateTime.now(),
       );
       conversation.add(assistant);
+      currentTurnMessageIds.add(assistant.id);
       notifyListeners();
 
       final List<ToolCall> pendingCalls = <ToolCall>[];
@@ -398,19 +494,42 @@ class ConversationRepository extends ChangeNotifier {
       final Completer<void> done = Completer<void>();
       bool hadError = false;
 
+      // Build the request messages with context management (clearing +
+      // compaction). On round 0 with an extraPrompt, the extraPrompt variant
+      // of requestMessages is used as the base.
+      final List<ChatMessage> baseMessages = (round == 0 && extraPrompt != null)
+          ? requestMessages
+          : conversation.activePath.where((m) => !m.isStreaming).toList();
+      _log.fine(
+        'building request: round=$round baseMsgs=${baseMessages.length} '
+        'currentTurnProtected=${currentTurnMessageIds.length}',
+      );
+      final List<ChatMessage> builtMessages = await buildRequestMessagesAsync(
+        activePath: baseMessages,
+        contextWindow: _resolveContextWindow(account, model),
+        compactor: compactor,
+        currentTurnMessageIds: currentTurnMessageIds,
+        calibrationRatio: _calibrationRatio(conversation),
+      );
+      final List<ToolDefinition> tools = _toolsEnabled && _webRetrieval != null
+          ? _webSearchTools.definitions
+          : const <ToolDefinition>[];
+      // Record the estimate so the next round can calibrate against the
+      // provider's reported prompt_tokens. Include the system prompt and tool
+      // definitions — the provider counts them against input_tokens too, so
+      // the estimate must too or it'll jump when the actual arrives.
+      conversation.lastEstimatedTokens =
+          estimateMessagesTokens(builtMessages) +
+          _estimateRequestOverhead(SystemPrompts.base, tools);
+      notifyListeners();
+
       _replySub = adapter
           .stream(
             request: LlmRequest(
-              messages: (round == 0 && extraPrompt != null)
-                  ? requestMessages
-                  : conversation.activePath
-                        .where((m) => !m.isStreaming)
-                        .toList(),
+              messages: builtMessages,
               model: model,
               systemPrompt: SystemPrompts.base,
-              tools: _toolsEnabled && _webRetrieval != null
-                  ? _webSearchTools.definitions
-                  : const <ToolDefinition>[],
+              tools: tools,
             ),
             account: account,
             secret: secret,
@@ -458,6 +577,25 @@ class ConversationRepository extends ChangeNotifier {
                   assistant.text = assistant.text.trimRight();
                   assistant.isStreaming = false;
                   pendingCalls.addAll(accumulating.values);
+                  if (event.usage case final LlmUsage usage) {
+                    if (usage.promptTokens case final int prompt) {
+                      conversation.lastPromptTokens = prompt;
+                      assistant.promptTokens = prompt;
+                    }
+                    if (usage.completionTokens case final int completion) {
+                      conversation.lastCompletionTokens = completion;
+                      assistant.completionTokens = completion;
+                    }
+                    if (usage.totalTokens case final int total) {
+                      conversation.lastTotalTokens = total;
+                      assistant.totalTokens = total;
+                    }
+                    _log.fine(
+                      'captured usage: prompt=${usage.promptTokens} '
+                      'completion=${usage.completionTokens} '
+                      'total=${usage.totalTokens}',
+                    );
+                  }
                   notifyListeners();
                   if (!done.isCompleted) done.complete();
                 case ErrorEvent(:final LlmError error):
@@ -515,15 +653,15 @@ class ConversationRepository extends ChangeNotifier {
         // No adapter configured — surface the calls but skip execution.
         _log.warning('web retrieval adapter is null — skipping tool execution');
         for (final ToolCall tc in pendingCalls) {
-          conversation.add(
-            ChatMessage(
-              id: _newId(),
-              role: MessageRole.tool,
-              text: 'Web search not configured.',
-              toolCallId: tc.id,
-              createdAt: DateTime.now(),
-            ),
+          final ChatMessage noTool = ChatMessage(
+            id: _newId(),
+            role: MessageRole.tool,
+            text: 'Web search not configured.',
+            toolCallId: tc.id,
+            createdAt: DateTime.now(),
           );
+          conversation.add(noTool);
+          currentTurnMessageIds.add(noTool.id);
         }
       } else {
         final WebRetrievalAdapter retrieval = _webRetrieval;
@@ -544,15 +682,15 @@ class ConversationRepository extends ChangeNotifier {
             _log.severe('tool execution failed: name=${tc.name}', e, stack);
             result = 'Error executing tool "${tc.name}": $e';
           }
-          conversation.add(
-            ChatMessage(
-              id: _newId(),
-              role: MessageRole.tool,
-              text: result,
-              toolCallId: tc.id,
-              createdAt: DateTime.now(),
-            ),
+          final ChatMessage toolResult = ChatMessage(
+            id: _newId(),
+            role: MessageRole.tool,
+            text: result,
+            toolCallId: tc.id,
+            createdAt: DateTime.now(),
           );
+          conversation.add(toolResult);
+          currentTurnMessageIds.add(toolResult.id);
           notifyListeners();
         }
       }

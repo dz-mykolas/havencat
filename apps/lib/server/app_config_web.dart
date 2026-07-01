@@ -12,7 +12,6 @@ AppConfig loadAppConfig() {
     port: 0, // server-only; not used on web
     host: '', // server-only
     webRoot: '', // server-only
-    allowedHosts: null, // server-only
     logLevel: const String.fromEnvironment('LOG_LEVEL', defaultValue: 'info'),
     rustLog: const String.fromEnvironment('RUST_LOG', defaultValue: 'info'),
     searchProviders: const <ProviderSlotConfig>[], // server-only

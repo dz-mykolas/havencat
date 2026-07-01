@@ -3,7 +3,12 @@
 /// Models are fetched dynamically per account (never hardcoded); [id] is what
 /// gets sent on the wire, [displayName] is an optional human label.
 class LlmModel {
-  const LlmModel({required this.id, this.displayName, this.hidden = false});
+  const LlmModel({
+    required this.id,
+    this.displayName,
+    this.hidden = false,
+    this.contextWindow,
+  });
 
   /// Wire id, e.g. 'gpt-4o', 'claude-3-5-sonnet-latest', 'qwen-max'.
   final String id;
@@ -16,6 +21,11 @@ class LlmModel {
   /// the global "show hidden models" setting is on.
   final bool hidden;
 
+  /// Approximate context window in tokens, if known. Populated by
+  /// cross-referencing the models.dev catalog (see [ModelContextResolver]).
+  /// Null when unknown — callers fall back to a conservative default.
+  final int? contextWindow;
+
   /// What to show in the UI.
   String get label =>
       (displayName != null && displayName!.isNotEmpty) ? displayName! : id;
@@ -25,8 +35,9 @@ class LlmModel {
       other is LlmModel &&
       other.id == id &&
       other.displayName == displayName &&
-      other.hidden == hidden;
+      other.hidden == hidden &&
+      other.contextWindow == contextWindow;
 
   @override
-  int get hashCode => Object.hash(id, displayName, hidden);
+  int get hashCode => Object.hash(id, displayName, hidden, contextWindow);
 }

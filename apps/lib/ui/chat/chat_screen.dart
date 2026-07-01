@@ -17,7 +17,6 @@ import 'widgets/conversation_drawer.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/smooth_scroll.dart';
-import 'widgets/model_selector_bar.dart';
 
 /// The main chat view: app bar, conversation drawer, message list, and the
 /// animated input bar.
@@ -142,34 +141,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       conversationRepositoryProvider,
     );
 
-    // On wide screens the logo sits on the left and the model selector is
-    // centered (via flexibleSpace); on phones a compact selector rides right
-    // next to the logo so the bar still fits.
+    // On wide screens the logo sits on the left; on phones it's slightly
+    // smaller. The model selector lives in the input bar now.
     final bool wide = MediaQuery.of(context).size.width >= 720;
 
     final Widget chatScaffold = Scaffold(
       drawer: wide ? null : ConversationDrawer(viewModel: vm),
       appBar: AppBar(
         titleSpacing: wide ? 16 : 8,
-        title: wide
-            ? _buildLogo(fontSize: 20)
-            : Row(
-                children: <Widget>[
-                  _buildLogo(fontSize: 17),
-                  const SizedBox(width: 10),
-                  const Flexible(child: ModelSelectorBar(compact: true)),
-                ],
-              ),
-        flexibleSpace: wide
-            ? SafeArea(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 480),
-                    child: const ModelSelectorBar(),
-                  ),
-                ),
-              )
-            : null,
+        title: wide ? _buildLogo(fontSize: 20) : _buildLogo(fontSize: 17),
         actions: <Widget>[
           IconButton(
             tooltip: 'Settings',
@@ -245,6 +225,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 isLast: index == activePath.length - 1,
                                 isGenerating: vm.isGenerating,
                                 descendantCount: downstreamCount,
+                                actualTokens: message.promptTokens,
+                                completionTokens: message.completionTokens,
+                                totalTokens: message.totalTokens,
+                                estimatedTokens:
+                                    message.isAssistant &&
+                                        index == activePath.length - 1
+                                    ? vm.active.lastEstimatedTokens
+                                    : null,
+                                contextWindow: vm.activeContextWindow,
                                 onEditUser: message.isUser
                                     ? (newText, resend) => vm.editMessage(
                                         message.id,

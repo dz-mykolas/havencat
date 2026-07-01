@@ -70,6 +70,9 @@ class ChatViewModel extends ChangeNotifier {
 
   bool get isGenerating => _conversations.isGenerating;
 
+  /// Context window (in tokens) for the active conversation's model.
+  int get activeContextWindow => _conversations.activeContextWindow;
+
   String? get activeProviderName => _providers.activeAccount?.displayName;
 
   void _relay() => notifyListeners();
@@ -79,6 +82,10 @@ class ChatViewModel extends ChangeNotifier {
       id: c.id,
       title: c.isEmpty ? 'New chat' : c.title,
       messageCount: c.messages.length,
+      lastPromptTokens: c.lastPromptTokens,
+      lastCompletionTokens: c.lastCompletionTokens,
+      lastTotalTokens: c.lastTotalTokens,
+      lastEstimatedTokens: c.lastEstimatedTokens,
     );
   }
 
@@ -98,11 +105,34 @@ class ConversationView {
     required this.id,
     required this.title,
     required this.messageCount,
+    this.lastPromptTokens,
+    this.lastCompletionTokens,
+    this.lastTotalTokens,
+    this.lastEstimatedTokens,
   });
 
   final String id;
   final String title;
   final int messageCount;
+
+  /// Prompt-token count reported by the provider for the most recent reply.
+  /// Null when the provider doesn't report usage or before the first reply.
+  final int? lastPromptTokens;
+
+  /// Completion-token count reported by the provider for the most recent
+  /// reply. Null when the provider doesn't report usage or before the first
+  /// reply.
+  final int? lastCompletionTokens;
+
+  /// Total-token count (input + output) reported by the provider for the
+  /// most recent reply. Null when the provider doesn't report usage or
+  /// before the first reply.
+  final int? lastTotalTokens;
+
+  /// Our char/4 estimate for the current request, set immediately when the
+  /// user sends. Shown in the UI until the provider's actual prompt_tokens
+  /// arrives (on response completion), so the chip never lags a turn behind.
+  final int? lastEstimatedTokens;
 }
 
 final chatViewModelProvider = ChangeNotifierProvider<ChatViewModel>((ref) {

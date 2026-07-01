@@ -20,11 +20,6 @@ AppConfig loadAppConfig() {
     return (v == null || v.isEmpty) ? defaultValue : v;
   }
 
-  String? readOpt(String key) {
-    final String? v = Platform.environment[key] ?? dotenv[key];
-    return (v == null || v.isEmpty) ? null : v;
-  }
-
   final int port = int.parse(read('PORT', '8088'));
   final String host = read('HOST', '127.0.0.1');
   final String webRoot = read('WEB_ROOT', 'build/web');
@@ -34,9 +29,6 @@ AppConfig loadAppConfig() {
   final String appName = read('APP_NAME', 'HavenCat');
   final String codexClientVersion = read('CODEX_CLIENT_VERSION', '0.141.0');
 
-  final Set<String>? allowedHosts = parseAllowedHosts(
-    readOpt('LLM_ALLOWED_HOSTS'),
-  );
   final List<ProviderSlotConfig> searchProviders = parseProviderSpec(
     read('SEARCH_PROVIDERS', 'exa'),
   );
@@ -48,7 +40,6 @@ AppConfig loadAppConfig() {
     port: port,
     host: host,
     webRoot: webRoot,
-    allowedHosts: allowedHosts,
     logLevel: logLevel,
     rustLog: rustLog,
     searchProviders: searchProviders,

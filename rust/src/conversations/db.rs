@@ -52,6 +52,30 @@ impl ConversationsDb {
         self.conn
             .call(|c| -> std::result::Result<(), rusqlite::Error> {
                 c.execute_batch(SCHEMA_SQL)?;
+                // Add columns introduced after the initial schema. ALTER TABLE
+                // ... ADD COLUMN is idempotent-safe via this check (SQLite errors
+                // if the column exists, which we swallow).
+                let existing: std::collections::HashSet<String> = c
+                    .prepare("PRAGMA table_info(messages)")?
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .filter_map(std::result::Result::ok)
+                    .collect();
+                for (col, decl) in [
+                    ("cleared", "INTEGER NOT NULL DEFAULT 0"),
+                    ("cleared_summary", "TEXT"),
+                    ("refetch_args", "TEXT"),
+                    ("is_compaction_summary", "INTEGER NOT NULL DEFAULT 0"),
+                    ("prompt_tokens", "INTEGER"),
+                    ("completion_tokens", "INTEGER"),
+                    ("total_tokens", "INTEGER"),
+                ] {
+                    if !existing.contains(col) {
+                        c.execute(
+                            &format!("ALTER TABLE messages ADD COLUMN {col} {decl}"),
+                            [],
+                        )?;
+                    }
+                }
                 Ok(())
             })
             .await
@@ -86,7 +110,9 @@ impl ConversationsDb {
                 let mut msg_stmt = c.prepare(
                     "SELECT id, conversation_id, role, text, parent_id, children_ids,
                             original_content, has_error, active_child_id, tool_call_id,
-                            tool_calls_json, created_at
+                            tool_calls_json, created_at, cleared, cleared_summary,
+                            refetch_args, is_compaction_summary,
+                            prompt_tokens, completion_tokens, total_tokens
                      FROM messages",
                 )?;
                 let msg_rows = msg_stmt.query_map([], |row| {
@@ -103,6 +129,13 @@ impl ConversationsDb {
                         tool_call_id: row.get(9)?,
                         tool_calls_json: row.get(10)?,
                         created_at: row.get(11)?,
+                        cleared: row.get::<_, i64>(12)? != 0,
+                        cleared_summary: row.get(13)?,
+                        refetch_args: row.get(14)?,
+                        is_compaction_summary: row.get::<_, i64>(15)? != 0,
+                        prompt_tokens: row.get(16)?,
+                        completion_tokens: row.get(17)?,
+                        total_tokens: row.get(18)?,
                     })
                 })?;
                 let msgs: Vec<StoredMessage> =
@@ -158,8 +191,11 @@ impl ConversationsDb {
                         "INSERT INTO messages
                          (id, conversation_id, role, text, parent_id, children_ids,
                           original_content, has_error, active_child_id, tool_call_id,
-                          tool_calls_json, created_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                          tool_calls_json, created_at, cleared, cleared_summary,
+                          refetch_args, is_compaction_summary,
+                          prompt_tokens, completion_tokens, total_tokens)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                         params![
                             m.id,
                             m.conversation_id,
@@ -173,6 +209,13 @@ impl ConversationsDb {
                             m.tool_call_id,
                             m.tool_calls_json,
                             m.created_at,
+                            m.cleared as i64,
+                            m.cleared_summary,
+                            m.refetch_args,
+                            m.is_compaction_summary as i64,
+                            m.prompt_tokens,
+                            m.completion_tokens,
+                            m.total_tokens,
                         ],
                     )?;
                 }
@@ -225,4 +268,11 @@ pub struct StoredMessage {
     pub tool_call_id: Option<String>,
     pub tool_calls_json: Option<String>,
     pub created_at: String,
+    pub cleared: bool,
+    pub cleared_summary: Option<String>,
+    pub refetch_args: Option<String>,
+    pub is_compaction_summary: bool,
+    pub prompt_tokens: Option<i64>,
+    pub completion_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
 }

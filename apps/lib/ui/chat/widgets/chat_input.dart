@@ -6,6 +6,7 @@ import '../../../branding.dart';
 import '../../../data/services/web_retrieval/web_retrieval.dart';
 import '../../core/theme/app_theme.dart';
 import 'chat_tools_sheet.dart';
+import 'model_selector_bar.dart';
 
 /// The bottom input bar: a multiline text field inside a pill whose border
 /// becomes an animated, rotating brand gradient while the assistant is
@@ -271,6 +272,8 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  const ModelSelectorBar(compact: true),
+                  const SizedBox(width: 4),
                   _SendButton(
                     enabled: _hasText && !widget.isGenerating,
                     onTap: _submit,

@@ -117,6 +117,7 @@ final accountModelsServiceProvider =
         providers: ref.read(providerAccountRepositoryProvider),
         adapters: ref.read(adapterRegistryProvider),
         credentials: ref.read(credentialResolverProvider),
+        modelsDev: ref.read(modelsDevServiceProvider),
       );
     });
 
@@ -154,6 +155,8 @@ final conversationRepositoryProvider =
         // and wipe conversations. The chat screen syncs the flag at runtime
         // via the toolsEnabled setter.
         toolsEnabled: ref.read(toolsEnabledProvider),
+        appSettings: ref.read(appSettingsProvider),
+        accountModels: ref.read(accountModelsServiceProvider),
       );
     });
 

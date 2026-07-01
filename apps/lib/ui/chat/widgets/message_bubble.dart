@@ -7,6 +7,7 @@ import '../../../domain/models/message.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/typing_indicator.dart';
 import 'chat_markdown.dart';
+import 'token_usage_chip.dart';
 
 /// Renders a single [ChatMessage].
 ///
@@ -34,6 +35,11 @@ class MessageBubble extends StatefulWidget {
     this.isLast = false,
     this.isGenerating = false,
     this.descendantCount = 0,
+    this.actualTokens,
+    this.completionTokens,
+    this.totalTokens,
+    this.estimatedTokens,
+    this.contextWindow = 0,
     this.onEditUser,
     this.onRegenerate,
     this.onRevert,
@@ -79,6 +85,14 @@ class MessageBubble extends StatefulWidget {
   final VoidCallback? onPrevSibling;
   final VoidCallback? onNextSibling;
 
+  /// Token usage data for the token chip shown on the last assistant
+  /// message's action row.
+  final int? actualTokens;
+  final int? completionTokens;
+  final int? totalTokens;
+  final int? estimatedTokens;
+  final int contextWindow;
+
   @override
   State<MessageBubble> createState() => _MessageBubbleState();
 }
@@ -86,6 +100,7 @@ class MessageBubble extends StatefulWidget {
 class _MessageBubbleState extends State<MessageBubble>
     with AutomaticKeepAliveClientMixin {
   bool _editing = false;
+  bool _hovered = false;
   late final TextEditingController _editController;
   late final FocusNode _editFocus;
 
@@ -302,24 +317,28 @@ class _MessageBubbleState extends State<MessageBubble>
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          showTyping
-              ? const Align(
-                  alignment: Alignment.centerLeft,
-                  child: TypingIndicator(),
-                )
-              : ChatMarkdown(
-                  text: widget.message.text,
-                  selectable: true,
-                  streaming: widget.message.isStreaming,
-                ),
-          _buildActionsRow(context, isUser: false),
-        ],
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            showTyping
+                ? const Align(
+                    alignment: Alignment.centerLeft,
+                    child: TypingIndicator(),
+                  )
+                : ChatMarkdown(
+                    text: widget.message.text,
+                    selectable: true,
+                    streaming: widget.message.isStreaming,
+                  ),
+            _buildActionsRow(context, isUser: false),
+          ],
+        ),
       ),
     );
   }
@@ -339,7 +358,19 @@ class _MessageBubbleState extends State<MessageBubble>
         isUser && widget.message.isEdited && widget.onRevert != null;
     final bool hasSiblings = widget.siblings.length > 1;
 
-    if (!canEdit && !canRegenerate && !hasSiblings && !canRevert) {
+    // Token chip: shown on assistant messages that have usage data. The last
+    // assistant message always shows it; earlier ones show it on hover. Space
+    // is always reserved (via Visibility with maintainSize) so hovering
+    // doesn't shift the layout.
+    final bool hasUsage =
+        !isUser &&
+        widget.contextWindow > 0 &&
+        (widget.totalTokens != null ||
+            widget.actualTokens != null ||
+            widget.estimatedTokens != null);
+    final bool chipVisible = hasUsage && (widget.isLast || _hovered);
+
+    if (!canEdit && !canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
       return const SizedBox.shrink();
     }
 
@@ -365,6 +396,21 @@ class _MessageBubbleState extends State<MessageBubble>
               onTap: _startEdit,
             ),
           if (canRegenerate) _buildRegenerateMenu(context),
+          if (hasUsage)
+            Visibility(
+              visible: chipVisible,
+              maintainSize: true,
+              maintainAnimation: true,
+              maintainState: true,
+              child: TokenUsageChip(
+                actualTokens: widget.actualTokens,
+                completionTokens: widget.completionTokens,
+                totalTokens: widget.totalTokens,
+                estimatedTokens: widget.estimatedTokens,
+                contextWindow: widget.contextWindow,
+                isGenerating: widget.isGenerating,
+              ),
+            ),
         ],
       ),
     );

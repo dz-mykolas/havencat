@@ -47,8 +47,16 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
+                FadeSlideIn(
+                  delay: const Duration(milliseconds: 160),
+                  child: _Section(
+                    label: 'Context compaction',
+                    child: _CompactionCard(settings: settings),
+                  ),
+                ),
+                const SizedBox(height: 24),
                 const FadeSlideIn(
-                  delay: Duration(milliseconds: 160),
+                  delay: Duration(milliseconds: 230),
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: _SecureStorageNote(),
@@ -156,6 +164,107 @@ class _PreferencesCard extends StatelessWidget {
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      ),
+    );
+  }
+}
+
+class _CompactionCard extends StatelessWidget {
+  const _CompactionCard({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: <Widget>[
+          SwitchListTile(
+            value: settings.redactSecrets,
+            onChanged: settings.setRedactSecrets,
+            title: const Text(
+              'Redact secrets in summaries',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Strip API keys, tokens, and passwords before the summarizer '
+              'sees them. On by default — disable only for debugging.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          SwitchListTile(
+            value: settings.temporalAnchoring,
+            onChanged: settings.setTemporalAnchoring,
+            title: const Text(
+              'Temporal anchoring',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Rewrite "currently doing" into dated past-tense so resumed '
+              'chats don\'t re-execute completed actions. On by default.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          SwitchListTile(
+            value: settings.antiThrash,
+            onChanged: settings.setAntiThrash,
+            title: const Text(
+              'Anti-thrash guard',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Back off when a compression pass produces no savings. '
+              'On by default.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          SwitchListTile(
+            value: settings.staticFallback,
+            onChanged: settings.setStaticFallback,
+            title: const Text(
+              'Static fallback summary',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Insert a deterministic summary (user asks + tool names + file '
+              'paths) when the LLM summary call fails. On by default.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          SwitchListTile(
+            value: settings.abortOnSummaryFailure,
+            onChanged: settings.setAbortOnSummaryFailure,
+            title: const Text(
+              'Abort on summary failure',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Freeze the chat when summarization fails instead of using a '
+              'fallback. Off by default — only enable for strict workflows.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+          SwitchListTile(
+            value: settings.autoFocusTopic,
+            onChanged: settings.setAutoFocusTopic,
+            title: const Text(
+              'Auto focus topic',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+            ),
+            subtitle: const Text(
+              'Infer a focus topic from recent turns to prioritize related '
+              'info in the summary. Off by default — can be noisy.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          ),
+        ],
       ),
     );
   }

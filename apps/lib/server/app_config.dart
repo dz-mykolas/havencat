@@ -23,7 +23,6 @@ class AppConfig {
     required this.port,
     required this.host,
     required this.webRoot,
-    required this.allowedHosts,
     required this.logLevel,
     required this.rustLog,
     required this.searchProviders,
@@ -44,10 +43,6 @@ class AppConfig {
 
   /// Static files dir served by the server.
   final String webRoot;
-
-  /// Upstream hosts the LLM proxy will forward to. Null = default allowlist;
-  /// `{'*'}` = any host.
-  final Set<String>? allowedHosts;
 
   /// Dart log level name: debug/info/warning/severe/etc.
   final String logLevel;
@@ -87,15 +82,4 @@ List<ProviderSlotConfig> parseProviderSpec(String spec) {
       secret: s.substring(colon + 1),
     );
   }).toList();
-}
-
-/// Parses a comma-separated host list. Returns null if [spec] is null/empty
-/// (meaning "use defaults"), or `{'*'}` if wildcard.
-Set<String>? parseAllowedHosts(String? spec) {
-  if (spec == null) return null;
-  return spec
-      .split(',')
-      .map((h) => h.trim())
-      .where((h) => h.isNotEmpty)
-      .toSet();
 }

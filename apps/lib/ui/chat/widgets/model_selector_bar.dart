@@ -183,22 +183,17 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: dense ? 8 : 12,
-        vertical: dense ? 5 : 7,
-      ),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.outline),
+        horizontal: dense ? 6 : 10,
+        vertical: dense ? 7 : 9,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 16, color: AppTheme.textSecondary),
+          Icon(icon, size: 20, color: AppTheme.textSecondary),
           if (!hideLabel) ...<Widget>[
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
             Flexible(
               child: Text(
                 label,
@@ -206,14 +201,14 @@ class _Chip extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: AppTheme.textPrimary,
-                  fontSize: dense ? 12 : 13,
+                  fontSize: dense ? 14 : 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
           ],
-          const SizedBox(width: 2),
-          Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more, size: 20, color: AppTheme.textSecondary),
         ],
       ),
     );

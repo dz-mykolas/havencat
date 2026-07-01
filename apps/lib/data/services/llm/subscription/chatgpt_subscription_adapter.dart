@@ -281,7 +281,10 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
         return null;
 
       case 'response.completed':
-        return const DoneEvent(finishReason: 'stop');
+        return DoneEvent(
+          finishReason: 'stop',
+          usage: _parseUsage(decoded['response'] as Map<String, dynamic>?),
+        );
 
       case 'response.failed':
       case 'error':
@@ -290,6 +293,20 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       default:
         return null;
     }
+  }
+
+  /// Extracts usage from a `response.completed` payload. The Responses API
+  /// reports `response.usage` with `input_tokens` / `output_tokens` /
+  /// `total_tokens` (different field names than Chat Completions' `prompt_*`).
+  LlmUsage? _parseUsage(Map<String, dynamic>? response) {
+    final Map<String, dynamic>? usage =
+        response?['usage'] as Map<String, dynamic>?;
+    if (usage == null) return null;
+    return LlmUsage(
+      promptTokens: usage['input_tokens'] as int?,
+      completionTokens: usage['output_tokens'] as int?,
+      totalTokens: usage['total_tokens'] as int?,
+    );
   }
 
   String _extractError(Map<String, dynamic> decoded) {

@@ -82,7 +82,30 @@ class RustConversationStore implements ConversationStore {
         originalContent: m.originalContent,
       )
       ..hasError = m.hasError
-      ..activeChildId = m.activeChildId;
+      ..activeChildId = m.activeChildId
+      ..cleared = m.cleared
+      ..clearedSummary = m.clearedSummary
+      ..refetchArgs = m.refetchArgs != null
+          ? jsonDecode(m.refetchArgs!) as Map<String, Object?>
+          : null
+      ..isCompactionSummary = m.isCompactionSummary
+      ..promptTokens = _platformInt64ToInt(m.promptTokens)
+      ..completionTokens = _platformInt64ToInt(m.completionTokens)
+      ..totalTokens = _platformInt64ToInt(m.totalTokens);
+  }
+
+  static int? _platformInt64ToInt(PlatformInt64? v) {
+    if (v == null) return null;
+    // PlatformInt64 is int on native, BigInt on web. Cast through Object to
+    // satisfy both type-checkers.
+    final Object o = v;
+    if (o is int) return o;
+    return (o as BigInt).toInt();
+  }
+
+  static PlatformInt64? _intToPlatformInt64(int? v) {
+    if (v == null) return null;
+    return (platform.isWeb ? BigInt.from(v) : v) as PlatformInt64;
   }
 
   static rust_types.StoredConversation _toStored(Conversation c) {
@@ -118,6 +141,13 @@ class RustConversationStore implements ConversationStore {
           : null,
       createdAt:
           m.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+      cleared: m.cleared,
+      clearedSummary: m.clearedSummary,
+      refetchArgs: m.refetchArgs != null ? jsonEncode(m.refetchArgs) : null,
+      isCompactionSummary: m.isCompactionSummary,
+      promptTokens: _intToPlatformInt64(m.promptTokens),
+      completionTokens: _intToPlatformInt64(m.completionTokens),
+      totalTokens: _intToPlatformInt64(m.totalTokens),
     );
   }
 }

@@ -67,22 +67,6 @@ void main() {
     expect(res.statusCode, 400);
   });
 
-  test('upstream host not on the allowlist → 403', () async {
-    final Handler handler = llmProxyHandler(
-      client: MockClient((_) async => http.Response('', 200)),
-    );
-    final Response res = await handler(
-      proxyRequest(
-        'POST',
-        headers: <String, String>{
-          upstreamHeader: 'https://evil.example.com/steal',
-        },
-        body: '{}',
-      ),
-    );
-    expect(res.statusCode, 403);
-  });
-
   test('forwards method/headers/body and streams the response back', () async {
     late http.BaseRequest captured;
     final Handler handler = llmProxyHandler(
@@ -126,9 +110,9 @@ void main() {
     // Control + origin headers must not leak upstream.
     expect(captured.headers.containsKey('x-upstream-url'), isFalse);
     expect(captured.headers.containsKey('origin'), isFalse);
-    // The browser's accept-encoding must NOT be forwarded, or Cloudflare may
-    // reply with brotli that Dart's client can't decompress (gibberish body).
-    expect(captured.headers.containsKey('accept-encoding'), isFalse);
+    // The browser's accept-encoding must NOT be forwarded as-is. The proxy
+    // overwrites it with 'identity' so SSE streams token-by-token.
+    expect(captured.headers['accept-encoding'], 'identity');
     expect(res.headers['access-control-allow-origin'], 'http://localhost:8080');
 
     final String streamed = await res.readAsString();
@@ -136,10 +120,12 @@ void main() {
     expect(streamed, contains('[DONE]'));
   });
 
-  test('allowedHosts {*} permits any https upstream', () async {
+  test('public https upstream is admitted (no allowlist)', () async {
+    // The proxy uses a deny-list, not an allowlist — any public https host
+    // is admitted. This is the whole point: 147+ providers on models.dev,
+    // the user can plug in any OpenAI-compatible endpoint.
     late http.BaseRequest captured;
     final Handler handler = llmProxyHandler(
-      allowedHosts: <String>{'*'},
       client: MockClient.streaming((
         http.BaseRequest request,
         http.ByteStream body,
@@ -152,12 +138,103 @@ void main() {
       proxyRequest(
         'POST',
         headers: <String, String>{
-          upstreamHeader: 'https://anything.example.com/v1/x',
+          upstreamHeader: 'https://api.neuralwatt.com/v1/chat/completions',
         },
         body: '{}',
       ),
     );
     expect(res.statusCode, 200);
-    expect(captured.url.host, 'anything.example.com');
+    expect(captured.url.host, 'api.neuralwatt.com');
+  });
+
+  test('loopback upstream is admitted (Ollama / LM Studio)', () async {
+    // Loopback is explicitly allowed so users can run local models.
+    late http.BaseRequest captured;
+    final Handler handler = llmProxyHandler(
+      client: MockClient.streaming((
+        http.BaseRequest request,
+        http.ByteStream body,
+      ) async {
+        captured = request;
+        return http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+      }),
+    );
+    final Response res = await handler(
+      proxyRequest(
+        'POST',
+        headers: <String, String>{
+          upstreamHeader: 'http://127.0.0.1:11434/v1/chat/completions',
+        },
+        body: '{}',
+      ),
+    );
+    expect(res.statusCode, 200);
+    expect(captured.url.host, '127.0.0.1');
+  });
+
+  test('cloud metadata IP (169.254.169.254) is blocked', () async {
+    // The classic SSRF target — AWS/Azure/GCP instance metadata. Literal IP
+    // so no DNS lookup is needed; the deny-list must catch it directly.
+    // Uses https so it reaches the SSRF filter (http to non-loopback is
+    // already rejected with 400 by the https-only check).
+    final Handler handler = llmProxyHandler(
+      client: MockClient((_) async => http.Response('', 200)),
+    );
+    final Response res = await handler(
+      proxyRequest(
+        'POST',
+        headers: <String, String>{
+          upstreamHeader: 'https://169.254.169.254/latest/meta-data/',
+        },
+        body: '{}',
+      ),
+    );
+    expect(res.statusCode, 403);
+  });
+
+  test('RFC1918 private IP is blocked', () async {
+    final Handler handler = llmProxyHandler(
+      client: MockClient((_) async => http.Response('', 200)),
+    );
+    final Response res = await handler(
+      proxyRequest(
+        'POST',
+        headers: <String, String>{upstreamHeader: 'https://192.168.1.1/admin'},
+        body: '{}',
+      ),
+    );
+    expect(res.statusCode, 403);
+  });
+
+  test('redirects are not followed (open-redirect SSRF bypass)', () async {
+    // An allowed host could 302 to an internal IP. The proxy must NOT follow
+    // the redirect — the browser can do that itself if it wants to.
+    late http.BaseRequest captured;
+    final Handler handler = llmProxyHandler(
+      client: MockClient.streaming((
+        http.BaseRequest request,
+        http.ByteStream body,
+      ) async {
+        captured = request;
+        return http.StreamedResponse(
+          const Stream<List<int>>.empty(),
+          302,
+          headers: <String, String>{
+            'location': 'http://169.254.169.254/latest/meta-data/',
+          },
+        );
+      }),
+    );
+    final Response res = await handler(
+      proxyRequest(
+        'POST',
+        headers: <String, String>{
+          upstreamHeader: 'https://api.openai.com/v1/x',
+        },
+        body: '{}',
+      ),
+    );
+    expect(res.statusCode, 302);
+    expect(captured.followRedirects, isFalse);
   });
 }

@@ -38,11 +38,33 @@ final class ToolCallEvent extends LlmEvent {
   final String args;
 }
 
-/// Stream completed normally. Carries the provider's stop reason if any.
+/// Token usage reported by the provider in the final streaming chunk (when
+/// `stream_options: {include_usage: true}` is requested) or in a non-streaming
+/// response. Null when the provider doesn't report usage.
+class LlmUsage {
+  const LlmUsage({
+    this.promptTokens,
+    this.completionTokens,
+    this.totalTokens,
+  });
+
+  final int? promptTokens;
+  final int? completionTokens;
+  final int? totalTokens;
+
+  @override
+  String toString() =>
+      'LlmUsage(prompt=$promptTokens, completion=$completionTokens, '
+      'total=$totalTokens)';
+}
+
+/// Stream completed normally. Carries the provider's stop reason if any, and
+/// optional token usage when the provider reports it in the final chunk.
 final class DoneEvent extends LlmEvent {
-  const DoneEvent({this.finishReason});
+  const DoneEvent({this.finishReason, this.usage});
 
   final String? finishReason;
+  final LlmUsage? usage;
 }
 
 /// Stream failed. [error] is typed so the UI can distinguish auth/network/

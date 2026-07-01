@@ -62,6 +62,13 @@ class StoredMessage {
   final String? toolCallId;
   final String? toolCallsJson;
   final String createdAt;
+  final bool cleared;
+  final String? clearedSummary;
+  final String? refetchArgs;
+  final bool isCompactionSummary;
+  final PlatformInt64? promptTokens;
+  final PlatformInt64? completionTokens;
+  final PlatformInt64? totalTokens;
 
   const StoredMessage({
     required this.id,
@@ -76,6 +83,13 @@ class StoredMessage {
     this.toolCallId,
     this.toolCallsJson,
     required this.createdAt,
+    required this.cleared,
+    this.clearedSummary,
+    this.refetchArgs,
+    required this.isCompactionSummary,
+    this.promptTokens,
+    this.completionTokens,
+    this.totalTokens,
   });
 
   @override
@@ -91,7 +105,14 @@ class StoredMessage {
       activeChildId.hashCode ^
       toolCallId.hashCode ^
       toolCallsJson.hashCode ^
-      createdAt.hashCode;
+      createdAt.hashCode ^
+      cleared.hashCode ^
+      clearedSummary.hashCode ^
+      refetchArgs.hashCode ^
+      isCompactionSummary.hashCode ^
+      promptTokens.hashCode ^
+      completionTokens.hashCode ^
+      totalTokens.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -109,5 +130,12 @@ class StoredMessage {
           activeChildId == other.activeChildId &&
           toolCallId == other.toolCallId &&
           toolCallsJson == other.toolCallsJson &&
-          createdAt == other.createdAt;
+          createdAt == other.createdAt &&
+          cleared == other.cleared &&
+          clearedSummary == other.clearedSummary &&
+          refetchArgs == other.refetchArgs &&
+          isCompactionSummary == other.isCompactionSummary &&
+          promptTokens == other.promptTokens &&
+          completionTokens == other.completionTokens &&
+          totalTokens == other.totalTokens;
 }

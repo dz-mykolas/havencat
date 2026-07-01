@@ -15,7 +15,7 @@ RUN_ARGS := -d $(DEVICE)
 # win over `.env` values. Lines starting with `#` and blank lines are skipped.
 -include .env
 # Export so subprocesses (dart run, flutter run) inherit them as shell env vars.
-export PORT HOST WEB_ROOT LLM_ALLOWED_HOSTS LOG_LEVEL RUST_LOG SEARCH_PROVIDERS FETCH_PROVIDERS
+export PORT HOST WEB_ROOT LOG_LEVEL RUST_LOG SEARCH_PROVIDERS FETCH_PROVIDERS
 
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)

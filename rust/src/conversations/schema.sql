@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_call_id        TEXT,
     tool_calls_json    TEXT,
     created_at          TEXT NOT NULL,
+    cleared             INTEGER NOT NULL DEFAULT 0,
+    cleared_summary     TEXT,
+    refetch_args        TEXT,
+    is_compaction_summary INTEGER NOT NULL DEFAULT 0,
+    prompt_tokens       INTEGER,
+    completion_tokens   INTEGER,
+    total_tokens        INTEGER,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 

@@ -35,6 +35,26 @@ class Conversation {
   /// empty. Updated by [add] and by branch-switching (phase 2).
   String? currentLeafId;
 
+  /// Prompt-token count reported by the provider for the most recent reply.
+  /// Used to calibrate the char/4 estimator. Null when the provider doesn't
+  /// report usage (e.g. Ollama) or before the first reply.
+  int? lastPromptTokens;
+
+  /// Completion-token count reported by the provider for the most recent
+  /// reply. Null when the provider doesn't report usage or before the first
+  /// reply.
+  int? lastCompletionTokens;
+
+  /// Total-token count (input + output) reported by the provider for the
+  /// most recent reply. Null when the provider doesn't report usage or
+  /// before the first reply.
+  int? lastTotalTokens;
+
+  /// The char/4 estimate of the messages sent in the most recent request.
+  /// Paired with [lastPromptTokens] to compute a calibration ratio for the
+  /// estimator. Null before the first reply.
+  int? lastEstimatedTokens;
+
   final Map<String, ChatMessage> _byId = <String, ChatMessage>{};
 
   /// Looks up a message by id in O(1). Returns null for unknown ids.
@@ -135,22 +155,34 @@ class Conversation {
     'providerAccountId': providerAccountId,
     'createdAt': createdAt?.toIso8601String(),
     'currentLeafId': currentLeafId,
+    'lastPromptTokens': lastPromptTokens,
+    'lastCompletionTokens': lastCompletionTokens,
+    'lastTotalTokens': lastTotalTokens,
+    'lastEstimatedTokens': lastEstimatedTokens,
   };
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
-    final conv = Conversation(
-      id: json['id'] as String,
-      title: json['title'] as String? ?? 'New chat',
-      messages:
-          (json['messages'] as List<dynamic>?)
-              ?.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          <ChatMessage>[],
-      providerAccountId: json['providerAccountId'] as String?,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
-          : null,
-    )..currentLeafId = json['currentLeafId'] as String?;
+    final conv =
+        Conversation(
+            id: json['id'] as String,
+            title: json['title'] as String? ?? 'New chat',
+            messages:
+                (json['messages'] as List<dynamic>?)
+                    ?.map(
+                      (e) => ChatMessage.fromJson(e as Map<String, dynamic>),
+                    )
+                    .toList() ??
+                <ChatMessage>[],
+            providerAccountId: json['providerAccountId'] as String?,
+            createdAt: json['createdAt'] != null
+                ? DateTime.parse(json['createdAt'] as String)
+                : null,
+          )
+          ..currentLeafId = json['currentLeafId'] as String?
+          ..lastPromptTokens = json['lastPromptTokens'] as int?
+          ..lastCompletionTokens = json['lastCompletionTokens'] as int?
+          ..lastTotalTokens = json['lastTotalTokens'] as int?
+          ..lastEstimatedTokens = json['lastEstimatedTokens'] as int?;
     return conv;
   }
 }
