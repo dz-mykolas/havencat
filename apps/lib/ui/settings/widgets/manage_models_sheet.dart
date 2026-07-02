@@ -125,8 +125,9 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
     try {
       await widget.onSubmit(_selected.toList(growable: false));
       // Acknowledge every available model so the "+N new" badge clears — the
-      // user has now seen the full list.
-      await widget.selector.acknowledgeNewModels();
+      // user has now seen the full list. Scope the acknowledgement to the
+      // tapped account (which may differ from the active one).
+      await widget.selector.acknowledgeNewModelsFor(widget.account.id);
       widget.onDone();
     } catch (error) {
       setState(() {
@@ -141,9 +142,12 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
 
   @override
   Widget build(BuildContext context) {
-    final List<LlmModel>? available = widget.selector.availableModels;
-    final Set<String> newIds = widget.selector.newModelIds;
-    final Set<String> deprecatedIds = widget.selector.deprecatedModelIds;
+    final String accountId = widget.account.id;
+    final List<LlmModel>? available =
+        widget.selector.availableModelsFor(accountId);
+    final Set<String> newIds = widget.selector.newModelIdsFor(accountId);
+    final Set<String> deprecatedIds =
+        widget.selector.deprecatedModelIdsFor(accountId);
 
     // Build the row list: every available model, plus any enabled-but-
     // deprecated ids that are no longer in `available` (so the user can

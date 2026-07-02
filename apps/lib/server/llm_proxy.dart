@@ -195,6 +195,9 @@ Handler llmProxyHandler({
       upstreamResponse.statusCode,
       body: upstreamResponse.stream,
       headers: responseHeaders,
+      // Disable shelf_io's output buffering so SSE chunks flush to the wire
+      // as soon as they arrive from upstream, instead of being coalesced.
+      context: const <String, Object>{'shelf.io.buffer_output': false},
     );
   };
 }

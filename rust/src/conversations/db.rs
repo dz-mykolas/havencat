@@ -68,6 +68,7 @@ impl ConversationsDb {
                     ("prompt_tokens", "INTEGER"),
                     ("completion_tokens", "INTEGER"),
                     ("total_tokens", "INTEGER"),
+                    ("reasoning", "TEXT"),
                 ] {
                     if !existing.contains(col) {
                         c.execute(
@@ -112,7 +113,7 @@ impl ConversationsDb {
                             original_content, has_error, active_child_id, tool_call_id,
                             tool_calls_json, created_at, cleared, cleared_summary,
                             refetch_args, is_compaction_summary,
-                            prompt_tokens, completion_tokens, total_tokens
+                            prompt_tokens, completion_tokens, total_tokens, reasoning
                      FROM messages",
                 )?;
                 let msg_rows = msg_stmt.query_map([], |row| {
@@ -136,6 +137,7 @@ impl ConversationsDb {
                         prompt_tokens: row.get(16)?,
                         completion_tokens: row.get(17)?,
                         total_tokens: row.get(18)?,
+                        reasoning: row.get(19)?,
                     })
                 })?;
                 let msgs: Vec<StoredMessage> =
@@ -193,9 +195,9 @@ impl ConversationsDb {
                           original_content, has_error, active_child_id, tool_call_id,
                           tool_calls_json, created_at, cleared, cleared_summary,
                           refetch_args, is_compaction_summary,
-                          prompt_tokens, completion_tokens, total_tokens)
+                          prompt_tokens, completion_tokens, total_tokens, reasoning)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
                         params![
                             m.id,
                             m.conversation_id,
@@ -216,6 +218,7 @@ impl ConversationsDb {
                             m.prompt_tokens,
                             m.completion_tokens,
                             m.total_tokens,
+                            m.reasoning,
                         ],
                     )?;
                 }
@@ -275,4 +278,5 @@ pub struct StoredMessage {
     pub prompt_tokens: Option<i64>,
     pub completion_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
+    pub reasoning: Option<String>,
 }

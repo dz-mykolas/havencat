@@ -652,6 +652,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
         let mut var_promptTokens = <Option<i64>>::sse_decode(deserializer);
         let mut var_completionTokens = <Option<i64>>::sse_decode(deserializer);
         let mut var_totalTokens = <Option<i64>>::sse_decode(deserializer);
+        let mut var_reasoning = <Option<String>>::sse_decode(deserializer);
         return crate::conversations::db::StoredMessage {
             id: var_id,
             conversation_id: var_conversationId,
@@ -672,6 +673,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
             prompt_tokens: var_promptTokens,
             completion_tokens: var_completionTokens,
             total_tokens: var_totalTokens,
+            reasoning: var_reasoning,
         };
     }
 }
@@ -891,6 +893,7 @@ impl flutter_rust_bridge::IntoDart for crate::conversations::db::StoredMessage {
             self.prompt_tokens.into_into_dart().into_dart(),
             self.completion_tokens.into_into_dart().into_dart(),
             self.total_tokens.into_into_dart().into_dart(),
+            self.reasoning.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1079,6 +1082,7 @@ impl SseEncode for crate::conversations::db::StoredMessage {
         <Option<i64>>::sse_encode(self.prompt_tokens, serializer);
         <Option<i64>>::sse_encode(self.completion_tokens, serializer);
         <Option<i64>>::sse_encode(self.total_tokens, serializer);
+        <Option<String>>::sse_encode(self.reasoning, serializer);
     }
 }
 

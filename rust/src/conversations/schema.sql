@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS messages (
     prompt_tokens       INTEGER,
     completion_tokens   INTEGER,
     total_tokens        INTEGER,
+    reasoning           TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 

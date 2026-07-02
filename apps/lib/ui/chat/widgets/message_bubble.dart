@@ -306,8 +306,12 @@ class _MessageBubbleState extends State<MessageBubble>
   }
 
   Widget _buildAssistant(BuildContext context) {
+    final bool hasReasoning = widget.message.reasoning.isNotEmpty;
+    final bool reasoningStreaming = widget.message.isStreaming && hasReasoning;
     final bool showTyping =
-        widget.message.isStreaming && widget.message.text.isEmpty;
+        widget.message.isStreaming &&
+        widget.message.text.isEmpty &&
+        !hasReasoning;
 
     // Assistant message with tool calls → grouped tool-step card.
     if (widget.message.toolCalls.isNotEmpty) {
@@ -326,6 +330,11 @@ class _MessageBubbleState extends State<MessageBubble>
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (hasReasoning)
+              _ThinkingRow(
+                reasoning: widget.message.reasoning,
+                streaming: reasoningStreaming,
+              ),
             showTyping
                 ? const Align(
                     alignment: Alignment.centerLeft,
@@ -731,6 +740,108 @@ class _DotLoaderState extends State<_DotLoader>
           ),
         );
       },
+    );
+  }
+}
+
+/// Collapsible "Thinking" row shown above an assistant reply when the model
+/// emitted a reasoning stream. Folded by default; the user opens/closes it
+/// manually. While [streaming] is true a spinner is shown next to the label.
+class _ThinkingRow extends StatefulWidget {
+  const _ThinkingRow({required this.reasoning, required this.streaming});
+
+  final String reasoning;
+  final bool streaming;
+
+  @override
+  State<_ThinkingRow> createState() => _ThinkingRowState();
+}
+
+class _ThinkingRowState extends State<_ThinkingRow> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool expanded = _expanded;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _expanded = !_expanded),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: <Widget>[
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: widget.streaming
+                              ? SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      colors.primary,
+                                    ),
+                                  ),
+                                )
+                              : AnimatedRotation(
+                                  turns: expanded ? 0.0 : -0.25,
+                                  duration: const Duration(milliseconds: 180),
+                                  curve: Curves.easeOutCubic,
+                                  child: Icon(
+                                    Icons.expand_more,
+                                    size: 16,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                        ),
+                        Text(
+                          'Thinking',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 220),
+                sizeCurve: Curves.easeOutCubic,
+                firstChild: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: ChatMarkdown(
+                    text: widget.reasoning,
+                    selectable: true,
+                    streaming: widget.streaming,
+                  ),
+                ),
+                secondChild: const SizedBox.shrink(),
+                crossFadeState: expanded
+                    ? CrossFadeState.showFirst
+                    : CrossFadeState.showSecond,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

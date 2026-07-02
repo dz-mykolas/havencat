@@ -108,10 +108,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
           yield parsed;
         }
       }
-      yield DoneEvent(
-        finishReason: finishReason ?? 'stop',
-        usage: usage,
-      );
+      yield DoneEvent(finishReason: finishReason ?? 'stop', usage: usage);
     } on DioException catch (e) {
       _log.warning(
         'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
@@ -330,8 +327,11 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       return TokenEvent(content);
     }
 
-    // Some providers stream reasoning under `reasoning_content` (e.g. DeepSeek).
-    final String? reasoning = delta?['reasoning_content'] as String?;
+    // Some providers stream reasoning under `reasoning_content` (e.g. DeepSeek)
+    // or `reasoning` (other OpenAI-compatible providers).
+    final String? reasoning =
+        (delta?['reasoning_content'] as String?) ??
+        (delta?['reasoning'] as String?);
     if (reasoning != null && reasoning.isNotEmpty) {
       return ReasoningEvent(reasoning);
     }

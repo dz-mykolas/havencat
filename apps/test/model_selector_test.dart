@@ -63,9 +63,13 @@ void main() {
     /// Builds a [ModelSelectorViewModel] backed by an [AccountModelsService]
     /// that uses a [_FixedModelService] under the hood — so tests get
     /// deterministic model lists without real network calls.
+    ///
+    /// [enabled] seeds the account's `enabledModels` (defaults to every id
+    /// in [models], so the picker shows them all unless a test overrides it).
     ModelSelectorViewModel buildVm({
       AppSettings? settings,
       List<LlmModel> models = const <LlmModel>[LlmModel(id: 'mock-model')],
+      List<String>? enabled,
     }) {
       final SecretStore secrets = SecretStore();
       final ProviderAccountRepository providers = ProviderAccountRepository(
@@ -91,6 +95,10 @@ void main() {
       final List<ProviderAccount> accounts = providers.accounts;
       for (final ProviderAccount a in accounts) {
         accountModels.seedForTest(a.id, models);
+        providers.setAllowedModels(
+          a.id,
+          enabled ?? models.map((m) => m.id).toList(),
+        );
       }
       return ModelSelectorViewModel(
         providers,
@@ -115,6 +123,8 @@ void main() {
             LlmModel(id: 'hidden-1', hidden: true),
             LlmModel(id: 'visible-1'),
           ],
+          // visible-1 first so the legacy `model` fallback lands on it.
+          enabled: const <String>['visible-1', 'hidden-1'],
         );
         await Future<void>.delayed(Duration.zero); // let the microtask run
         // Default skips the hidden model and lands on the first visible one.
@@ -132,6 +142,8 @@ void main() {
             LlmModel(id: 'visible-1'),
             LlmModel(id: 'hidden-1', hidden: true),
           ],
+          // Enable both so the only filter in play is the hidden flag.
+          enabled: const <String>['visible-1', 'hidden-1'],
         );
 
         expect(vm.models!.map((LlmModel m) => m.id), <String>['visible-1']);

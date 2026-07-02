@@ -541,9 +541,7 @@ class ConversationRepository extends ChangeNotifier {
                   assistant.text += delta;
                   notifyListeners();
                 case ReasoningEvent(:final String delta):
-                  // For now, fold reasoning into the visible text. UI will
-                  // separate this once we add a reasoning bubble.
-                  assistant.text += delta;
+                  assistant.reasoning += delta;
                   notifyListeners();
                 case ToolCallEvent(
                   :final String id,

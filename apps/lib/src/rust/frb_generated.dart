@@ -584,8 +584,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   StoredMessage dco_decode_stored_message(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 19)
-      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
+    if (arr.length != 20)
+      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
     return StoredMessage(
       id: dco_decode_String(arr[0]),
       conversationId: dco_decode_String(arr[1]),
@@ -606,6 +606,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       promptTokens: dco_decode_opt_box_autoadd_i_64(arr[16]),
       completionTokens: dco_decode_opt_box_autoadd_i_64(arr[17]),
       totalTokens: dco_decode_opt_box_autoadd_i_64(arr[18]),
+      reasoning: dco_decode_opt_String(arr[19]),
     );
   }
 
@@ -849,6 +850,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_promptTokens = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_completionTokens = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_totalTokens = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_reasoning = sse_decode_opt_String(deserializer);
     return StoredMessage(
       id: var_id,
       conversationId: var_conversationId,
@@ -869,6 +871,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       promptTokens: var_promptTokens,
       completionTokens: var_completionTokens,
       totalTokens: var_totalTokens,
+      reasoning: var_reasoning,
     );
   }
 
@@ -1099,6 +1102,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_i_64(self.promptTokens, serializer);
     sse_encode_opt_box_autoadd_i_64(self.completionTokens, serializer);
     sse_encode_opt_box_autoadd_i_64(self.totalTokens, serializer);
+    sse_encode_opt_String(self.reasoning, serializer);
   }
 
   @protected

@@ -57,6 +57,12 @@ class ChatMessage {
   /// The (possibly partial, while streaming) message content.
   String text;
 
+  /// Provider reasoning / chain-of-thought stream (OpenAI `reasoning_content`,
+  /// Anthropic `thinking_delta`, etc.). Accumulated token-by-token while
+  /// [isStreaming] is true. Shown in a collapsible "Thinking" row above the
+  /// reply; not sent back to the provider in subsequent requests.
+  String reasoning = '';
+
   /// True while the assistant is still appending tokens to [text].
   bool isStreaming;
 
@@ -146,6 +152,7 @@ class ChatMessage {
     'id': id,
     'role': role.name,
     'text': text,
+    'reasoning': reasoning,
     'isStreaming': isStreaming,
     'createdAt': createdAt?.toIso8601String(),
     'toolCalls': toolCalls.map((tc) => tc.toJson()).toList(),
@@ -187,6 +194,7 @@ class ChatMessage {
         )
         ..hasError = json['hasError'] as bool? ?? false
         ..activeChildId = json['activeChildId'] as String?
+        ..reasoning = json['reasoning'] as String? ?? ''
         ..cleared = json['cleared'] as bool? ?? false
         ..clearedSummary = json['clearedSummary'] as String?
         ..refetchArgs = json['refetchArgs'] as Map<String, Object?>?

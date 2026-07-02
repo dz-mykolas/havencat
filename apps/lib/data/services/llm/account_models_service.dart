@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/llm_model.dart';
+import '../../../domain/models/model_pricing.dart';
 import '../../../domain/models/provider_account.dart';
 import '../../repositories/provider_account_repository.dart';
 import '../auth/credential_resolver.dart';
@@ -33,7 +34,7 @@ class AccountModelsService extends ChangeNotifier {
     required this._adapters,
     required this._credentials,
     ModelsDevService? modelsDev,
-  })  : _modelsDev = modelsDev {
+  }) : _modelsDev = modelsDev {
     _providers.addListener(_onAccountsChanged);
   }
 
@@ -124,7 +125,10 @@ class AccountModelsService extends ChangeNotifier {
         account: account,
         secret: secret,
       );
-      final List<LlmModel> enriched = await _enrichWithContextWindow(models, account);
+      final List<LlmModel> enriched = await _enrichWithContextWindow(
+        models,
+        account,
+      );
       _cache[id] = enriched;
       _errors.remove(id);
       await _persist(id, enriched);
@@ -202,10 +206,7 @@ class AccountModelsService extends ChangeNotifier {
     if (prefs == null) return;
     final Set<String>? set = _seen[accountId];
     if (set == null) return;
-    await prefs.setString(
-      '$_seenPrefix::$accountId',
-      jsonEncode(set.toList()),
-    );
+    await prefs.setString('$_seenPrefix::$accountId', jsonEncode(set.toList()));
   }
 
   Future<void> _persist(String accountId, List<LlmModel> models) async {
@@ -295,7 +296,10 @@ class AccountModelsService extends ChangeNotifier {
     try {
       final catalog = await svc.load();
       final resolver = ModelContextResolver(catalog);
-      return resolver.enrich(models, providerId: _providerIdFor(account));
+      return resolver.enrich(
+        models,
+        providerId: _providerIdFromCatalog(catalog, account),
+      );
     } catch (_) {
       // Catalog unavailable — return models without context windows.
       // The compaction call site falls back to kFallbackContextWindow.
@@ -303,33 +307,23 @@ class AccountModelsService extends ChangeNotifier {
     }
   }
 
-  /// Maps a [ProviderAccount]'s kind to the models.dev provider id used for
-  /// catalog lookups. Returns null for kinds without a clear mapping.
-  String? _providerIdFor(ProviderAccount account) {
-    switch (account.kind) {
-      case AdapterKind.openaiCompatible:
-        // Derive from the base URL host when possible.
-        final String baseUrl =
-            (account.config['baseUrl'] as String?) ?? '';
-        if (baseUrl.contains('openrouter')) return 'openrouter';
-        if (baseUrl.contains('groq')) return 'groq';
-        if (baseUrl.contains('together')) return 'together';
-        if (baseUrl.contains('deepseek')) return 'deepseek';
-        if (baseUrl.contains('dashscope') || baseUrl.contains('qwen')) {
-          return 'qwen';
-        }
-        if (baseUrl.contains('openai.com') || baseUrl.isEmpty) {
-          return 'openai';
-        }
-        return null;
-      case AdapterKind.anthropic:
-        return 'anthropic';
-      case AdapterKind.geminiNative:
-        return 'google';
-      case AdapterKind.subscription:
-      case AdapterKind.onDevice:
-      case AdapterKind.mock:
-        return null;
+  /// Resolves a models.dev provider id by matching the account's base URL
+  /// host against the catalog providers' API URLs. Returns null when no match
+  /// is found.
+  String? _providerIdFromCatalog(
+    ModelsCatalog catalog,
+    ProviderAccount account,
+  ) {
+    final String baseUrl = (account.config['baseUrl'] as String?) ?? '';
+    if (baseUrl.isEmpty) return null;
+    final String host = Uri.tryParse(baseUrl)?.host ?? '';
+    if (host.isEmpty) return null;
+    for (final prov in catalog.providers) {
+      final String? api = prov.apiUrl;
+      if (api == null) continue;
+      final String apiHost = Uri.tryParse(api)?.host ?? '';
+      if (apiHost.isNotEmpty && host == apiHost) return prov.id;
     }
+    return null;
   }
 }

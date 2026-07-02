@@ -83,6 +83,7 @@ class RustConversationStore implements ConversationStore {
       )
       ..hasError = m.hasError
       ..activeChildId = m.activeChildId
+      ..reasoning = m.reasoning ?? ''
       ..cleared = m.cleared
       ..clearedSummary = m.clearedSummary
       ..refetchArgs = m.refetchArgs != null
@@ -148,6 +149,7 @@ class RustConversationStore implements ConversationStore {
       promptTokens: _intToPlatformInt64(m.promptTokens),
       completionTokens: _intToPlatformInt64(m.completionTokens),
       totalTokens: _intToPlatformInt64(m.totalTokens),
+      reasoning: m.reasoning.isEmpty ? null : m.reasoning,
     );
   }
 }

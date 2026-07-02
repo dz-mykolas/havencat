@@ -76,7 +76,6 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
           if (vm.loading) {
             return const _PanelShell(
               tabs: _ScopeTabs(),
-              chips: _AccountChips(),
               search: SizedBox.shrink(),
               body: Center(child: CircularProgressIndicator()),
             );
@@ -84,14 +83,12 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
           if (vm.error != null && vm.catalog == null) {
             return _PanelShell(
               tabs: const _ScopeTabs(),
-              chips: const _AccountChips(),
               search: const SizedBox.shrink(),
               body: _ErrorState(onRetry: vm.load),
             );
           }
           return _PanelShell(
             tabs: const _ScopeTabs(),
-            chips: const _AccountChips(),
             search: _SearchField(
               controller: _search,
               hint: _searchHint(vm),
@@ -183,26 +180,16 @@ class _PanelShell extends StatelessWidget {
     required this.tabs,
     required this.search,
     required this.body,
-    this.chips,
   });
 
   final Widget tabs;
   final Widget search;
   final Widget body;
 
-  /// Optional account-chips row rendered above the tabs. When null (or when
-  /// there are no accounts) nothing is rendered so the tabs sit at the top.
-  final Widget? chips;
-
   @override
   Widget build(BuildContext context) {
     return Column(
       children: <Widget>[
-        if (chips != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: chips,
-          ),
         Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tabs),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
@@ -886,123 +873,6 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-/// Horizontally-scrolling row of small account chips, grouped by type
-/// (subscriptions first, then API-key accounts). Tapping a chip activates
-/// that account via [SettingsViewModel.setActive]. Renders nothing when there
-/// are no accounts configured.
-///
-/// Sits above the scope tabs so the user's configured accounts are always
-/// one tap away, regardless of which Discover tab they're on.
-class _AccountChips extends StatelessWidget {
-  const _AccountChips();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer(
-      builder: (BuildContext context, WidgetRef ref, _) {
-        final SettingsViewModel settings = ref.watch(settingsViewModelProvider);
-        final List<ProviderAccount> accounts = settings.accounts;
-        if (accounts.isEmpty) return const SizedBox.shrink();
-        final String? activeId = settings.activeAccountId;
-        // Subscriptions first (OAuth logins), then API-key accounts. Stable
-        // within each group by preserving repository order.
-        final List<ProviderAccount> sorted = <ProviderAccount>[
-          ...accounts.where(
-            (ProviderAccount a) => a.kind == AdapterKind.subscription,
-          ),
-          ...accounts.where(
-            (ProviderAccount a) => a.kind != AdapterKind.subscription,
-          ),
-        ];
-        return SizedBox(
-          height: 34,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.zero,
-            itemCount: sorted.length,
-            separatorBuilder: (BuildContext _, _) => const SizedBox(width: 8),
-            itemBuilder: (BuildContext context, int index) {
-              final ProviderAccount a = sorted[index];
-              final bool active = a.id == activeId;
-              return _AccountChip(
-                account: a,
-                active: active,
-                onTap: () => settings.setActive(a.id),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _AccountChip extends StatelessWidget {
-  const _AccountChip({
-    required this.account,
-    required this.active,
-    required this.onTap,
-  });
-
-  final ProviderAccount account;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color fg = active ? Colors.white : AppTheme.textSecondary;
-    return Material(
-      color: active ? AppTheme.brandViolet : AppTheme.surface,
-      borderRadius: BorderRadius.circular(17),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(17),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(17),
-            border: Border.all(
-              color: active ? Colors.transparent : AppTheme.outline,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(_iconFor(account.kind), size: 14, color: fg),
-              const SizedBox(width: 6),
-              Text(
-                account.displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 12.5,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static IconData _iconFor(AdapterKind kind) {
-    switch (kind) {
-      case AdapterKind.subscription:
-        return Icons.workspace_premium_outlined;
-      case AdapterKind.openaiCompatible:
-      case AdapterKind.anthropic:
-      case AdapterKind.geminiNative:
-        return Icons.cloud_outlined;
-      case AdapterKind.onDevice:
-        return Icons.phone_android_outlined;
-      case AdapterKind.mock:
-        return Icons.science_outlined;
-    }
-  }
-}
-
 /// The Accounts tab body: lists configured accounts (reusing [AccountTile]
 /// from settings), with an "Add account" affordance at the bottom that opens
 /// the provider picker (subscriptions + API keys + custom endpoint).
@@ -1019,7 +889,6 @@ class _AccountsView extends StatelessWidget {
       builder: (BuildContext context, WidgetRef ref, _) {
         final SettingsViewModel settings = ref.watch(settingsViewModelProvider);
         final List<ProviderAccount> accounts = settings.accounts;
-        final String? activeId = settings.activeAccountId;
         if (accounts.isEmpty) {
           return _EmptyAccounts(onAdd: () => _addAccount(context, settings));
         }
@@ -1038,8 +907,6 @@ class _AccountsView extends StatelessWidget {
                   for (final ProviderAccount account in accounts)
                     AccountTile(
                       account: account,
-                      active: account.id == activeId,
-                      onTap: () => settings.setActive(account.id),
                       onDelete: () =>
                           _confirmDelete(context, settings, account),
                       onManageModels: account.kind == AdapterKind.mock

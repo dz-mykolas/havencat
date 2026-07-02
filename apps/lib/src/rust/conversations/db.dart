@@ -69,6 +69,7 @@ class StoredMessage {
   final PlatformInt64? promptTokens;
   final PlatformInt64? completionTokens;
   final PlatformInt64? totalTokens;
+  final String? reasoning;
 
   const StoredMessage({
     required this.id,
@@ -90,6 +91,7 @@ class StoredMessage {
     this.promptTokens,
     this.completionTokens,
     this.totalTokens,
+    this.reasoning,
   });
 
   @override
@@ -112,7 +114,8 @@ class StoredMessage {
       isCompactionSummary.hashCode ^
       promptTokens.hashCode ^
       completionTokens.hashCode ^
-      totalTokens.hashCode;
+      totalTokens.hashCode ^
+      reasoning.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -137,5 +140,6 @@ class StoredMessage {
           isCompactionSummary == other.isCompactionSummary &&
           promptTokens == other.promptTokens &&
           completionTokens == other.completionTokens &&
-          totalTokens == other.totalTokens;
+          totalTokens == other.totalTokens &&
+          reasoning == other.reasoning;
 }

@@ -53,8 +53,10 @@ class ModelSelectorViewModel extends ChangeNotifier {
 
   // --- Model side ---------------------------------------------------------
 
-  /// Models shown in the picker for the active account: all of them when
-  /// "show hidden models" is on, otherwise only the provider-visible ones.
+  /// Models shown in the picker for the active account: only the ones the
+  /// user has enabled (via Quick-Add / Manage Models), further filtered to
+  /// hide provider-internal models unless "show hidden models" is on.
+  ///
   /// Read straight from the [AccountModelsService] cache — no per-screen
   /// fetch. Null while the cache is still loading for this account.
   List<LlmModel>? get models {
@@ -62,9 +64,14 @@ class ModelSelectorViewModel extends ChangeNotifier {
     if (id == null) return const <LlmModel>[];
     final List<LlmModel>? cached = _accountModels.modelsFor(id);
     if (cached == null) return null;
+    final Set<String> enabled =
+        _providers.activeAccount?.enabledModels.toSet() ?? const <String>{};
+    final List<LlmModel> filtered = cached
+        .where((LlmModel m) => enabled.contains(m.id))
+        .toList();
     return _settings.showHiddenModels
-        ? cached
-        : cached.where((LlmModel m) => !m.hidden).toList();
+        ? filtered
+        : filtered.where((LlmModel m) => !m.hidden).toList();
   }
 
   /// True when a background fetch is running for the active account.
@@ -176,6 +183,53 @@ class ModelSelectorViewModel extends ChangeNotifier {
     final List<LlmModel>? avail = _accountModels.modelsFor(id);
     if (avail == null) return;
     await _accountModels.markSeen(id, avail.map((LlmModel m) => m.id));
+  }
+
+  /// Account-scoped variants of the model list / deltas. The Manage Models
+  /// sheet operates on whichever account the user tapped, which may differ
+  /// from the active one — these read straight from the cache for [accountId]
+  /// instead of implicitly binding to the active account.
+
+  /// Models the provider currently serves for [accountId], or null while the
+  /// cache is still loading.
+  List<LlmModel>? availableModelsFor(String accountId) =>
+      _accountModels.modelsFor(accountId);
+
+  /// New (unacknowledged, not-yet-enabled) model ids for [accountId].
+  Set<String> newModelIdsFor(String accountId) {
+    final List<LlmModel>? avail = _accountModels.modelsFor(accountId);
+    if (avail == null) return const <String>{};
+    final Set<String> enabled = _enabledFor(accountId);
+    final Set<String> seen = _accountModels.seenFor(accountId);
+    return avail
+        .map((LlmModel m) => m.id)
+        .where((String id) => !enabled.contains(id) && !seen.contains(id))
+        .toSet();
+  }
+
+  /// Enabled ids the provider no longer serves for [accountId].
+  Set<String> deprecatedModelIdsFor(String accountId) {
+    final List<LlmModel>? avail = _accountModels.modelsFor(accountId);
+    final Set<String> availableIds = avail == null
+        ? const <String>{}
+        : avail.map((LlmModel m) => m.id).toSet();
+    return _enabledFor(accountId).difference(availableIds);
+  }
+
+  /// Marks every currently-available model as acknowledged for [accountId],
+  /// clearing its "+N new" badge. Used by the Manage Models sheet so it
+  /// operates on the tapped account, not the active one.
+  Future<void> acknowledgeNewModelsFor(String accountId) async {
+    final List<LlmModel>? avail = _accountModels.modelsFor(accountId);
+    if (avail == null) return;
+    await _accountModels.markSeen(accountId, avail.map((LlmModel m) => m.id));
+  }
+
+  Set<String> _enabledFor(String accountId) {
+    for (final ProviderAccount a in _providers.accounts) {
+      if (a.id == accountId) return a.enabledModels.toSet();
+    }
+    return const <String>{};
   }
 
   /// Re-fetches the active account's models from the provider (used by the
