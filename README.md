@@ -1,5 +1,168 @@
 # HavenCat
 
+> 🐈 A local-first desktop, mobile, and web client for chatting with AI models.
+
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+![Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B?logo=flutter&logoColor=white)
+![Rust](https://img.shields.io/badge/core-Rust-000000?logo=rust&logoColor=white)
+
+HavenCat puts different model providers behind one clean chat interface. Bring
+your own account or API key, choose a model, and keep your conversations on
+your device. There is no HavenCat account and no hosted HavenCat backend.
+
+> [!WARNING]
+> **HavenCat is in heavy development.** Many features are unfinished, some are
+> still rough around the edges, and bugs should be expected. It is not ready
+> for dependable everyday use yet. Try it, report what breaks, and expect
+> frequent changes while the project takes shape.
+
+## ✨ Highlights
+
+| | |
+|---|---|
+| 💬 **One chat interface** | Use ChatGPT subscriptions and OpenAI-compatible APIs without switching apps. |
+| 🖼️ **Image support** | Send images to vision models and view generated images directly in the conversation. |
+| 🔎 **Built-in web search** | Start with keyless Exa search, or connect Brave and a self-hosted SearXNG instance. |
+| 🧭 **Model discovery** | Browse models, compare prices and limits, and connect supported providers from the catalog. |
+| 🌿 **Local conversations** | Chats, branches, attachments, and pinned conversations are stored locally. |
+| 🔐 **Protected credentials** | API keys and sign-in tokens use protected storage provided by the current platform. |
+| 🎨 **Custom themes** | Pick separate light and dark themes from a small set of built-in palettes. |
+| 🧰 **Tool-ready chats** | Models can call web search and page-fetching tools during a conversation. |
+
+## 🚀 Quick start
+
+### Dev container (recommended)
+
+The repository includes a ready-to-use development container. Open the project
+in VS Code and choose **Dev Containers: Reopen in Container**. The container
+sets up Flutter, FVM, the Android SDK, platform build tools, and the app's
+dependencies, so you can start working once the initial setup finishes.
+
+### Requirements
+
+If you are not using the development container, install these tools locally:
+
+- [Flutter](https://docs.flutter.dev/get-started/install) and
+  [FVM](https://fvm.app/)
+- A current stable [Rust toolchain](https://rustup.rs/)
+- The normal Flutter toolchain for your target platform
+
+Clone the repository and install the Flutter dependencies:
+
+```bash
+git clone https://github.com/dz-mykolas/havencat.git
+cd havencat
+make install
+```
+
+### Native app
+
+Find a Flutter device ID, then run HavenCat on it:
+
+```bash
+cd apps
+flutter devices
+cd ..
+make run DEVICE=<device-id>
+```
+
+Native builds talk to model providers directly. The Rust library is built as
+part of the platform build.
+
+### Web app
+
+Browsers cannot call every model provider directly because of CORS. HavenCat
+uses a small local API process for proxying provider requests and running the
+Rust-backed search tools. Start it in one terminal:
+
+```bash
+make server
+```
+
+Then start Flutter in another terminal:
+
+```bash
+make run
+```
+
+The Flutter development server opens on `http://localhost:8080`; the local API
+listens on `http://localhost:8088` by default.
+
+## 🐾 Using HavenCat
+
+1. Open **Discover** to connect ChatGPT or add an API provider.
+2. Choose which models should appear in the model picker.
+3. Select a model and start a conversation.
+4. Open **Settings → Web search** to configure Exa, Brave, or SearXNG.
+5. Enable chat tools when you want the model to search or fetch a page.
+
+Provider credentials belong to the provider that issued them. HavenCat does
+not create, resell, or proxy provider accounts.
+
+## 🔒 Data and privacy
+
+- Conversations and attachments are saved locally in SQLite.
+- Native builds keep API keys and OAuth tokens in the operating system's
+  secure credential store. Web builds use the browser's encrypted storage.
+- Search configuration and appearance preferences stay in local app storage.
+- Prompts, attachments, and searches are sent only to the providers used for
+  that request.
+- The web helper runs on your machine; it is not a hosted HavenCat service.
+
+As with any API client, the privacy policy and retention rules of the selected
+model or search provider still apply to requests sent to that provider.
+
+## 🧱 Project layout
+
+```text
+havencat/
+├── apps/                 Flutter application and local web API
+│   ├── lib/              UI, domain models, provider adapters, and services
+│   ├── test/             Dart and Flutter tests
+│   └── rust_builder/     Native Rust build integration
+├── rust/                 Conversation storage and web retrieval core
+├── Makefile              Common development and build commands
+└── README.md
+```
+
+The Flutter layer owns the interface, settings, provider adapters, and app
+state. Rust handles persistent conversation storage and the web retrieval
+pipeline. Flutter Rust Bridge connects the two on native platforms and through
+the local API for web development.
+
+## 🛠️ Development
+
+Run the Flutter checks from the app directory:
+
+```bash
+cd apps
+dart format --output=none --set-exit-if-changed lib test bin
+flutter analyze
+flutter test
+```
+
+Run the Rust checks separately:
+
+```bash
+cd rust
+cargo fmt --all -- --check
+cargo check
+cargo test
+```
+
+Useful build commands:
+
+| Command | Purpose |
+|---|---|
+| `make run DEVICE=<id>` | Run on a selected Flutter device |
+| `make server` | Start the local API used by the web app |
+| `make build-apk` | Build a release Android APK |
+| `make build-play` | Build an Android App Bundle |
+| `make build-ios` | Build an iOS IPA on macOS |
+| `make build-desktop` | Build for the current desktop platform |
+
+---
+
 ## Multimodal model and message architecture
 
 Runtime model lists are enriched from models.dev's `modalities.input`,
