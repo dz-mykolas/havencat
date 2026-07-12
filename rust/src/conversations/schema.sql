@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS messages (
     total_tokens        INTEGER,
     reasoning           TEXT,
     attachments_json    TEXT,
+    generation_status   TEXT NOT NULL DEFAULT 'none',
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 

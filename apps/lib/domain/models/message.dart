@@ -4,6 +4,16 @@ import 'message_attachment.dart';
 /// synthesized as a tool result.
 enum MessageRole { user, assistant, tool }
 
+enum MessageGenerationStatus {
+  none,
+  pending,
+  streaming,
+  completed,
+  interrupted,
+  failed,
+  cancelled,
+}
+
 /// A tool call the assistant emitted (OpenAI `tool_calls` shape). Attached to
 /// the assistant message that produced it so the conversation history can be
 /// replayed to the provider with the calls inline.
@@ -44,7 +54,8 @@ class ChatMessage {
     required this.id,
     required this.role,
     this.text = '',
-    this.isStreaming = false,
+    bool isStreaming = false,
+    MessageGenerationStatus? generationStatus,
     this.createdAt,
     this.toolCalls = const <ToolCall>[],
     this.toolCallId,
@@ -52,7 +63,12 @@ class ChatMessage {
     List<String>? children,
     this.originalContent,
     List<MessageAttachment>? attachments,
-  }) : childrenIds = children ?? <String>[],
+  }) : generationStatus =
+           generationStatus ??
+           (isStreaming
+               ? MessageGenerationStatus.streaming
+               : MessageGenerationStatus.none),
+       childrenIds = children ?? <String>[],
        attachments = attachments ?? <MessageAttachment>[];
 
   final String id;
@@ -70,8 +86,19 @@ class ChatMessage {
   /// reply; not sent back to the provider in subsequent requests.
   String reasoning = '';
 
-  /// True while the assistant is still appending tokens to [text].
-  bool isStreaming;
+  MessageGenerationStatus generationStatus;
+
+  bool get isStreaming =>
+      generationStatus == MessageGenerationStatus.pending ||
+      generationStatus == MessageGenerationStatus.streaming;
+
+  set isStreaming(bool value) {
+    if (value) {
+      generationStatus = MessageGenerationStatus.streaming;
+    } else if (isStreaming) {
+      generationStatus = MessageGenerationStatus.completed;
+    }
+  }
 
   /// When the message was created. Null only for legacy/mock messages.
   DateTime? createdAt;
@@ -161,6 +188,7 @@ class ChatMessage {
     'text': text,
     'reasoning': reasoning,
     'isStreaming': isStreaming,
+    'generationStatus': generationStatus.name,
     'createdAt': createdAt?.toIso8601String(),
     'toolCalls': toolCalls.map((tc) => tc.toJson()).toList(),
     'toolCallId': toolCallId,
@@ -187,6 +215,7 @@ class ChatMessage {
           role: MessageRole.values.byName(json['role'] as String),
           text: json['text'] as String? ?? '',
           isStreaming: json['isStreaming'] as bool? ?? false,
+          generationStatus: _generationStatusFromJson(json),
           createdAt: json['createdAt'] != null
               ? DateTime.parse(json['createdAt'] as String)
               : null,
@@ -221,4 +250,16 @@ class ChatMessage {
         ..promptTokens = json['promptTokens'] as int?
         ..completionTokens = json['completionTokens'] as int?
         ..totalTokens = json['totalTokens'] as int?;
+
+  static MessageGenerationStatus? _generationStatusFromJson(
+    Map<String, dynamic> json,
+  ) {
+    final String? name = json['generationStatus'] as String?;
+    if (name == null) return null;
+    for (final MessageGenerationStatus status
+        in MessageGenerationStatus.values) {
+      if (status.name == name) return status;
+    }
+    return null;
+  }
 }

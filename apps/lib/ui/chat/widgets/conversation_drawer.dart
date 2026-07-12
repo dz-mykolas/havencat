@@ -622,46 +622,6 @@ class _NewChatButton extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const Spacer(),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 160),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder:
-                      (Widget child, Animation<double> animation) =>
-                          FadeTransition(
-                            opacity: animation,
-                            child: ScaleTransition(
-                              scale: animation,
-                              child: child,
-                            ),
-                          ),
-                  child: selected
-                      ? Container(
-                          key: const ValueKey<String>('current'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: context.appColors.brandViolet.withValues(
-                              alpha: 0.14,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Current',
-                            style: TextStyle(
-                              color: context.appColors.brandViolet,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        )
-                      : const SizedBox.shrink(
-                          key: ValueKey<String>('not-current'),
-                        ),
-                ),
               ],
             ),
           ),
@@ -1004,12 +964,21 @@ class _ConversationTileState extends State<_ConversationTile> {
   ) {
     return <PopupMenuEntry<_ConversationAction>>[
       const PopupMenuItem<_ConversationAction>(
+        value: _ConversationAction.export,
+        child: _MenuAction(icon: Icons.ios_share_rounded, label: 'Export'),
+      ),
+      const PopupMenuItem<_ConversationAction>(
         value: _ConversationAction.rename,
         child: _MenuAction(icon: Icons.edit_outlined, label: 'Rename'),
       ),
-      const PopupMenuItem<_ConversationAction>(
-        value: _ConversationAction.export,
-        child: _MenuAction(icon: Icons.ios_share_rounded, label: 'Export'),
+      PopupMenuItem<_ConversationAction>(
+        value: _ConversationAction.pin,
+        child: _MenuAction(
+          icon: widget.conversation.isPinned
+              ? Icons.push_pin_outlined
+              : Icons.push_pin_rounded,
+          label: widget.conversation.isPinned ? 'Unpin chat' : 'Pin chat',
+        ),
       ),
       const PopupMenuDivider(),
       const PopupMenuItem<_ConversationAction>(

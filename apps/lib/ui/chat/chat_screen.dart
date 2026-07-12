@@ -280,6 +280,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       suggestionPrompt: suggestion,
                                     )
                                   : null,
+                              onContinue:
+                                  message.isAssistant &&
+                                      (message.generationStatus ==
+                                              MessageGenerationStatus
+                                                  .interrupted ||
+                                          message.generationStatus ==
+                                              MessageGenerationStatus.failed)
+                                  ? () => vm.continueInterrupted(message.id)
+                                  : null,
                               onRevert: message.isEdited
                                   ? () => vm.revertEdit(message.id)
                                   : null,

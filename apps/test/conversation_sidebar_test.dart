@@ -109,7 +109,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Current'), findsOneWidget);
+    expect(find.text('Current'), findsNothing);
     await tester.tap(find.text('First chat'));
     await tester.pumpAndSettle();
     expect(find.text('Current'), findsNothing);
@@ -117,7 +117,7 @@ void main() {
     await tester.tap(find.text('HavenCat'));
     await tester.pumpAndSettle();
     expect(homeInvoked, isTrue);
-    expect(find.text('Current'), findsOneWidget);
+    expect(find.text('Current'), findsNothing);
   });
 
   testWidgets('desktop chat actions appear only while the row is hovered', (
@@ -165,7 +165,17 @@ void main() {
     await tester.tap(find.byTooltip('Chat actions'));
     await tester.pump();
     expect(actionsOpacity().opacity, 1);
+    expect(find.text('Export'), findsOneWidget);
     expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('Pin chat'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Export')).dy,
+      lessThan(tester.getTopLeft(find.text('Rename')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Rename')).dy,
+      lessThan(tester.getTopLeft(find.text('Pin chat')).dy),
+    );
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);

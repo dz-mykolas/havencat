@@ -75,6 +75,7 @@ class StoredMessage {
   final PlatformInt64? totalTokens;
   final String? reasoning;
   final String? attachmentsJson;
+  final String generationStatus;
 
   const StoredMessage({
     required this.id,
@@ -98,6 +99,7 @@ class StoredMessage {
     this.totalTokens,
     this.reasoning,
     this.attachmentsJson,
+    required this.generationStatus,
   });
 
   @override
@@ -122,7 +124,8 @@ class StoredMessage {
       completionTokens.hashCode ^
       totalTokens.hashCode ^
       reasoning.hashCode ^
-      attachmentsJson.hashCode;
+      attachmentsJson.hashCode ^
+      generationStatus.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -149,5 +152,6 @@ class StoredMessage {
           completionTokens == other.completionTokens &&
           totalTokens == other.totalTokens &&
           reasoning == other.reasoning &&
-          attachmentsJson == other.attachmentsJson;
+          attachmentsJson == other.attachmentsJson &&
+          generationStatus == other.generationStatus;
 }

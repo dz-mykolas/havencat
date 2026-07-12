@@ -44,6 +44,7 @@ class MessageBubble extends StatefulWidget {
     this.contextWindow = 0,
     this.onEditUser,
     this.onRegenerate,
+    this.onContinue,
     this.onRevert,
     this.onPrevSibling,
     this.onNextSibling,
@@ -77,6 +78,7 @@ class MessageBubble extends StatefulWidget {
   /// optional [suggestion] is appended to the parent user message for this
   /// turn only. Null when regeneration isn't available.
   final void Function({String? suggestion})? onRegenerate;
+  final VoidCallback? onContinue;
 
   /// Called when the user reverts an in-place edit. Null when the message
   /// wasn't edited in place.
@@ -348,6 +350,16 @@ class _MessageBubbleState extends State<MessageBubble>
                 selectable: true,
                 streaming: widget.message.isStreaming,
               ),
+            if (widget.message.generationStatus ==
+                    MessageGenerationStatus.interrupted ||
+                widget.message.generationStatus ==
+                    MessageGenerationStatus.failed)
+              _InterruptedGenerationRow(
+                failed:
+                    widget.message.generationStatus ==
+                    MessageGenerationStatus.failed,
+                onContinue: widget.onContinue,
+              ),
             _buildActionsRow(context, isUser: false),
           ],
         ),
@@ -498,6 +510,57 @@ class _MessageBubbleState extends State<MessageBubble>
           onTap: widget.onNextSibling,
         ),
       ],
+    );
+  }
+}
+
+class _InterruptedGenerationRow extends StatelessWidget {
+  const _InterruptedGenerationRow({
+    required this.failed,
+    required this.onContinue,
+  });
+
+  final bool failed;
+  final VoidCallback? onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.appColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: context.appColors.divider),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                failed ? Icons.error_outline : Icons.pause_circle_outline,
+                size: 16,
+                color: context.appColors.textSecondary,
+              ),
+              SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  failed ? 'Response failed' : 'Response interrupted',
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              if (onContinue != null) ...<Widget>[
+                SizedBox(width: 8),
+                TextButton(onPressed: onContinue, child: Text('Continue')),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

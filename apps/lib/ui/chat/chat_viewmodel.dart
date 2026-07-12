@@ -33,6 +33,8 @@ class ChatViewModel extends ChangeNotifier {
     List<MessageAttachment> attachments = const <MessageAttachment>[],
   }) => _conversations.sendMessage(text, attachments: attachments);
   Future<void> cancelGeneration() => _conversations.cancelGeneration();
+  Future<void> continueInterrupted(String messageId) =>
+      _conversations.continueInterrupted(messageId);
 
   /// Edit a message. [resend] = true creates a sibling + re-streams; false
   /// mutates in place.

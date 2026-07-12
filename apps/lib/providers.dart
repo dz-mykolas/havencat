@@ -8,6 +8,7 @@ import 'data/services/auth/chatgpt_oauth_flow.dart';
 import 'data/services/auth/chatgpt_token_service.dart';
 import 'data/services/auth/credential_resolver.dart';
 import 'data/services/auth/secret_store.dart';
+import 'data/services/background/generation_background_service.dart';
 import 'data/services/llm/account_models_service.dart';
 import 'data/services/llm/adapter_registry.dart';
 import 'data/services/llm/model_service.dart';
@@ -163,7 +164,13 @@ final conversationRepositoryProvider =
         toolsEnabled: ref.read(toolsEnabledProvider),
         appSettings: ref.read(appSettingsProvider),
         accountModels: ref.read(accountModelsServiceProvider),
+        backgroundController: ref.read(generationBackgroundServiceProvider),
       );
+    });
+
+final generationBackgroundServiceProvider =
+    Provider<GenerationBackgroundController>((ref) {
+      return GenerationBackgroundService();
     });
 
 /// The web retrieval backend. On native (mobile/desktop) this is a

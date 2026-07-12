@@ -723,6 +723,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
         let mut var_totalTokens = <Option<i64>>::sse_decode(deserializer);
         let mut var_reasoning = <Option<String>>::sse_decode(deserializer);
         let mut var_attachmentsJson = <Option<String>>::sse_decode(deserializer);
+        let mut var_generationStatus = <String>::sse_decode(deserializer);
         return crate::conversations::db::StoredMessage {
             id: var_id,
             conversation_id: var_conversationId,
@@ -745,6 +746,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
             total_tokens: var_totalTokens,
             reasoning: var_reasoning,
             attachments_json: var_attachmentsJson,
+            generation_status: var_generationStatus,
         };
     }
 }
@@ -1018,6 +1020,7 @@ impl flutter_rust_bridge::IntoDart for crate::conversations::db::StoredMessage {
             self.total_tokens.into_into_dart().into_dart(),
             self.reasoning.into_into_dart().into_dart(),
             self.attachments_json.into_into_dart().into_dart(),
+            self.generation_status.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1257,6 +1260,7 @@ impl SseEncode for crate::conversations::db::StoredMessage {
         <Option<i64>>::sse_encode(self.total_tokens, serializer);
         <Option<String>>::sse_encode(self.reasoning, serializer);
         <Option<String>>::sse_encode(self.attachments_json, serializer);
+        <String>::sse_encode(self.generation_status, serializer);
     }
 }
 

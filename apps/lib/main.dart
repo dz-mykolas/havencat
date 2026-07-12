@@ -60,6 +60,20 @@ Future<void> main() async {
     await rust_conversations.configureConversations(dbPath: convDbPath);
   }
 
+  final backgroundController = container.read(
+    generationBackgroundServiceProvider,
+  );
+  await backgroundController.initialize();
+  final conversationRepository = container.read(conversationRepositoryProvider);
+  await conversationRepository.ready;
+  backgroundController.onConversationSelected =
+      conversationRepository.selectConversation;
+  final String? notificationConversation = backgroundController
+      .takeSelectedConversation();
+  if (notificationConversation != null) {
+    conversationRepository.selectConversation(notificationConversation);
+  }
+
   // Provider choices and credentials come from in-app settings. On native
   // this configures Rust directly; on web it configures the local server.
   await container.read(webSearchSettingsProvider).initialize();

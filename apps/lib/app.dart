@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,11 +21,41 @@ class _AppScrollBehavior extends MaterialScrollBehavior {
 
 /// Root widget. Wraps the app in a [ProviderScope] (set up in main.dart) and
 /// applies the dark theme.
-class App extends ConsumerWidget {
+class App extends ConsumerStatefulWidget {
   const App({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<App> createState() => _AppState();
+}
+
+class _AppState extends ConsumerState<App> {
+  late final AppLifecycleListener _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onResume: () => _setAppVisible(true),
+      onHide: () => _setAppVisible(false),
+      onPause: () => _setAppVisible(false),
+      onDetach: () => _setAppVisible(false),
+    );
+  }
+
+  void _setAppVisible(bool visible) {
+    unawaited(
+      ref.read(conversationRepositoryProvider).handleAppVisibility(visible),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(appSettingsProvider);
     return MaterialApp(
       title: appName,

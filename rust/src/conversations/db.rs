@@ -70,6 +70,7 @@ impl ConversationsDb {
                     ("total_tokens", "INTEGER"),
                     ("reasoning", "TEXT"),
                     ("attachments_json", "TEXT"),
+                    ("generation_status", "TEXT NOT NULL DEFAULT 'none'"),
                 ] {
                     if !existing.contains(col) {
                         c.execute(&format!("ALTER TABLE messages ADD COLUMN {col} {decl}"), [])?;
@@ -124,7 +125,7 @@ impl ConversationsDb {
                             tool_calls_json, created_at, cleared, cleared_summary,
                             refetch_args, is_compaction_summary,
                             prompt_tokens, completion_tokens, total_tokens, reasoning,
-                            attachments_json
+                            attachments_json, generation_status
                      FROM messages",
                 )?;
                 let msg_rows = msg_stmt.query_map([], |row| {
@@ -150,6 +151,7 @@ impl ConversationsDb {
                         total_tokens: row.get(18)?,
                         reasoning: row.get(19)?,
                         attachments_json: row.get(20)?,
+                        generation_status: row.get(21)?,
                     })
                 })?;
                 let msgs: Vec<StoredMessage> =
@@ -209,9 +211,9 @@ impl ConversationsDb {
                           tool_calls_json, created_at, cleared, cleared_summary,
                           refetch_args, is_compaction_summary,
                           prompt_tokens, completion_tokens, total_tokens, reasoning,
-                          attachments_json)
+                          attachments_json, generation_status)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                         params![
                             m.id,
                             m.conversation_id,
@@ -234,6 +236,7 @@ impl ConversationsDb {
                             m.total_tokens,
                             m.reasoning,
                             m.attachments_json,
+                            m.generation_status,
                         ],
                     )?;
                 }
@@ -296,6 +299,7 @@ pub struct StoredMessage {
     pub total_tokens: Option<i64>,
     pub reasoning: Option<String>,
     pub attachments_json: Option<String>,
+    pub generation_status: String,
 }
 
 #[cfg(test)]

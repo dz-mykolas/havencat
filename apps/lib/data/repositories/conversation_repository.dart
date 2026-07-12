@@ -12,6 +12,7 @@ import '../../../domain/models/message_attachment.dart';
 import '../../../domain/models/content_modality.dart';
 import '../../../domain/models/provider_account.dart';
 import '../services/auth/credential_resolver.dart';
+import '../services/background/generation_background_service.dart';
 import '../services/errors/provider_failure_mapper.dart';
 import '../services/llm/account_models_service.dart';
 import '../services/llm/adapter_registry.dart';
@@ -26,6 +27,8 @@ import '../services/storage/conversation_store.dart';
 import '../services/web_retrieval/web_retrieval.dart';
 import '../services/web_retrieval/web_search_tools.dart';
 import 'provider_account_repository.dart';
+
+enum _RequestedGenerationStop { cancelled, interrupted }
 
 /// Token overhead the provider counts against `input_tokens`/`prompt_tokens`
 /// but which isn't in [estimateMessagesTokens] for the messages array: the
@@ -62,6 +65,7 @@ class ConversationRepository extends ChangeNotifier {
     bool toolsEnabled = false,
     AppSettings? appSettings,
     AccountModelsService? accountModels,
+    GenerationBackgroundController? backgroundController,
   }) : _providers = providerRepository,
        adapterRegistry = adapterRegistry,
        _credentials = credentialResolver,
@@ -69,22 +73,30 @@ class ConversationRepository extends ChangeNotifier {
        _webRetrieval = webRetrieval,
        _toolsEnabled = toolsEnabled,
        _appSettings = appSettings,
-       _accountModels = accountModels {
-    _init();
+       _accountModels = accountModels,
+       _backgroundController = backgroundController {
+    _initFuture = _init();
+    _backgroundController?.onBackgroundTimeExpired = interruptGeneration;
     _providers.addListener(_onProvidersChanged);
   }
 
   final ConversationStore _store;
+  final GenerationBackgroundController? _backgroundController;
+  late final Future<void> _initFuture;
+  Future<void> get ready => _initFuture;
 
   Future<void> _init() async {
     try {
       final List<Conversation> loaded = await _store.load();
-      // Don't persist streaming state — if the app crashed mid-stream, mark
-      // those messages as done so they don't hang on reload.
       for (final Conversation c in loaded) {
+        bool changed = false;
         for (final ChatMessage m in c.messages) {
-          m.isStreaming = false;
+          if (m.isStreaming) {
+            m.generationStatus = MessageGenerationStatus.interrupted;
+            changed = true;
+          }
         }
+        if (changed) await _store.upsert(c);
       }
       _conversations.addAll(loaded);
     } on Object catch (error, stack) {
@@ -108,21 +120,49 @@ class ConversationRepository extends ChangeNotifier {
   bool get isLoaded => _loaded;
   String? _activeId;
 
+  Future<void> _persistTail = Future<void>.value();
+  Timer? _partialPersistTimer;
+  Conversation? _pendingPartialConversation;
+
   void _persist(Conversation conversation) {
     unawaited(_persistConversation(conversation));
   }
 
   Future<void> _persistConversation(Conversation conversation) async {
-    try {
-      await _store.upsert(conversation);
-    } on Object catch (error, stack) {
-      _recordStorageFailure(
-        error,
-        stack,
-        operation: 'save_conversation',
-        message: 'This conversation could not be saved.',
-      );
-    }
+    final Conversation snapshot = Conversation.fromJson(conversation.toJson());
+    final Future<void> operation = _persistTail.then((_) async {
+      try {
+        await _store.upsert(snapshot);
+      } on Object catch (error, stack) {
+        _recordStorageFailure(
+          error,
+          stack,
+          operation: 'save_conversation',
+          message: 'This conversation could not be saved.',
+        );
+      }
+    });
+    _persistTail = operation;
+    await operation;
+  }
+
+  void _schedulePartialPersist(Conversation conversation) {
+    _pendingPartialConversation = conversation;
+    _partialPersistTimer ??= Timer(const Duration(milliseconds: 500), () {
+      _partialPersistTimer = null;
+      final Conversation? pending = _pendingPartialConversation;
+      _pendingPartialConversation = null;
+      if (pending != null) unawaited(_persistConversation(pending));
+    });
+  }
+
+  Future<void> flushPartialGeneration() async {
+    _partialPersistTimer?.cancel();
+    _partialPersistTimer = null;
+    final Conversation? pending = _pendingPartialConversation;
+    _pendingPartialConversation = null;
+    if (pending != null) await _persistConversation(pending);
+    await _persistTail;
   }
 
   Future<void> _deletePersistedConversation(String id) async {
@@ -214,6 +254,11 @@ class ConversationRepository extends ChangeNotifier {
   final List<Conversation> _conversations = <Conversation>[];
   bool _isGenerating = false;
   StreamSubscription<LlmEvent>? _replySub;
+  Completer<void>? _requestCancellation;
+  Completer<void>? _roundDone;
+  Completer<void>? _generationFinished;
+  _RequestedGenerationStop? _requestedStop;
+  bool _backgroundWorkActive = false;
   int _counter = 0;
 
   AppFailure? _lastFailure;
@@ -368,7 +413,7 @@ class ConversationRepository extends ChangeNotifier {
           ? _titleFrom(trimmed)
           : attachments.first.name ?? 'Image';
     }
-    _persist(conversation);
+    await _persistConversation(conversation);
 
     await _streamReply();
   }
@@ -504,6 +549,10 @@ class ConversationRepository extends ChangeNotifier {
   Future<void> _streamReply({String? extraPrompt}) async {
     final Conversation conversation = active;
     final String? previousLeaf = conversation.currentLeafId;
+    await _beginBackgroundWork(conversation);
+    final Completer<void> generationFinished = Completer<void>();
+    _generationFinished = generationFinished;
+    _requestedStop = null;
     try {
       await _streamReplyInternal(extraPrompt: extraPrompt);
     } on Object catch (error, stack) {
@@ -526,18 +575,26 @@ class ConversationRepository extends ChangeNotifier {
           .where((ChatMessage message) => message.isStreaming)
           .lastOrNull;
       if (assistant != null) {
+        if (assistant.text.isEmpty) assistant.text = failure.message;
         assistant
-          ..text = failure.message
-          ..isStreaming = false
+          ..generationStatus = MessageGenerationStatus.failed
           ..hasError = true;
       }
       if (previousLeaf != null) conversation.currentLeafId = previousLeaf;
       if (!failure.isCancellation) _lastFailure = failure;
+      await _finishBackgroundWork(interrupted: true);
     } finally {
       _replySub = null;
+      _requestCancellation = null;
+      _roundDone = null;
       if (_isGenerating) _isGenerating = false;
-      _persist(conversation);
+      await flushPartialGeneration();
+      await _persistConversation(conversation);
       notifyListeners();
+      if (!generationFinished.isCompleted) generationFinished.complete();
+      if (identical(_generationFinished, generationFinished)) {
+        _generationFinished = null;
+      }
     }
   }
 
@@ -570,7 +627,8 @@ class ConversationRepository extends ChangeNotifier {
         ),
       );
       _isGenerating = false;
-      _persist(conversation);
+      await _persistConversation(conversation);
+      await _finishBackgroundWork(interrupted: true);
       notifyListeners();
       return;
     }
@@ -637,7 +695,7 @@ class ConversationRepository extends ChangeNotifier {
       final ChatMessage assistant = ChatMessage(
         id: _newId(),
         role: MessageRole.assistant,
-        isStreaming: true,
+        generationStatus: MessageGenerationStatus.pending,
         createdAt: DateTime.now(),
       );
       conversation.add(assistant);
@@ -650,6 +708,9 @@ class ConversationRepository extends ChangeNotifier {
       final Map<int, ToolCall> accumulating = <int, ToolCall>{};
 
       final Completer<void> done = Completer<void>();
+      final Completer<void> requestCancellation = Completer<void>();
+      _roundDone = done;
+      _requestCancellation = requestCancellation;
       bool hadError = false;
 
       // Build the request messages with context management (clearing +
@@ -689,6 +750,7 @@ class ConversationRepository extends ChangeNotifier {
               systemPrompt: SystemPrompts.base,
               tools: tools,
               modelCapabilities: activeModel?.capabilities,
+              signal: () => requestCancellation.future,
             ),
             account: account,
             secret: secret,
@@ -697,10 +759,16 @@ class ConversationRepository extends ChangeNotifier {
             (LlmEvent event) {
               switch (event) {
                 case TokenEvent(:final String delta):
+                  assistant.generationStatus =
+                      MessageGenerationStatus.streaming;
                   assistant.text += delta;
+                  _schedulePartialPersist(conversation);
                   notifyListeners();
                 case ReasoningEvent(:final String delta):
+                  assistant.generationStatus =
+                      MessageGenerationStatus.streaming;
                   assistant.reasoning += delta;
+                  _schedulePartialPersist(conversation);
                   notifyListeners();
                 case AttachmentEvent(:final MessageAttachment attachment):
                   final int existing = assistant.attachments.indexWhere(
@@ -711,6 +779,9 @@ class ConversationRepository extends ChangeNotifier {
                   } else {
                     assistant.attachments[existing] = attachment;
                   }
+                  assistant.generationStatus =
+                      MessageGenerationStatus.streaming;
+                  _schedulePartialPersist(conversation);
                   notifyListeners();
                 case ToolCallEvent(
                   :final String id,
@@ -739,10 +810,14 @@ class ConversationRepository extends ChangeNotifier {
                       accumulating[lastKey]!.args += args;
                     }
                   }
+                  assistant.generationStatus =
+                      MessageGenerationStatus.streaming;
+                  _schedulePartialPersist(conversation);
                   notifyListeners();
                 case DoneEvent():
                   assistant.text = assistant.text.trimRight();
-                  assistant.isStreaming = false;
+                  assistant.generationStatus =
+                      MessageGenerationStatus.completed;
                   pendingCalls.addAll(accumulating.values);
                   if (event.usage case final LlmUsage usage) {
                     if (usage.promptTokens case final int prompt) {
@@ -769,8 +844,12 @@ class ConversationRepository extends ChangeNotifier {
                   _log.severe(
                     'LLM stream error: ${error.runtimeType}: ${error.message}',
                   );
-                  assistant.text = error.isCancellation ? '' : error.message;
-                  assistant.isStreaming = false;
+                  if (assistant.text.isEmpty && !error.isCancellation) {
+                    assistant.text = error.message;
+                  }
+                  assistant.generationStatus = error.isCancellation
+                      ? MessageGenerationStatus.cancelled
+                      : MessageGenerationStatus.failed;
                   if (!error.isCancellation) _lastFailure = error;
                   hadError = true;
                   notifyListeners();
@@ -790,11 +869,14 @@ class ConversationRepository extends ChangeNotifier {
                 ),
                 message: 'The provider could not complete the request.',
               );
-              assistant.text = failure.message;
-              assistant.isStreaming = false;
+              if (assistant.text.isEmpty) assistant.text = failure.message;
+              assistant.generationStatus = MessageGenerationStatus.failed;
               _lastFailure = failure;
               hadError = true;
               notifyListeners();
+              if (!done.isCompleted) done.complete();
+            },
+            onDone: () {
               if (!done.isCompleted) done.complete();
             },
             cancelOnError: true,
@@ -802,6 +884,42 @@ class ConversationRepository extends ChangeNotifier {
 
       await done.future;
       _replySub = null;
+      _roundDone = null;
+      _requestCancellation = null;
+
+      final _RequestedGenerationStop? requestedStop = _requestedStop;
+      if (requestedStop != null) {
+        assistant.generationStatus =
+            requestedStop == _RequestedGenerationStop.cancelled
+            ? MessageGenerationStatus.cancelled
+            : MessageGenerationStatus.interrupted;
+        assistant.hasError =
+            requestedStop == _RequestedGenerationStop.interrupted;
+        _isGenerating = false;
+        await flushPartialGeneration();
+        await _persistConversation(conversation);
+        await _finishBackgroundWork(
+          interrupted: requestedStop == _RequestedGenerationStop.interrupted,
+          cancelled: requestedStop == _RequestedGenerationStop.cancelled,
+        );
+        notifyListeners();
+        return;
+      }
+
+      if (assistant.isStreaming) {
+        assistant.generationStatus = MessageGenerationStatus.interrupted;
+        assistant.hasError = true;
+        hadError = true;
+        _lastFailure = const AppFailure(
+          kind: FailureKind.network,
+          source: FailureSource(
+            subsystem: AppSubsystem.llm,
+            operation: 'generate',
+          ),
+          message: 'The response stream ended before it completed.',
+          isRetryable: true,
+        );
+      }
 
       // If the model didn't call any tools (or errored), the reply is done.
       if (hadError || pendingCalls.isEmpty) {
@@ -817,7 +935,9 @@ class ConversationRepository extends ChangeNotifier {
           _log.info('reply complete: round=$round toolCalls=0');
         }
         _isGenerating = false;
-        _persist(conversation);
+        await flushPartialGeneration();
+        await _persistConversation(conversation);
+        await _finishBackgroundWork(interrupted: hadError);
         notifyListeners();
         return;
       }
@@ -889,31 +1009,138 @@ class ConversationRepository extends ChangeNotifier {
           notifyListeners();
         }
       }
+      await _persistConversation(conversation);
+      if (_requestedStop case final _RequestedGenerationStop stop) {
+        assistant.generationStatus = stop == _RequestedGenerationStop.cancelled
+            ? MessageGenerationStatus.cancelled
+            : MessageGenerationStatus.interrupted;
+        assistant.hasError = stop == _RequestedGenerationStop.interrupted;
+        _isGenerating = false;
+        await _persistConversation(conversation);
+        await _finishBackgroundWork(
+          interrupted: stop == _RequestedGenerationStop.interrupted,
+          cancelled: stop == _RequestedGenerationStop.cancelled,
+        );
+        notifyListeners();
+        return;
+      }
       // Loop: re-stream so the model can use the tool results.
     }
 
     // Exhausted the round cap — stop gracefully.
     _log.warning('tool-call loop exhausted maxRounds=$maxRounds');
     _isGenerating = false;
-    _persist(conversation);
+    await flushPartialGeneration();
+    await _persistConversation(conversation);
+    await _finishBackgroundWork();
     notifyListeners();
   }
 
   /// Cancels an in-flight generation, if any.
-  Future<void> cancelGeneration() async {
-    await _replySub?.cancel();
-    _replySub = null;
-    if (_isGenerating) {
-      final Conversation conversation = active;
-      final List<ChatMessage> path = conversation.activePath;
-      final ChatMessage assistant = path.lastWhere(
-        (m) => m.isStreaming,
-        orElse: () => path.last,
+  Future<void> cancelGeneration() =>
+      _requestGenerationStop(_RequestedGenerationStop.cancelled);
+
+  Future<void> interruptGeneration() =>
+      _requestGenerationStop(_RequestedGenerationStop.interrupted);
+
+  Future<void> _requestGenerationStop(_RequestedGenerationStop stop) async {
+    if (!_isGenerating) return;
+    _requestedStop = stop;
+    final Completer<void>? cancellation = _requestCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+    final Completer<void>? roundDone = _roundDone;
+    if (roundDone != null && !roundDone.isCompleted) roundDone.complete();
+    final StreamSubscription<LlmEvent>? subscription = _replySub;
+    if (subscription != null) {
+      try {
+        await subscription.cancel().timeout(const Duration(seconds: 3));
+      } on TimeoutException {
+        _log.warning('Timed out while closing the provider stream');
+      }
+    }
+    await _generationFinished?.future;
+  }
+
+  Future<void> handleAppVisibility(bool visible) async {
+    _backgroundController?.setAppVisible(visible);
+    if (!visible && _isGenerating) await flushPartialGeneration();
+    if (visible) {
+      final String? conversationId = _backgroundController
+          ?.takeSelectedConversation();
+      if (conversationId != null) selectConversation(conversationId);
+    }
+  }
+
+  Future<void> continueInterrupted(String messageId) async {
+    if (_isGenerating) return;
+    Conversation? conversation;
+    ChatMessage? interrupted;
+    for (final Conversation candidate in _conversations) {
+      final ChatMessage? match = candidate.messages
+          .where((ChatMessage message) => message.id == messageId)
+          .firstOrNull;
+      if (match != null) {
+        conversation = candidate;
+        interrupted = match;
+        break;
+      }
+    }
+    if (conversation == null || interrupted == null) return;
+    if (interrupted.generationStatus != MessageGenerationStatus.interrupted &&
+        interrupted.generationStatus != MessageGenerationStatus.failed) {
+      return;
+    }
+    _activeId = conversation.id;
+    conversation.currentLeafId = interrupted.id;
+    conversation.add(
+      ChatMessage(
+        id: _newId(),
+        role: MessageRole.user,
+        text:
+            'Continue from where your previous response was interrupted. '
+            'Do not repeat the completed part.',
+        createdAt: DateTime.now(),
+      ),
+    );
+    await _persistConversation(conversation);
+    await _streamReply();
+  }
+
+  Future<void> _beginBackgroundWork(Conversation conversation) async {
+    if (_backgroundWorkActive || _backgroundController == null) return;
+    try {
+      await _backgroundController.begin(
+        conversationId: conversation.id,
+        conversationTitle: conversation.title,
       );
-      assistant.isStreaming = false;
-      _isGenerating = false;
-      _persist(conversation);
-      notifyListeners();
+      _backgroundWorkActive = true;
+    } on Object catch (error, stack) {
+      _log.warning(
+        'Background generation support could not start',
+        error,
+        stack,
+      );
+    }
+  }
+
+  Future<void> _finishBackgroundWork({
+    bool interrupted = false,
+    bool cancelled = false,
+  }) async {
+    if (!_backgroundWorkActive) return;
+    _backgroundWorkActive = false;
+    try {
+      if (cancelled) {
+        await _backgroundController?.cancel();
+      } else if (interrupted) {
+        await _backgroundController?.interrupt();
+      } else {
+        await _backgroundController?.complete();
+      }
+    } on Object catch (error, stack) {
+      _log.warning('Background generation cleanup failed', error, stack);
     }
   }
 
@@ -992,7 +1219,16 @@ class ConversationRepository extends ChangeNotifier {
   @override
   void dispose() {
     _providers.removeListener(_onProvidersChanged);
+    _partialPersistTimer?.cancel();
+    _backgroundController?.onBackgroundTimeExpired = null;
+    final Completer<void>? cancellation = _requestCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
     _replySub?.cancel();
+    if (_backgroundWorkActive) {
+      unawaited(_backgroundController?.cancel() ?? Future<void>.value());
+    }
     super.dispose();
   }
 }

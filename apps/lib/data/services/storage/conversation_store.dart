@@ -91,6 +91,7 @@ class RustConversationStore implements ConversationStore {
                   )
                   .toList()
             : const <MessageAttachment>[],
+        generationStatus: _generationStatus(m.generationStatus),
       )
       ..hasError = m.hasError
       ..activeChildId = m.activeChildId
@@ -169,7 +170,16 @@ class RustConversationStore implements ConversationStore {
                   .map((MessageAttachment value) => value.toJson())
                   .toList(),
             ),
+      generationStatus: m.generationStatus.name,
     );
+  }
+
+  static MessageGenerationStatus _generationStatus(String value) {
+    for (final MessageGenerationStatus status
+        in MessageGenerationStatus.values) {
+      if (status.name == value) return status;
+    }
+    return MessageGenerationStatus.none;
   }
 }
 
