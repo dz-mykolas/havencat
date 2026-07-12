@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import '../../../../domain/models/message.dart';
+import '../../../../domain/models/content_modality.dart';
+import '../../../../domain/models/message_attachment.dart';
 import '../llm_event.dart';
 
 /// Wire details for using a "Sign in with ChatGPT" (Codex) OAuth token as a
@@ -57,8 +59,10 @@ class CodexProtocol {
       'instructions': instructions,
       'input': <Map<String, Object?>>[
         for (final ChatMessage m in messages)
-          if (m.text.trim().isNotEmpty || m.toolCalls.isNotEmpty)
-            _messageToInput(m),
+          if (m.text.trim().isNotEmpty ||
+              m.toolCalls.isNotEmpty ||
+              m.attachments.isNotEmpty)
+            ..._messageToInput(m),
       ],
       'store': false,
       'stream': true,
@@ -79,14 +83,16 @@ class CodexProtocol {
   /// Serialize a [ChatMessage] to the Responses API `input` array shape.
   /// Handles plain user/assistant text, assistant messages with tool calls,
   /// and tool-result messages (function_call_output).
-  static Map<String, Object?> _messageToInput(ChatMessage m) {
+  static List<Map<String, Object?>> _messageToInput(ChatMessage m) {
     // Tool result → function_call_output item.
     if (m.isTool) {
-      return <String, Object?>{
-        'type': 'function_call_output',
-        'call_id': m.toolCallId,
-        'output': m.text,
-      };
+      return <Map<String, Object?>>[
+        <String, Object?>{
+          'type': 'function_call_output',
+          'call_id': m.toolCallId,
+          'output': m.text,
+        },
+      ];
     }
     // Assistant message with tool calls → function_call items.
     if (m.isAssistant && m.toolCalls.isNotEmpty) {
@@ -110,30 +116,35 @@ class CodexProtocol {
           'arguments': tc.args,
         });
       }
-      // The input array expects individual items, not a nested array — but
-      // since buildBody iterates messages 1:1 into the input array, we return
-      // a synthetic wrapper that the caller must flatten. To keep it simple,
-      // we return the first item and rely on the caller to handle multiple.
-      // Actually, the Responses API input is a flat list of items, so we
-      // can't return multiple from one message. We'll return the message
-      // item if there's text, else the first function_call. The remaining
-      // calls are lost — but in practice the model emits one call at a time.
-      // This is a known limitation; a proper fix would flatten at buildBody.
-      return items.first;
+      return items;
     }
     // Plain user/assistant text.
-    return <String, Object?>{
-      'type': 'message',
-      'role': m.isUser ? 'user' : 'assistant',
-      'content': <Map<String, Object?>>[
-        <String, Object?>{
-          // Responses API: user turns are input_text, assistant turns
-          // are output_text.
-          'type': m.isUser ? 'input_text' : 'output_text',
-          'text': m.text,
-        },
-      ],
-    };
+    return <Map<String, Object?>>[
+      <String, Object?>{
+        'type': 'message',
+        'role': m.isUser ? 'user' : 'assistant',
+        'content': <Map<String, Object?>>[
+          if (m.text.trim().isNotEmpty)
+            <String, Object?>{
+              'type': m.isUser ? 'input_text' : 'output_text',
+              'text': m.text,
+            },
+          if (m.isUser)
+            for (final MessageAttachment attachment in m.attachments)
+              if (attachment.modality == ContentModality.image)
+                if (attachment.source == AttachmentSource.providerFile)
+                  <String, Object?>{
+                    'type': 'input_image',
+                    'file_id': attachment.data,
+                  }
+                else if (attachment.dataUrl != null)
+                  <String, Object?>{
+                    'type': 'input_image',
+                    'image_url': attachment.dataUrl,
+                  },
+        ],
+      },
+    ];
   }
 
   /// The `chatgpt_account_id` claim from the access-token JWT, needed for the

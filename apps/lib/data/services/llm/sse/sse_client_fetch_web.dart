@@ -47,6 +47,7 @@ Future<void> fetchStream({
         requestOptions: RequestOptions(path: url, method: method),
         statusCode: response.status,
         data: bodyStr,
+        headers: Headers.fromMap(_responseHeaders(response)),
       ),
       type: DioExceptionType.badResponse,
     );
@@ -76,4 +77,38 @@ Future<void> fetchStream({
   } finally {
     reader.releaseLock();
   }
+}
+
+Map<String, List<String>> _responseHeaders(web.Response response) {
+  const List<String> names = <String>[
+    'retry-after',
+    'request-id',
+    'x-request-id',
+    'x-ratelimit-reset-requests',
+    'x-ratelimit-reset-tokens',
+    'x-ratelimit-reset',
+    'ratelimit-reset',
+    'anthropic-ratelimit-requests-reset',
+    'anthropic-ratelimit-tokens-reset',
+    'x-ratelimit-remaining-requests',
+    'x-ratelimit-remaining-tokens',
+    'x-codex-active-limit',
+    'x-codex-plan-type',
+    'x-codex-primary-used-percent',
+    'x-codex-secondary-used-percent',
+    'x-codex-primary-window-minutes',
+    'x-codex-secondary-window-minutes',
+    'x-codex-primary-reset-at',
+    'x-codex-primary-resets-at',
+    'x-codex-primary-reset-after-seconds',
+    'x-codex-secondary-reset-at',
+    'x-codex-secondary-resets-at',
+    'x-codex-secondary-reset-after-seconds',
+  ];
+  final Map<String, List<String>> result = <String, List<String>>{};
+  for (final String name in names) {
+    final String? value = response.headers.get(name);
+    if (value != null && value.isNotEmpty) result[name] = <String>[value];
+  }
+  return result;
 }

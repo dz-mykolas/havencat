@@ -26,7 +26,7 @@ Future<void> configureWebRetrieval({
 
 /// Run a web search across all configured providers. Returns merged, deduped
 /// results. Checks the cache first; caches per-provider results on miss.
-Future<List<SearchResult>> webSearch({
+Future<SearchBatch> webSearch({
   required String query,
   required int numResults,
 }) => RustLib.instance.api.crateApiWebRetrievalWebSearch(

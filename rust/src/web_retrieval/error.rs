@@ -33,6 +33,30 @@ pub enum WebRetrievalError {
     Other(String),
 }
 
+impl WebRetrievalError {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Network(_) => "network",
+            Self::Auth(_) => "authentication",
+            Self::RateLimit { .. } => "rate_limited",
+            Self::Quota(_) => "quota_exhausted",
+            Self::InvalidRequest(_) => "invalid_request",
+            Self::Database(_) => "storage",
+            Self::ProviderNotFound(_) => "unavailable",
+            Self::AllProvidersFailed(_) | Self::Other(_) => "unknown",
+        }
+    }
+
+    pub fn retry_after_secs(&self) -> Option<u64> {
+        match self {
+            Self::RateLimit {
+                retry_after_secs, ..
+            } => *retry_after_secs,
+            _ => None,
+        }
+    }
+}
+
 impl From<tokio_rusqlite::Error<tokio_rusqlite::rusqlite::Error>> for WebRetrievalError {
     fn from(e: tokio_rusqlite::Error<tokio_rusqlite::rusqlite::Error>) -> Self {
         WebRetrievalError::Database(e.to_string())

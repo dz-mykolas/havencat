@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../domain/models/message.dart';
+import '../../../domain/models/message_attachment.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/typing_indicator.dart';
 import 'chat_markdown.dart';
@@ -170,7 +172,7 @@ class _MessageBubbleState extends State<MessageBubble>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (widget.message.isTool) return const SizedBox.shrink();
+    if (widget.message.isTool) return SizedBox.shrink();
     return widget.message.isUser
         ? _buildUser(context)
         : _buildAssistant(context);
@@ -181,29 +183,34 @@ class _MessageBubbleState extends State<MessageBubble>
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: EdgeInsets.symmetric(vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth * 0.7),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceHigh,
-          borderRadius: const BorderRadius.only(
+          color: context.appColors.surface,
+          borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
             bottomLeft: Radius.circular(20),
             bottomRight: Radius.circular(6),
           ),
-          border: Border.all(color: AppTheme.outline),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            ChatMarkdown(
-              text: widget.message.text,
-              selectable: true,
-              fillWidth: false,
-            ),
+            if (widget.message.attachments.isNotEmpty)
+              _AttachmentGallery(attachments: widget.message.attachments),
+            if (widget.message.attachments.isNotEmpty &&
+                widget.message.text.isNotEmpty)
+              SizedBox(height: 8),
+            if (widget.message.text.isNotEmpty)
+              ChatMarkdown(
+                text: widget.message.text,
+                selectable: true,
+                fillWidth: false,
+              ),
             _buildActionsRow(context, isUser: true),
           ],
         ),
@@ -215,13 +222,12 @@ class _MessageBubbleState extends State<MessageBubble>
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.all(8),
+        margin: EdgeInsets.symmetric(vertical: 6),
+        padding: EdgeInsets.all(8),
         constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth * 0.85),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceHigh,
-          borderRadius: const BorderRadius.all(Radius.circular(20)),
-          border: Border.all(color: AppTheme.outline),
+          color: context.appColors.surface,
+          borderRadius: BorderRadius.all(Radius.circular(20)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -241,7 +247,7 @@ class _MessageBubbleState extends State<MessageBubble>
                 minLines: 1,
                 maxLines: 12,
                 autofocus: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 8,
@@ -252,12 +258,12 @@ class _MessageBubbleState extends State<MessageBubble>
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4),
             if (widget.descendantCount > 0)
               Tooltip(
                 message: _downstreamBreakdown,
                 child: Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                  padding: EdgeInsets.only(bottom: 4),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -268,7 +274,7 @@ class _MessageBubbleState extends State<MessageBubble>
                           context,
                         ).colorScheme.onSurface.withValues(alpha: 0.4),
                       ),
-                      const SizedBox(width: 4),
+                      SizedBox(width: 4),
                       Text(
                         '${widget.descendantCount} '
                         'message${widget.descendantCount == 1 ? '' : 's'} '
@@ -286,17 +292,11 @@ class _MessageBubbleState extends State<MessageBubble>
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                TextButton(onPressed: _cancelEdit, child: const Text('Cancel')),
-                const SizedBox(width: 4),
-                TextButton(
-                  onPressed: () => _save(false),
-                  child: const Text('Save'),
-                ),
-                const SizedBox(width: 4),
-                FilledButton(
-                  onPressed: () => _save(true),
-                  child: const Text('Send'),
-                ),
+                TextButton(onPressed: _cancelEdit, child: Text('Cancel')),
+                SizedBox(width: 4),
+                TextButton(onPressed: () => _save(false), child: Text('Save')),
+                SizedBox(width: 4),
+                FilledButton(onPressed: () => _save(true), child: Text('Send')),
               ],
             ),
           ],
@@ -325,7 +325,7 @@ class _MessageBubbleState extends State<MessageBubble>
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: EdgeInsets.symmetric(vertical: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -335,16 +335,19 @@ class _MessageBubbleState extends State<MessageBubble>
                 reasoning: widget.message.reasoning,
                 streaming: reasoningStreaming,
               ),
-            showTyping
-                ? const Align(
-                    alignment: Alignment.centerLeft,
-                    child: TypingIndicator(),
-                  )
-                : ChatMarkdown(
-                    text: widget.message.text,
-                    selectable: true,
-                    streaming: widget.message.isStreaming,
-                  ),
+            if (widget.message.attachments.isNotEmpty)
+              _AttachmentGallery(attachments: widget.message.attachments),
+            if (widget.message.attachments.isNotEmpty &&
+                widget.message.text.isNotEmpty)
+              SizedBox(height: 8),
+            if (showTyping)
+              Align(alignment: Alignment.centerLeft, child: TypingIndicator())
+            else if (widget.message.text.isNotEmpty)
+              ChatMarkdown(
+                text: widget.message.text,
+                selectable: true,
+                streaming: widget.message.isStreaming,
+              ),
             _buildActionsRow(context, isUser: false),
           ],
         ),
@@ -380,11 +383,11 @@ class _MessageBubbleState extends State<MessageBubble>
     final bool chipVisible = hasUsage && (widget.isLast || _hovered);
 
     if (!canEdit && !canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
-      return const SizedBox.shrink();
+      return SizedBox.shrink();
     }
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: EdgeInsets.only(top: 4),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: isUser
@@ -435,22 +438,22 @@ class _MessageBubbleState extends State<MessageBubble>
         color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
       ),
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(),
+      constraints: BoxConstraints(),
       onSelected: (String? suggestion) {
         widget.onRegenerate?.call(suggestion: suggestion);
       },
       itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(value: '', child: Text('Regenerate')),
-        const PopupMenuDivider(),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(value: '', child: Text('Regenerate')),
+        PopupMenuDivider(),
+        PopupMenuItem<String>(
           value: 'Please provide more details and elaboration.',
           child: Text('Add Details'),
         ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'Please be more concise and to the point.',
           child: Text('More Concise'),
         ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'Please be more specific and precise.',
           child: Text('Be More Specific'),
         ),
@@ -482,7 +485,7 @@ class _MessageBubbleState extends State<MessageBubble>
         ),
         if (failed)
           Padding(
-            padding: const EdgeInsets.only(left: 2),
+            padding: EdgeInsets.only(left: 2),
             child: Icon(
               Icons.error_outline,
               size: 14,
@@ -495,6 +498,66 @@ class _MessageBubbleState extends State<MessageBubble>
           onTap: widget.onNextSibling,
         ),
       ],
+    );
+  }
+}
+
+/// Renders the non-text parts of a message using their local bytes or URL.
+class _AttachmentGallery extends StatelessWidget {
+  const _AttachmentGallery({required this.attachments});
+
+  final List<MessageAttachment> attachments;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: attachments
+          .map(
+            (MessageAttachment attachment) => ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: 120,
+                  minHeight: 120,
+                  maxWidth: 420,
+                  maxHeight: 420,
+                ),
+                child: _attachmentImage(context, attachment),
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _attachmentImage(BuildContext context, MessageAttachment attachment) {
+    final bool svg = attachment.mimeType == 'image/svg+xml';
+    final bytes = attachment.inlineBytes;
+    if (bytes != null) {
+      if (svg) return SvgPicture.memory(bytes, fit: BoxFit.contain);
+      return Image.memory(
+        bytes,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => _fallback(context),
+      );
+    }
+    if (attachment.source == AttachmentSource.url) {
+      if (svg) return SvgPicture.network(attachment.data, fit: BoxFit.contain);
+      return Image.network(
+        attachment.data,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => _fallback(context),
+      );
+    }
+    return _fallback(context);
+  }
+
+  Widget _fallback(BuildContext context) {
+    return ColoredBox(
+      color: context.appColors.surfaceHigh,
+      child: Center(child: Icon(Icons.broken_image_outlined)),
     );
   }
 }
@@ -520,7 +583,7 @@ class _IconButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         child: Padding(
-          padding: const EdgeInsets.all(4),
+          padding: EdgeInsets.all(4),
           child: Icon(
             icon,
             size: 16,
@@ -560,16 +623,15 @@ class _ToolStepCard extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: AppTheme.surfaceHigh,
+                color: context.appColors.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.outline),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -612,7 +674,7 @@ class _ToolCallRowState extends State<_ToolCallRow> {
     final Color iconColor;
     if (!done) {
       icon = Icons.more_horiz;
-      iconColor = AppTheme.outline;
+      iconColor = context.appColors.outline;
     } else if (failed) {
       icon = Icons.close;
       iconColor = theme.colorScheme.error;
@@ -630,7 +692,7 @@ class _ToolCallRowState extends State<_ToolCallRow> {
             behavior: HitTestBehavior.opaque,
             onTap: done ? () => setState(() => _expanded = !_expanded) : null,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: <Widget>[
                   SizedBox(
@@ -638,15 +700,15 @@ class _ToolCallRowState extends State<_ToolCallRow> {
                     height: 14,
                     child: done
                         ? Icon(icon, size: 14, color: iconColor)
-                        : const _DotLoader(),
+                        : _DotLoader(),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Icon(
                     Icons.build_circle_outlined,
                     size: 14,
-                    color: AppTheme.outline,
+                    color: context.appColors.outline,
                   ),
-                  const SizedBox(width: 6),
+                  SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       widget.name,
@@ -662,7 +724,7 @@ class _ToolCallRowState extends State<_ToolCallRow> {
                     Icon(
                       _expanded ? Icons.expand_less : Icons.expand_more,
                       size: 16,
-                      color: AppTheme.outline,
+                      color: context.appColors.outline,
                     ),
                 ],
               ),
@@ -672,9 +734,9 @@ class _ToolCallRowState extends State<_ToolCallRow> {
         if (done && _expanded)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            padding: EdgeInsets.fromLTRB(12, 0, 12, 10),
             child: Container(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest.withValues(
                   alpha: 0.5,
@@ -709,7 +771,7 @@ class _DotLoaderState extends State<_DotLoader>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
+    duration: Duration(milliseconds: 900),
   )..repeat();
 
   @override
@@ -732,9 +794,9 @@ class _DotLoaderState extends State<_DotLoader>
             child: Container(
               width: 8,
               height: 8,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: AppTheme.brandGradient,
+                gradient: context.appColors.brandGradient,
               ),
             ),
           ),
@@ -757,8 +819,43 @@ class _ThinkingRow extends StatefulWidget {
   State<_ThinkingRow> createState() => _ThinkingRowState();
 }
 
-class _ThinkingRowState extends State<_ThinkingRow> {
+class _ThinkingRowState extends State<_ThinkingRow>
+    with SingleTickerProviderStateMixin {
   bool _expanded = false;
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+    reverseDuration: const Duration(milliseconds: 210),
+  );
+  late final Animation<double> _size = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
+  );
+  late final Animation<double> _opacity = CurvedAnimation(
+    parent: _controller,
+    curve: const Interval(0.18, 1, curve: Curves.easeOut),
+    reverseCurve: const Interval(0.45, 1, curve: Curves.easeIn),
+  );
+  late final Animation<Offset> _slide = Tween<Offset>(
+    begin: const Offset(0, -0.035),
+    end: Offset.zero,
+  ).animate(_size);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    if (_expanded) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -767,76 +864,85 @@ class _ThinkingRowState extends State<_ThinkingRow> {
     final bool expanded = _expanded;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: 6),
       child: Material(
         color: colors.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => setState(() => _expanded = !_expanded),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: <Widget>[
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: widget.streaming
-                              ? SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      colors.primary,
+              Semantics(
+                button: true,
+                expanded: expanded,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _toggle,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: <Widget>[
+                          Padding(
+                            padding: EdgeInsets.only(right: 6),
+                            child: widget.streaming
+                                ? SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        colors.primary,
+                                      ),
+                                    ),
+                                  )
+                                : RotationTransition(
+                                    turns: Tween<double>(
+                                      begin: -0.25,
+                                      end: 0,
+                                    ).animate(_size),
+                                    child: Icon(
+                                      Icons.expand_more,
+                                      size: 16,
+                                      color: colors.onSurfaceVariant,
                                     ),
                                   ),
-                                )
-                              : AnimatedRotation(
-                                  turns: expanded ? 0.0 : -0.25,
-                                  duration: const Duration(milliseconds: 180),
-                                  curve: Curves.easeOutCubic,
-                                  child: Icon(
-                                    Icons.expand_more,
-                                    size: 16,
-                                    color: colors.onSurfaceVariant,
-                                  ),
-                                ),
-                        ),
-                        Text(
-                          'Thinking',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                      ],
+                          Text(
+                            'Thinking',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-              AnimatedCrossFade(
-                duration: const Duration(milliseconds: 220),
-                sizeCurve: Curves.easeOutCubic,
-                firstChild: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: ChatMarkdown(
-                    text: widget.reasoning,
-                    selectable: true,
-                    streaming: widget.streaming,
+              ClipRect(
+                child: SizeTransition(
+                  sizeFactor: _size,
+                  alignment: Alignment.topCenter,
+                  child: FadeTransition(
+                    opacity: _opacity,
+                    child: SlideTransition(
+                      position: _slide,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: ChatMarkdown(
+                          text: widget.reasoning,
+                          selectable: true,
+                          streaming: widget.streaming,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                secondChild: const SizedBox.shrink(),
-                crossFadeState: expanded
-                    ? CrossFadeState.showFirst
-                    : CrossFadeState.showSecond,
               ),
             ],
           ),

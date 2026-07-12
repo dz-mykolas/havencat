@@ -18,7 +18,13 @@ import 'data/services/storage/conversation_store.dart';
 import 'data/services/web_retrieval/http_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'data/services/web_retrieval/web_retrieval.dart';
+import 'data/services/web_retrieval/web_search_settings.dart';
 import 'server/app_config.dart';
+import 'ui/core/notices/notice_center.dart';
+
+final noticeCenterProvider = ChangeNotifierProvider<NoticeCenter>((ref) {
+  return NoticeCenter();
+});
 
 /// Secure storage for secrets (API keys + OAuth token bundles).
 ///
@@ -182,6 +188,16 @@ final webRetrievalProvider = Provider<WebRetrievalAdapter>((ref) {
     return HttpWebRetrievalAdapter(baseUrl: base);
   }
   return RustWebRetrievalAdapter();
+});
+
+final webSearchSettingsProvider = ChangeNotifierProvider<WebSearchSettings>((
+  ref,
+) {
+  return WebSearchSettings(
+    preferences: ref.watch(sharedPreferencesProvider),
+    secrets: ref.watch(secretStoreProvider),
+    adapter: ref.watch(webRetrievalProvider),
+  );
 });
 
 /// Whether tools (web search/fetch, etc.) are attached to outgoing chat

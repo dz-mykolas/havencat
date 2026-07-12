@@ -29,72 +29,74 @@ class AccountTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: <Widget>[
-            Icon(
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: context.appColors.surfaceHigh,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
               _iconFor(account.kind),
-              size: 20,
-              color: AppTheme.textSecondary,
+              size: 16,
+              color: context.appColors.brandViolet,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    account.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _labelFor(account.kind),
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+          ),
+          SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                if (onManageModels != null)
-                  IconButton(
-                    icon: const Icon(Icons.tune, size: 18),
-                    tooltip: 'Manage models',
-                    onPressed: onManageModels,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
-                    ),
+                Text(
+                  account.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  tooltip: 'Remove account',
-                  onPressed: onDelete,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 32,
+                ),
+                SizedBox(height: 1),
+                Text(
+                  _labelFor(account.kind),
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: 10.5,
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (onManageModels != null)
+                IconButton.filledTonal(
+                  icon: Icon(Icons.tune_rounded, size: 17),
+                  tooltip: 'Manage models',
+                  onPressed: onManageModels,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: BoxConstraints(minWidth: 30, minHeight: 30),
+                ),
+              SizedBox(width: 2),
+              IconButton(
+                icon: Icon(Icons.delete_outline_rounded, size: 18),
+                tooltip: 'Remove account',
+                color: context.appColors.textSecondary,
+                onPressed: onDelete,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(minWidth: 30, minHeight: 30),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

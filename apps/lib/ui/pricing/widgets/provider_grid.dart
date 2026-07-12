@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter_svg/flutter_svg.dart';
 
-import '../../core/theme/app_theme.dart';
 import '../../../domain/models/model_pricing.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
 
-/// The step-1 grid of providers. Each card shows the provider name, model count,
-/// and a tiny headline derived from its models (e.g. cheapest output price).
-/// Tapping a card drills into that provider's model list (step 2).
-///
-/// A leading [_CustomCard] (gradient-bordered, "Configure your own") is
-/// prepended to the grid so users can wire up a custom endpoint without
-/// digging into Settings. It only renders when [showCustomCard] is true —
-/// callers that don't want it (e.g. the Labs tab) pass false.
 class ProviderGrid extends StatelessWidget {
   const ProviderGrid({
     super.key,
@@ -22,12 +17,7 @@ class ProviderGrid extends StatelessWidget {
 
   final List<ProviderModels> providers;
   final ValueChanged<String> onTap;
-
-  /// Whether to render the leading "Custom endpoint" affordance.
   final bool showCustomCard;
-
-  /// Invoked when the custom card is tapped. Required when [showCustomCard]
-  /// is true.
   final VoidCallback? onAddCustom;
 
   @override
@@ -37,52 +27,39 @@ class ProviderGrid extends StatelessWidget {
         final int columns = constraints.maxWidth >= 640
             ? 3
             : (constraints.maxWidth >= 400 ? 2 : 1);
-        // +1 row slot for the custom card when enabled.
         final int total = providers.length + (showCustomCard ? 1 : 0);
-        final int rowCount = (total / columns).ceil();
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          itemCount: rowCount,
-          itemBuilder: (BuildContext context, int row) {
-            final List<Widget> cells = <Widget>[];
-            for (int col = 0; col < columns; col++) {
-              if (col > 0) cells.add(const SizedBox(width: 12));
-              final int index = row * columns + col;
-              if (showCustomCard && index == 0) {
-                cells.add(Expanded(child: _CustomCard(onTap: onAddCustom!)));
-                continue;
-              }
-              final int providerIndex = showCustomCard ? index - 1 : index;
-              if (providerIndex < providers.length) {
-                final ProviderModels p = providers[providerIndex];
-                cells.add(
-                  Expanded(
-                    child: _ProviderCard(provider: p, onTap: () => onTap(p.id)),
-                  ),
-                );
-              } else {
-                cells.add(const Expanded(child: SizedBox.shrink()));
-              }
-            }
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: cells,
+        return AppScrollView(
+          builder: (BuildContext context, AppScrollController controller) =>
+              GridView.builder(
+                controller: controller,
+                padding: EdgeInsets.fromLTRB(12, 2, 12, 16),
+                scrollCacheExtent: ScrollCacheExtent.pixels(200),
+                addAutomaticKeepAlives: false,
+                itemCount: total,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  mainAxisExtent: 56,
                 ),
+                itemBuilder: (BuildContext context, int index) {
+                  if (showCustomCard && index == 0) {
+                    return _CustomCard(onTap: onAddCustom!);
+                  }
+                  final int providerIndex = showCustomCard ? index - 1 : index;
+                  final ProviderModels provider = providers[providerIndex];
+                  return _ProviderCard(
+                    provider: provider,
+                    onTap: () => onTap(provider.id),
+                  );
+                },
               ),
-            );
-          },
         );
       },
     );
   }
 }
 
-/// Leading affordance in the Providers grid: a gradient-bordered card that
-/// opens the custom-endpoint dialog. Distinct from [_ProviderCard] so it
-/// stands out as an action rather than a catalog entry.
 class _CustomCard extends StatelessWidget {
   const _CustomCard({required this.onTap});
 
@@ -91,68 +68,59 @@ class _CustomCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
+      color: context.appColors.surface,
+      borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.transparent),
-            gradient: LinearGradient(
-              colors: <Color>[
-                AppTheme.brandBlue.withValues(alpha: 0.35),
-                AppTheme.brandViolet.withValues(alpha: 0.35),
-                AppTheme.brandPink.withValues(alpha: 0.35),
-              ],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
-          ),
-          foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppTheme.brandViolet.withValues(alpha: 0.6),
-              width: 1.5,
-            ),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
             children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Icon(
-                    Icons.add_circle_outline,
-                    size: 18,
-                    color: AppTheme.brandViolet.withValues(alpha: 0.9),
+              _CustomMark(),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Custom endpoint',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Custom endpoint',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Configure your own',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12.5),
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 17,
+                color: context.appColors.textSecondary,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _CustomMark extends StatelessWidget {
+  const _CustomMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: context.appColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.add_rounded,
+        size: 18,
+        color: context.appColors.brandViolet,
       ),
     );
   }
@@ -167,54 +135,83 @@ class _ProviderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.surface,
-      borderRadius: BorderRadius.circular(16),
+      color: context.appColors.surface,
+      borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outline),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
             children: <Widget>[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      provider.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                      ),
+              _ProviderMark(logoUrl: provider.logoUrl),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  provider.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Tooltip(
+                message: '${provider.models.length} models',
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: context.appColors.surfaceHigh,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    '${provider.models.length}',
+                    style: TextStyle(
+                      color: context.appColors.textSecondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textSecondary,
-                    size: 20,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${provider.models.length} model${provider.models.length == 1 ? '' : 's'}',
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12.5,
                 ),
+              ),
+              SizedBox(width: 5),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: context.appColors.textSecondary,
+                size: 17,
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProviderMark extends StatelessWidget {
+  const _ProviderMark({required this.logoUrl});
+
+  final String logoUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: context.appColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      alignment: Alignment.center,
+      child: SvgPicture.network(
+        logoUrl,
+        width: 20,
+        height: 20,
+        colorFilter: ColorFilter.mode(
+          context.appColors.brandViolet,
+          BlendMode.srcIn,
         ),
       ),
     );

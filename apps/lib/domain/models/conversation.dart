@@ -17,6 +17,7 @@ class Conversation {
     List<ChatMessage>? messages,
     this.providerAccountId,
     this.createdAt,
+    this.isPinned = false,
   }) : messages = messages ?? <ChatMessage>[] {
     _reindex();
   }
@@ -30,6 +31,8 @@ class Conversation {
   String? providerAccountId;
 
   DateTime? createdAt;
+
+  bool isPinned;
 
   /// Id of the leaf of the active branch. Null only when the conversation is
   /// empty. Updated by [add] and by branch-switching (phase 2).
@@ -71,16 +74,19 @@ class Conversation {
     while (id != null) {
       final ChatMessage? m = _byId[id];
       if (m == null) break;
-      path.insert(0, m);
+      path.add(m);
       id = m.parentId;
     }
-    final Set<String> callIds = path
+    final List<ChatMessage> orderedPath = path.reversed.toList(growable: false);
+    final Set<String> callIds = orderedPath
         .expand((ChatMessage m) => m.toolCalls.map((ToolCall c) => c.id))
         .toSet();
-    return path.where((ChatMessage m) {
-      if (m.role != MessageRole.tool) return true;
-      return m.toolCallId != null && callIds.contains(m.toolCallId);
-    }).toList();
+    return orderedPath
+        .where((ChatMessage m) {
+          if (m.role != MessageRole.tool) return true;
+          return m.toolCallId != null && callIds.contains(m.toolCallId);
+        })
+        .toList(growable: false);
   }
 
   /// Sibling message ids of [id] (including [id] itself). Empty for a
@@ -154,6 +160,7 @@ class Conversation {
     'messages': messages.map((m) => m.toJson()).toList(),
     'providerAccountId': providerAccountId,
     'createdAt': createdAt?.toIso8601String(),
+    'isPinned': isPinned,
     'currentLeafId': currentLeafId,
     'lastPromptTokens': lastPromptTokens,
     'lastCompletionTokens': lastCompletionTokens,
@@ -177,6 +184,7 @@ class Conversation {
             createdAt: json['createdAt'] != null
                 ? DateTime.parse(json['createdAt'] as String)
                 : null,
+            isPinned: json['isPinned'] as bool? ?? false,
           )
           ..currentLeafId = json['currentLeafId'] as String?
           ..lastPromptTokens = json['lastPromptTokens'] as int?

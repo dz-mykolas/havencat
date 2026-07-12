@@ -57,10 +57,10 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
           .startChatGptLogin();
       if (!mounted) return;
       _expiresAt = DateTime.now().add(
-        const Duration(seconds: DeviceCodeResponse.lifetimeSeconds),
+        Duration(seconds: DeviceCodeResponse.lifetimeSeconds),
       );
       _remaining = _expiresAt!.difference(DateTime.now());
-      _countdown = Timer.periodic(const Duration(seconds: 1), (_) {
+      _countdown = Timer.periodic(Duration(seconds: 1), (_) {
         if (!mounted || _expiresAt == null) return;
         final Duration left = _expiresAt!.difference(DateTime.now());
         setState(
@@ -109,16 +109,13 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
       Feedback.forTap(context);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Code copied'),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(content: Text('Code copied'), duration: Duration(seconds: 2)),
       );
     } catch (_) {
       Feedback.forTap(context);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Copy failed — select the text manually'),
           duration: Duration(seconds: 3),
         ),
@@ -131,7 +128,7 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
       _cancelled = true;
       _status = 'Cancelling';
     });
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(Duration(milliseconds: 500));
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -147,8 +144,8 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
     final bool expired = _remaining == Duration.zero && dc != null;
     final bool urgent = _remaining.inSeconds <= 60 && !expired;
     return AlertDialog(
-      icon: const Icon(Icons.vpn_key_rounded, color: AppTheme.brandViolet),
-      title: const Text('Sign in to ChatGPT'),
+      icon: Icon(Icons.vpn_key_rounded, color: context.appColors.brandViolet),
+      title: Text('Sign in to ChatGPT'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -159,12 +156,12 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
             Text(
               'Enter this code on the sign-in page. The dialog closes '
               'automatically when you\'re done.',
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
+              style: TextStyle(
+                color: context.appColors.textSecondary,
                 fontSize: 13,
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             SelectionArea(
               child: Tooltip(
                 message: 'Tap to copy',
@@ -172,27 +169,24 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
                   borderRadius: BorderRadius.circular(8),
                   onTap: expired ? null : () => _copyCode(dc.userCode),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
                         GradientText(
                           dc.userCode,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 30,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 3,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        const Icon(
+                        SizedBox(width: 10),
+                        Icon(
                           Icons.copy_rounded,
                           size: 18,
-                          color: AppTheme.textSecondary,
+                          color: context.appColors.textSecondary,
                         ),
                       ],
                     ),
@@ -200,7 +194,7 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () => launchUrl(
@@ -208,31 +202,28 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
                 mode: LaunchMode.externalApplication,
               ),
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppTheme.surfaceHigh,
+                  color: context.appColors.surfaceHigh,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(
+                    Icon(
                       Icons.open_in_new_rounded,
                       size: 16,
-                      color: AppTheme.brandBlue,
+                      color: context.appColors.brandBlue,
                     ),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         dc.verificationUrl,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: AppTheme.brandBlue,
+                          color: context.appColors.brandBlue,
                         ),
                       ),
                     ),
@@ -240,34 +231,36 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Row(
               children: <Widget>[
                 Icon(
                   urgent ? Icons.timer_rounded : Icons.schedule_rounded,
                   size: 14,
-                  color: urgent ? AppTheme.brandPink : AppTheme.textSecondary,
+                  color: urgent
+                      ? context.appColors.brandPink
+                      : context.appColors.textSecondary,
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(
                   expired
                       ? 'Code expired — restart'
                       : 'Expires in ${_fmt(_remaining)}',
                   style: TextStyle(
                     fontSize: 12,
-                    color: urgent ? AppTheme.brandPink : AppTheme.textSecondary,
+                    color: urgent
+                        ? context.appColors.brandPink
+                        : context.appColors.textSecondary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             _StatusRow(error: _error, status: _status),
           ],
         ],
       ),
-      actions: <Widget>[
-        TextButton(onPressed: _cancel, child: const Text('Cancel')),
-      ],
+      actions: <Widget>[TextButton(onPressed: _cancel, child: Text('Cancel'))],
     );
   }
 }
@@ -284,18 +277,18 @@ class _StatusRow extends StatelessWidget {
     return Row(
       children: <Widget>[
         if (!hasError)
-          const SizedBox(
+          SizedBox(
             width: 14,
             height: 14,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
         else
-          const Icon(
+          Icon(
             Icons.error_outline_rounded,
             size: 16,
-            color: AppTheme.brandPink,
+            color: context.appColors.brandPink,
           ),
-        const SizedBox(width: 10),
+        SizedBox(width: 10),
         Expanded(
           child: Text(
             hasError ? (error!.isNotEmpty ? error! : status) : status,
@@ -303,7 +296,9 @@ class _StatusRow extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,
-              color: hasError ? AppTheme.brandPink : AppTheme.textSecondary,
+              color: hasError
+                  ? context.appColors.brandPink
+                  : context.appColors.textSecondary,
             ),
           ),
         ),

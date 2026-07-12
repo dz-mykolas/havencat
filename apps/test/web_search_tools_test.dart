@@ -4,13 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/data/services/web_retrieval/web_retrieval.dart';
 import 'package:app/data/services/web_retrieval/web_search_tools.dart';
+import 'package:app/domain/errors/app_failure.dart';
 
 /// A minimal fake [WebRetrievalAdapter] that records calls and returns
 /// canned data. Lets us test [WebSearchTools.execute] without any network.
 class _FakeAdapter implements WebRetrievalAdapter {
-  _FakeAdapter({this.searchResults = const [], this.fetchedPage});
+  _FakeAdapter({
+    this.searchResults = const <WebSearchResult>[],
+    this.searchIssues = const <WebProviderIssue>[],
+    this.successfulProviders = const <String>[],
+    this.fetchedPage,
+  });
 
   List<WebSearchResult> searchResults;
+  List<WebProviderIssue> searchIssues;
+  List<String> successfulProviders;
   FetchedPage? fetchedPage;
 
   String? lastSearchQuery;
@@ -20,12 +28,16 @@ class _FakeAdapter implements WebRetrievalAdapter {
   String get kind => 'fake';
 
   @override
-  Future<List<WebSearchResult>> search(
+  Future<WebSearchResponse> search(
     String query, {
     WebSearchOptions options = const WebSearchOptions(),
   }) async {
     lastSearchQuery = query;
-    return searchResults;
+    return WebSearchResponse(
+      results: searchResults,
+      issues: searchIssues,
+      successfulProviders: successfulProviders,
+    );
   }
 
   @override
@@ -88,10 +100,10 @@ void main() {
       );
 
       expect(adapter.lastSearchQuery, 'rust sqlite');
-      expect(result, contains('Rust SQLite'));
-      expect(result, contains('https://example.com/rust-sqlite'));
-      expect(result, contains('A guide to SQLite in Rust'));
-      expect(result, startsWith('1. '));
+      expect(result.content, contains('Rust SQLite'));
+      expect(result.content, contains('https://example.com/rust-sqlite'));
+      expect(result.content, contains('A guide to SQLite in Rust'));
+      expect(result.content, startsWith('1. '));
     });
 
     test('includes publication date when present', () async {
@@ -113,7 +125,7 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result, contains('published 2024-06-15'));
+      expect(result.content, contains('published 2024-06-15'));
     });
 
     test('returns "No results" when adapter returns empty list', () async {
@@ -125,44 +137,110 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result, contains('No results found'));
+      expect(result.content, contains('No results found'));
     });
 
-    test('returns error string when query is missing', () async {
+    test('throws a structured failure when query is missing', () async {
       final adapter = _FakeAdapter();
 
-      final result = await tools.execute(
-        name: 'web_search',
-        args: '{}',
-        adapter: adapter,
+      await expectLater(
+        tools.execute(name: 'web_search', args: '{}', adapter: adapter),
+        throwsA(
+          isA<AppFailure>().having(
+            (AppFailure failure) => failure.kind,
+            'kind',
+            FailureKind.invalidRequest,
+          ),
+        ),
       );
-
-      expect(result, contains('missing "query"'));
       expect(adapter.lastSearchQuery, isNull);
     });
 
     test('handles malformed JSON args gracefully', () async {
       final adapter = _FakeAdapter();
 
-      final result = await tools.execute(
-        name: 'web_search',
-        args: 'not valid json',
-        adapter: adapter,
+      await expectLater(
+        tools.execute(
+          name: 'web_search',
+          args: 'not valid json',
+          adapter: adapter,
+        ),
+        throwsA(isA<AppFailure>()),
       );
-
-      expect(result, contains('missing "query"'));
     });
 
     test('handles empty args string', () async {
       final adapter = _FakeAdapter();
 
-      final result = await tools.execute(
+      await expectLater(
+        tools.execute(name: 'web_search', args: '', adapter: adapter),
+        throwsA(isA<AppFailure>()),
+      );
+    });
+
+    test('returns results with degraded provider warnings', () async {
+      final adapter = _FakeAdapter(
+        searchResults: const <WebSearchResult>[
+          WebSearchResult(
+            title: 'Available result',
+            url: 'https://example.com',
+            snippet: 'From another provider',
+            provider: 'exa',
+          ),
+        ],
+        searchIssues: const <WebProviderIssue>[
+          WebProviderIssue(provider: 'brave', kind: 'rate_limited'),
+        ],
+      );
+
+      final WebToolResult result = await tools.execute(
         name: 'web_search',
-        args: '',
+        args: '{"query":"latest news"}',
         adapter: adapter,
       );
 
-      expect(result, contains('missing "query"'));
+      expect(result.content, contains('Available result'));
+      expect(result.warnings.single.impact, FailureImpact.degraded);
+    });
+
+    test('throws when every configured provider failed', () async {
+      final adapter = _FakeAdapter(
+        searchIssues: const <WebProviderIssue>[
+          WebProviderIssue(provider: 'exa', kind: 'rate_limited'),
+        ],
+      );
+
+      await expectLater(
+        tools.execute(
+          name: 'web_search',
+          args: '{"query":"latest news"}',
+          adapter: adapter,
+        ),
+        throwsA(
+          isA<AppFailure>().having(
+            (AppFailure failure) => failure.kind,
+            'kind',
+            FailureKind.rateLimited,
+          ),
+        ),
+      );
+    });
+
+    test('does not fail when one provider succeeded with no matches', () async {
+      final adapter = _FakeAdapter(
+        successfulProviders: <String>['exa'],
+        searchIssues: const <WebProviderIssue>[
+          WebProviderIssue(provider: 'brave', kind: 'rate_limited'),
+        ],
+      );
+
+      final WebToolResult result = await tools.execute(
+        name: 'web_search',
+        args: '{"query":"an impossible query"}',
+        adapter: adapter,
+      );
+
+      expect(result.content, contains('No results found'));
     });
   });
 
@@ -186,9 +264,9 @@ void main() {
       );
 
       expect(adapter.lastFetchUrl, 'https://example.com/article');
-      expect(result, contains('Title: Article'));
-      expect(result, contains('URL: https://example.com/article'));
-      expect(result, contains('Body text here'));
+      expect(result.content, contains('Title: Article'));
+      expect(result.content, contains('URL: https://example.com/article'));
+      expect(result.content, contains('Body text here'));
     });
 
     test('truncates content over 8000 chars', () async {
@@ -208,36 +286,35 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result, contains('truncated'));
-      expect(result, contains('2000 more chars'));
+      expect(result.content, contains('truncated'));
+      expect(result.content, contains('2000 more chars'));
     });
 
-    test('returns error string when url is missing', () async {
+    test('throws a structured failure when url is missing', () async {
       final adapter = _FakeAdapter();
 
-      final result = await tools.execute(
-        name: 'fetch_page',
-        args: '{}',
-        adapter: adapter,
+      await expectLater(
+        tools.execute(name: 'fetch_page', args: '{}', adapter: adapter),
+        throwsA(isA<AppFailure>()),
       );
-
-      expect(result, contains('missing "url"'));
       expect(adapter.lastFetchUrl, isNull);
     });
   });
 
   group('WebSearchTools.execute — unknown tool', () {
-    test('returns error string for unknown tool name', () async {
+    test('throws a structured failure for unknown tool name', () async {
       final adapter = _FakeAdapter();
 
-      final result = await tools.execute(
-        name: 'not_a_tool',
-        args: '{}',
-        adapter: adapter,
+      await expectLater(
+        tools.execute(name: 'not_a_tool', args: '{}', adapter: adapter),
+        throwsA(
+          isA<AppFailure>().having(
+            (AppFailure failure) => failure.kind,
+            'kind',
+            FailureKind.unsupported,
+          ),
+        ),
       );
-
-      expect(result, contains('unknown tool'));
-      expect(result, contains('not_a_tool'));
     });
   });
 }

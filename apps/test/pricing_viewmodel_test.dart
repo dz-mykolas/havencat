@@ -9,6 +9,40 @@ import 'package:app/ui/pricing/quick_add_resolver.dart';
 /// drill-in, "browse all", search, and sort. The catalog is built directly from
 /// a hand-rolled `api.json`-shaped payload, so these never touch the network.
 void main() {
+  test('missing pricing is not classified as free', () {
+    expect(const ModelCost().hasHeadlinePricing, isFalse);
+    expect(const ModelCost().isFree, isFalse);
+    expect(const ModelCost(input: 0, output: 0).isFree, isTrue);
+  });
+
+  test('canonical models inherit exact first-party pricing', () {
+    final ModelsCatalog catalog = ModelsCatalog.fromCatalogJson(
+      _payload,
+      fetchedAt: DateTime(2026, 6, 20),
+    );
+    final PricedModel model = catalog.models.singleWhere(
+      (PricedModel model) => model.id == 'openai/gpt-5.5',
+    );
+
+    expect(model.cost?.input, 3);
+    expect(model.cost?.output, 18);
+    expect(model.pricingProviderName, 'OpenAI');
+    expect(model.pricingOfficial, isTrue);
+  });
+
+  test('canonical models use an attributed exact routed price as fallback', () {
+    final ModelsCatalog catalog = ModelsCatalog.fromCatalogJson(
+      _routedPricingPayload,
+      fetchedAt: DateTime(2026, 6, 20),
+    );
+    final PricedModel model = catalog.models.single;
+
+    expect(model.cost?.input, 0.7);
+    expect(model.cost?.output, 2.5);
+    expect(model.pricingProviderName, 'Router B');
+    expect(model.pricingOfficial, isFalse);
+  });
+
   test('starts in overview, then Drills into a provider and back', () async {
     final PricingViewModel vm = await _vm();
 
@@ -323,14 +357,12 @@ const Map<String, Object?> _payload = <String, Object?>{
         'output': <String>['text'],
       },
       'limit': <String, Object?>{'context': 200000, 'output': 64000},
-      'cost': <String, Object?>{'input': 5, 'output': 25},
     },
     'openai/gpt-5.5': <String, Object?>{
       'id': 'openai/gpt-5.5',
       'name': 'GPT-5.5',
       'release_date': '2026-04-23',
       'limit': <String, Object?>{'context': 1050000, 'output': 128000},
-      'cost': <String, Object?>{'input': 3, 'output': 18},
       'tool_call': true,
     },
   },
@@ -374,6 +406,57 @@ const Map<String, Object?> _payload = <String, Object?>{
           'name': 'Claude Opus 4.5',
           'release_date': '2025-11-24',
           'cost': <String, Object?>{'input': 6, 'output': 30},
+        },
+      },
+    },
+  },
+};
+
+const Map<String, Object?> _routedPricingPayload = <String, Object?>{
+  'models': <String, Object?>{
+    'deepseek/deepseek-r1': <String, Object?>{
+      'id': 'deepseek/deepseek-r1',
+      'name': 'DeepSeek R1',
+      'open_weights': true,
+    },
+  },
+  'providers': <String, Object?>{
+    'included-plan': <String, Object?>{
+      'id': 'included-plan',
+      'name': 'Included Plan',
+      'models': <String, Object?>{
+        'deepseek/deepseek-r1': <String, Object?>{
+          'id': 'deepseek/deepseek-r1',
+          'name': 'DeepSeek R1',
+          'open_weights': true,
+          'cost': <String, Object?>{'input': 0, 'output': 0},
+        },
+        'closed-model': <String, Object?>{
+          'id': 'closed-model',
+          'name': 'Closed Model',
+          'cost': <String, Object?>{'input': 0, 'output': 0},
+        },
+      },
+    },
+    'router-a': <String, Object?>{
+      'id': 'router-a',
+      'name': 'Router A',
+      'models': <String, Object?>{
+        'deepseek/deepseek-r1': <String, Object?>{
+          'id': 'deepseek/deepseek-r1',
+          'name': 'DeepSeek R1',
+          'cost': <String, Object?>{'input': 1.35, 'output': 5.4},
+        },
+      },
+    },
+    'router-b': <String, Object?>{
+      'id': 'router-b',
+      'name': 'Router B',
+      'models': <String, Object?>{
+        'deepseek/deepseek-r1': <String, Object?>{
+          'id': 'deepseek/deepseek-r1',
+          'name': 'DeepSeek R1',
+          'cost': <String, Object?>{'input': 0.7, 'output': 2.5},
         },
       },
     },

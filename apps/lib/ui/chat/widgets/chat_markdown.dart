@@ -252,38 +252,38 @@ class _ChatMarkdownState extends State<ChatMarkdown>
 
     Widget md = GptMarkdownTheme(
       gptThemeData: mdTheme.copyWith(
-        linkColor: AppTheme.brandBlue,
-        linkHoverColor: AppTheme.brandPink,
+        linkColor: context.appColors.brandBlue,
+        linkHoverColor: context.appColors.brandPink,
         highlightColor: theme.colorScheme.primary.withValues(alpha: 0.18),
         h1: theme.textTheme.headlineSmall?.copyWith(
-          color: AppTheme.textPrimary,
+          color: context.appColors.textPrimary,
           fontWeight: FontWeight.w700,
         ),
         h2: theme.textTheme.titleLarge?.copyWith(
-          color: AppTheme.textPrimary,
+          color: context.appColors.textPrimary,
           fontWeight: FontWeight.w700,
         ),
         h3: theme.textTheme.titleMedium?.copyWith(
-          color: AppTheme.textPrimary,
+          color: context.appColors.textPrimary,
           fontWeight: FontWeight.w600,
         ),
         h4: theme.textTheme.titleMedium?.copyWith(
-          color: AppTheme.textPrimary,
+          color: context.appColors.textPrimary,
           fontWeight: FontWeight.w600,
         ),
         h5: theme.textTheme.titleSmall?.copyWith(
-          color: AppTheme.textPrimary,
+          color: context.appColors.textPrimary,
           fontWeight: FontWeight.w600,
         ),
         h6: theme.textTheme.titleSmall?.copyWith(
-          color: AppTheme.textSecondary,
+          color: context.appColors.textSecondary,
           fontWeight: FontWeight.w600,
         ),
       ),
       child: GptMarkdown(
         _visibleText,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: context.appColors.textPrimary,
           fontSize: 15,
           height: 1.5,
           fontWeight: FontWeight.w400,
@@ -333,62 +333,59 @@ class _ChatCodeBlock extends StatelessWidget {
     final String lang = name.trim().isEmpty ? 'text' : name.trim();
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceHigh,
+        color: context.appColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.outline),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Container(
-            color: AppTheme.background,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: context.appColors.background,
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(
               children: <Widget>[
                 Icon(
                   Icons.terminal_rounded,
                   size: 14,
-                  color: AppTheme.textSecondary,
+                  color: context.appColors.textSecondary,
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Text(
                   lang,
                   style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: context.appColors.textSecondary,
                     fontSize: 12,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const Spacer(),
+                Spacer(),
                 _CopyButton(text: code),
               ],
             ),
           ),
           Container(
-            color: AppTheme.surfaceHigh,
-            padding: const EdgeInsets.all(12),
-            child: Scrollbar(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: HighlightView(
-                  code,
-                  language: lang,
-                  theme: atomOneDarkTheme.map(
-                    (key, value) => MapEntry(
-                      key,
-                      value.copyWith(backgroundColor: Colors.transparent),
-                    ),
+            color: context.appColors.surfaceHigh,
+            padding: EdgeInsets.all(12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: HighlightView(
+                code,
+                language: lang,
+                theme: atomOneDarkTheme.map(
+                  (key, value) => MapEntry(
+                    key,
+                    value.copyWith(backgroundColor: Colors.transparent),
                   ),
-                  padding: EdgeInsets.zero,
-                  textStyle: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    height: 1.5,
-                  ),
+                ),
+                padding: EdgeInsets.zero,
+                textStyle: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  height: 1.5,
                 ),
               ),
             ),
@@ -417,7 +414,7 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
     await Clipboard.setData(ClipboardData(text: widget.text));
     if (!mounted) return;
     setState(() => _copied = true);
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(Duration(seconds: 2));
     if (!mounted) return;
     setState(() => _copied = false);
   }
@@ -431,13 +428,10 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
         borderRadius: BorderRadius.circular(4),
         onTap: _copy,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1),
           decoration: BoxDecoration(
             color: theme.colorScheme.primary.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: theme.colorScheme.primary.withValues(alpha: 0.25),
-            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -449,15 +443,15 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
                   fontSize: (widget.style.fontSize ?? 15) * 0.88,
                   color: _copied
                       ? Colors.green
-                      : (widget.style.color ?? AppTheme.textPrimary),
+                      : (widget.style.color ?? context.appColors.textPrimary),
                   height: 1.4,
                 ),
               ),
-              const SizedBox(width: 3),
+              SizedBox(width: 3),
               Icon(
                 _copied ? Icons.check_rounded : Icons.copy_rounded,
                 size: 11,
-                color: _copied ? Colors.green : AppTheme.textSecondary,
+                color: _copied ? Colors.green : context.appColors.textSecondary,
               ),
             ],
           ),
@@ -484,7 +478,7 @@ class _CopyButtonState extends State<_CopyButton> {
     await Clipboard.setData(ClipboardData(text: widget.text));
     if (!mounted) return;
     setState(() => _copied = true);
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await Future<void>.delayed(Duration(seconds: 2));
     if (!mounted) return;
     setState(() => _copied = false);
   }
@@ -495,21 +489,21 @@ class _CopyButtonState extends State<_CopyButton> {
       borderRadius: BorderRadius.circular(6),
       onTap: _copy,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(
               _copied ? Icons.check_rounded : Icons.copy_rounded,
               size: 13,
-              color: _copied ? Colors.green : AppTheme.textSecondary,
+              color: _copied ? Colors.green : context.appColors.textSecondary,
             ),
-            const SizedBox(width: 4),
+            SizedBox(width: 4),
             Text(
               _copied ? 'Copied' : 'Copy',
               style: TextStyle(
                 fontSize: 11,
-                color: _copied ? Colors.green : AppTheme.textSecondary,
+                color: _copied ? Colors.green : context.appColors.textSecondary,
                 fontWeight: FontWeight.w500,
               ),
             ),

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,6 +20,42 @@ import 'package:app/ui/settings/settings_viewmodel.dart';
 /// logic (config shape, enabledModels handling) is covered by the unit
 /// tests below — those run fast and don't break on layout tweaks.
 void main() {
+  testWidgets('mobile settings opens categories as separate detail views', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsScreen())),
+    );
+
+    expect(find.text('Models & providers'), findsOneWidget);
+    expect(find.text('Web search'), findsOneWidget);
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('General'), findsOneWidget);
+    expect(find.text('Context'), findsOneWidget);
+    expect(find.text('Show hidden models'), findsNothing);
+
+    await tester.tap(find.text('General'));
+    await tester.pumpAndSettle();
+    expect(find.text('Show hidden models'), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Show hidden models'), findsNothing);
+    expect(find.text('Models & providers'), findsOneWidget);
+
+    await tester.tap(find.text('Web search'));
+    await tester.pumpAndSettle();
+    expect(find.text('Search providers'), findsOneWidget);
+    expect(find.text('Exa'), findsOneWidget);
+    expect(find.text('Brave Search'), findsOneWidget);
+    expect(find.text('SearXNG'), findsOneWidget);
+  });
+
   testWidgets('Accounts tab renders the seeded mock account', (
     WidgetTester tester,
   ) async {

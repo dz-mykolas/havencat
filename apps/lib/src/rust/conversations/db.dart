@@ -12,6 +12,7 @@ class StoredConversation {
   final String? providerAccount;
   final String createdAt;
   final String? currentLeafId;
+  final bool isPinned;
   final PlatformInt64 updatedAt;
   final List<StoredMessage> messages;
 
@@ -21,6 +22,7 @@ class StoredConversation {
     this.providerAccount,
     required this.createdAt,
     this.currentLeafId,
+    required this.isPinned,
     required this.updatedAt,
     required this.messages,
   });
@@ -32,6 +34,7 @@ class StoredConversation {
       providerAccount.hashCode ^
       createdAt.hashCode ^
       currentLeafId.hashCode ^
+      isPinned.hashCode ^
       updatedAt.hashCode ^
       messages.hashCode;
 
@@ -45,6 +48,7 @@ class StoredConversation {
           providerAccount == other.providerAccount &&
           createdAt == other.createdAt &&
           currentLeafId == other.currentLeafId &&
+          isPinned == other.isPinned &&
           updatedAt == other.updatedAt &&
           messages == other.messages;
 }
@@ -70,6 +74,7 @@ class StoredMessage {
   final PlatformInt64? completionTokens;
   final PlatformInt64? totalTokens;
   final String? reasoning;
+  final String? attachmentsJson;
 
   const StoredMessage({
     required this.id,
@@ -92,6 +97,7 @@ class StoredMessage {
     this.completionTokens,
     this.totalTokens,
     this.reasoning,
+    this.attachmentsJson,
   });
 
   @override
@@ -115,7 +121,8 @@ class StoredMessage {
       promptTokens.hashCode ^
       completionTokens.hashCode ^
       totalTokens.hashCode ^
-      reasoning.hashCode;
+      reasoning.hashCode ^
+      attachmentsJson.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -141,5 +148,6 @@ class StoredMessage {
           promptTokens == other.promptTokens &&
           completionTokens == other.completionTokens &&
           totalTokens == other.totalTokens &&
-          reasoning == other.reasoning;
+          reasoning == other.reasoning &&
+          attachmentsJson == other.attachmentsJson;
 }

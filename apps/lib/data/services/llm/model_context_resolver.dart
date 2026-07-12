@@ -1,3 +1,4 @@
+import '../../../domain/models/content_modality.dart';
 import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/model_pricing.dart';
 
@@ -22,28 +23,34 @@ class ModelContextResolver {
   final ModelsCatalog _catalog;
 
   /// Pre-built index for fast lookups. Built lazily on first use.
-  Map<String, int>? _byCanonicalId;
-  Map<String, int>? _byModelIdSuffix;
-  List<MapEntry<String, int>>? _byFuzzy;
+  Map<String, PricedModel>? _byCanonicalId;
+  Map<String, PricedModel>? _byModelIdSuffix;
+  List<MapEntry<String, PricedModel>>? _byFuzzy;
 
   /// Resolves the context window for [model] served by [providerId].
   ///
   /// [providerId] is the models.dev provider id (e.g. `openai`,
   /// `anthropic`). When null, only canonical/fuzzy matches are attempted.
   int? resolve(String modelId, {String? providerId}) {
+    return resolveModel(modelId, providerId: providerId)?.contextLimit;
+  }
+
+  /// Resolves the full catalog record so callers can use limits, modalities,
+  /// and feature flags from the same match.
+  PricedModel? resolveModel(String modelId, {String? providerId}) {
     _ensureIndex();
 
     // 1. Exact provider-model match.
     if (providerId != null) {
       for (final PricedModel pm in _catalog.providers.expand((p) => p.models)) {
         if (pm.providerId == providerId && pm.id == modelId) {
-          if (pm.contextLimit != null) return pm.contextLimit;
+          return pm;
         }
       }
     }
 
     // 2. Canonical match by full canonical id (`<lab>/<model>`).
-    final int? canonical = _byCanonicalId?[modelId];
+    final PricedModel? canonical = _byCanonicalId?[modelId];
     if (canonical != null) return canonical;
 
     // Also try with common lab prefixes if the bare id didn't match.
@@ -59,18 +66,18 @@ class ModelContextResolver {
       'amazon',
       'microsoft',
     ]) {
-      final int? withLab = _byCanonicalId?['$lab/$modelId'];
+      final PricedModel? withLab = _byCanonicalId?['$lab/$modelId'];
       if (withLab != null) return withLab;
     }
 
     // 3. Match by model id suffix (the part after the last `/`).
     final String suffix = modelId.split('/').last;
-    final int? bySuffix = _byModelIdSuffix?[suffix];
+    final PricedModel? bySuffix = _byModelIdSuffix?[suffix];
     if (bySuffix != null) return bySuffix;
 
     // 4. Fuzzy: case-insensitive contains on the canonical id.
     final String lower = modelId.toLowerCase();
-    for (final MapEntry<String, int> entry in _byFuzzy!) {
+    for (final MapEntry<String, PricedModel> entry in _byFuzzy!) {
       if (entry.key.contains(lower) || lower.contains(entry.key)) {
         return entry.value;
       }
@@ -79,22 +86,36 @@ class ModelContextResolver {
     return null;
   }
 
-  /// Enriches a list of [LlmModel]s with context windows from the catalog.
+  /// Enriches models with context limits, modalities, and feature flags.
   ///
-  /// Returns new [LlmModel] instances with [LlmModel.contextWindow] populated
-  /// when a match is found. Models that already have a context window or that
-  /// don't match the catalog are returned unchanged.
+  /// Existing provider-supplied values win; unmatched models stay unchanged.
   List<LlmModel> enrich(Iterable<LlmModel> models, {String? providerId}) {
     _ensureIndex();
     return models.map((LlmModel m) {
-      if (m.contextWindow != null) return m;
-      final int? ctx = resolve(m.id, providerId: providerId);
-      if (ctx == null) return m;
+      final PricedModel? match = resolveModel(m.id, providerId: providerId);
+      if (match == null) return m;
+      final Set<ContentModality> input = match.inputModalities
+          .map(ContentModality.tryParse)
+          .whereType<ContentModality>()
+          .toSet();
+      final Set<ContentModality> output = match.outputModalities
+          .map(ContentModality.tryParse)
+          .whereType<ContentModality>()
+          .toSet();
       return LlmModel(
         id: m.id,
         displayName: m.displayName,
         hidden: m.hidden,
-        contextWindow: ctx,
+        contextWindow: m.contextWindow ?? match.contextLimit,
+        capabilities:
+            m.capabilities ??
+            ModelCapabilities(
+              input: input,
+              output: output,
+              reasoning: match.reasoning,
+              toolCalling: match.toolCall,
+              attachments: match.attachment,
+            ),
       );
     }).toList();
   }
@@ -102,19 +123,20 @@ class ModelContextResolver {
   void _ensureIndex() {
     if (_byCanonicalId != null) return;
 
-    final Map<String, int> byCanonical = <String, int>{};
-    final Map<String, int> bySuffix = <String, int>{};
-    final List<MapEntry<String, int>> fuzzy = <MapEntry<String, int>>[];
+    final Map<String, PricedModel> byCanonical = <String, PricedModel>{};
+    final Map<String, PricedModel> bySuffix = <String, PricedModel>{};
+    final List<MapEntry<String, PricedModel>> fuzzy =
+        <MapEntry<String, PricedModel>>[];
 
     for (final PricedModel pm in _catalog.models) {
-      if (pm.contextLimit == null) continue;
-      // Canonical id is `<lab>/<model>` — but PricedModel.id is just the
-      // model part. Reconstruct the full canonical key.
-      final String fullId = '${pm.labId}/${pm.id}';
-      byCanonical[fullId] = pm.contextLimit!;
-      byCanonical[pm.id] = pm.contextLimit!;
-      bySuffix[pm.id] = pm.contextLimit!;
-      fuzzy.add(MapEntry<String, int>(pm.id.toLowerCase(), pm.contextLimit!));
+      final String fullId = pm.id.contains('/')
+          ? pm.id
+          : '${pm.labId}/${pm.id}';
+      final String suffix = pm.id.split('/').last;
+      byCanonical[fullId] = pm;
+      byCanonical[suffix] = pm;
+      bySuffix[suffix] = pm;
+      fuzzy.add(MapEntry<String, PricedModel>(suffix.toLowerCase(), pm));
     }
 
     _byCanonicalId = byCanonical;

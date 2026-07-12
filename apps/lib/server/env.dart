@@ -17,7 +17,6 @@ import 'dart:io';
 /// Example `.env`:
 ///   PORT=8088
 ///   LOG_LEVEL=debug
-///   SEARCH_PROVIDERS=exa:your-key-here
 Map<String, String> loadDotEnv([String path = '.env']) {
   final File f = File(path);
   if (!f.existsSync()) {

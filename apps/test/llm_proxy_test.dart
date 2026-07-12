@@ -55,6 +55,10 @@ void main() {
       res.headers['access-control-allow-headers'],
       contains('authorization'),
     );
+    expect(
+      res.headers['access-control-expose-headers'],
+      contains('retry-after'),
+    );
   });
 
   test('missing upstream header → 400', () async {

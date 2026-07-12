@@ -61,7 +61,8 @@ class ModelCost {
   bool get hasHeadlinePricing => input != null || output != null;
 
   /// True when the model is free on both input and output.
-  bool get isFree => (input ?? 0) == 0 && (output ?? 0) == 0;
+  bool get isFree =>
+      hasHeadlinePricing && (input ?? 0) == 0 && (output ?? 0) == 0;
 }
 
 /// A single model entry from models.dev, flattened to carry its provider.
@@ -83,6 +84,8 @@ class PricedModel {
     this.openWeights = false,
     this.releaseDate,
     this.lastUpdated,
+    this.pricingProviderName,
+    this.pricingOfficial = false,
   });
 
   /// Builds a [PricedModel] from a models.dev model entry, stamped with its
@@ -135,6 +138,10 @@ class PricedModel {
       openWeights: json['open_weights'] == true,
       releaseDate: _parseDate(json['release_date']),
       lastUpdated: _parseDate(json['last_updated']),
+      pricingProviderName: costJson is Map<String, Object?>
+          ? providerName
+          : null,
+      pricingOfficial: costJson is Map<String, Object?> && providerId == labId,
     );
   }
 
@@ -179,6 +186,13 @@ class PricedModel {
   final DateTime? releaseDate;
   final DateTime? lastUpdated;
 
+  /// Provider whose serving entry supplied [cost]. Canonical models may use
+  /// representative pricing merged from an exact matching provider entry.
+  final String? pricingProviderName;
+
+  /// Whether [cost] came from the model lab's own first-party provider.
+  final bool pricingOfficial;
+
   /// True when the model accepts image input.
   bool get supportsVision =>
       inputModalities.contains('image') || inputModalities.contains('video');
@@ -186,6 +200,33 @@ class PricedModel {
   /// Lower-cased haystack used for free-text search.
   String get searchIndex =>
       '$displayName $name $id $providerName $providerId $labId'.toLowerCase();
+
+  PricedModel withPricing({
+    required ModelCost pricing,
+    required String sourceName,
+    required bool official,
+  }) {
+    return PricedModel(
+      id: id,
+      name: name,
+      providerId: providerId,
+      providerName: providerName,
+      labId: labId,
+      cost: pricing,
+      contextLimit: contextLimit,
+      outputLimit: outputLimit,
+      inputModalities: inputModalities,
+      outputModalities: outputModalities,
+      reasoning: reasoning,
+      toolCall: toolCall,
+      attachment: attachment,
+      openWeights: openWeights,
+      releaseDate: releaseDate,
+      lastUpdated: lastUpdated,
+      pricingProviderName: sourceName,
+      pricingOfficial: official,
+    );
+  }
 
   static DateTime? _parseDate(Object? value) {
     if (value is! String || value.isEmpty) return null;
@@ -210,6 +251,11 @@ class ProviderModels {
   final String id;
   final String name;
   final List<PricedModel> models;
+
+  /// Official models.dev logo endpoint for this provider or lab. models.dev
+  /// serves its own default SVG when a specific logo is unavailable.
+  String get logoUrl =>
+      'https://models.dev/logos/${Uri.encodeComponent(id)}.svg';
 
   /// The `npm` adapter package this provider maps to in models.dev's data
   /// (e.g. `@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`, `@ai-sdk/google`,
@@ -382,8 +428,12 @@ class ModelsCatalog {
         }
       }
     }
+    final List<PricedModel> pricedCanonical = _mergeCanonicalPricing(
+      canonical,
+      all,
+    );
     return ModelsCatalog._(
-      canonicalModels: canonical,
+      canonicalModels: pricedCanonical,
       providerModels: all,
       fetchedAt: fetchedAt,
       providerMeta: meta,
@@ -486,6 +536,80 @@ class ModelsCatalog {
 
   static int _groupSortByName(ProviderModels a, ProviderModels b) =>
       a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+  /// Canonical entries intentionally omit provider-specific costs. Prefer an
+  /// exact first-party serving entry, then use the cheapest exact routed entry
+  /// that represents real per-token pricing. The source stays attached so the
+  /// UI can distinguish official from representative pricing.
+  static List<PricedModel> _mergeCanonicalPricing(
+    List<PricedModel> canonical,
+    List<PricedModel> serving,
+  ) {
+    final Set<String> planOnlyProviderIds = _groupProviders(serving)
+        .where((ProviderModels provider) => provider.isPlanOnly)
+        .map((ProviderModels provider) => provider.id)
+        .toSet();
+    final Map<String, List<PricedModel>> candidates =
+        <String, List<PricedModel>>{};
+    for (final PricedModel model in serving) {
+      if (!(model.cost?.hasHeadlinePricing ?? false)) continue;
+      final String canonicalId = model.id.contains('/')
+          ? model.id
+          : '${model.providerId}/${model.id}';
+      candidates.putIfAbsent(canonicalId, () => <PricedModel>[]).add(model);
+    }
+
+    return canonical
+        .map((PricedModel model) {
+          if (model.cost?.hasHeadlinePricing ?? false) return model;
+          final List<PricedModel> matches =
+              candidates[model.id] ?? const <PricedModel>[];
+          if (matches.isEmpty) return model;
+
+          PricedModel? selected;
+          for (final PricedModel candidate in matches) {
+            if (candidate.providerId == model.labId) {
+              selected = candidate;
+              break;
+            }
+          }
+
+          if (selected == null) {
+            final List<PricedModel> representative =
+                matches
+                    .where(
+                      (PricedModel candidate) =>
+                          !planOnlyProviderIds.contains(candidate.providerId),
+                    )
+                    .toList(growable: false)
+                  ..sort(_pricingSort);
+            if (representative.isNotEmpty) selected = representative.first;
+          }
+
+          final ModelCost? cost = selected?.cost;
+          if (selected == null || cost == null) return model;
+          return model.withPricing(
+            pricing: cost,
+            sourceName: selected.providerName,
+            official: selected.providerId == model.labId,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  static int _pricingSort(PricedModel a, PricedModel b) {
+    final ModelCost ac = a.cost!;
+    final ModelCost bc = b.cost!;
+    final int output = (ac.output ?? double.infinity).compareTo(
+      bc.output ?? double.infinity,
+    );
+    if (output != 0) return output;
+    final int input = (ac.input ?? double.infinity).compareTo(
+      bc.input ?? double.infinity,
+    );
+    if (input != 0) return input;
+    return a.providerName.toLowerCase().compareTo(b.providerName.toLowerCase());
+  }
 
   /// Turns a hyphen/underscore id like `openai` or `x-ai` into "OpenAI" / "X-AI"
   /// for users when no friendly name was provided (the labs branch).

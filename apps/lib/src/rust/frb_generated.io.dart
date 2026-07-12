@@ -37,10 +37,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredConversation dco_decode_box_autoadd_stored_conversation(dynamic raw);
 
   @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
   FetchedPage dco_decode_fetched_page(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
 
   @protected
   List<FetchedPage> dco_decode_list_fetched_page(dynamic raw);
@@ -50,6 +56,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProviderConfig> dco_decode_list_provider_config(dynamic raw);
+
+  @protected
+  List<ProviderIssue> dco_decode_list_provider_issue(dynamic raw);
 
   @protected
   List<SearchResult> dco_decode_list_search_result(dynamic raw);
@@ -67,7 +76,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
   ProviderConfig dco_decode_provider_config(dynamic raw);
+
+  @protected
+  ProviderIssue dco_decode_provider_issue(dynamic raw);
+
+  @protected
+  SearchBatch dco_decode_search_batch(dynamic raw);
 
   @protected
   SearchResult dco_decode_search_result(dynamic raw);
@@ -80,6 +98,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -105,10 +126,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   FetchedPage sse_decode_fetched_page(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
   List<FetchedPage> sse_decode_list_fetched_page(SseDeserializer deserializer);
@@ -118,6 +145,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ProviderConfig> sse_decode_list_provider_config(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ProviderIssue> sse_decode_list_provider_issue(
     SseDeserializer deserializer,
   );
 
@@ -143,7 +175,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   ProviderConfig sse_decode_provider_config(SseDeserializer deserializer);
+
+  @protected
+  ProviderIssue sse_decode_provider_issue(SseDeserializer deserializer);
+
+  @protected
+  SearchBatch sse_decode_search_batch(SseDeserializer deserializer);
 
   @protected
   SearchResult sse_decode_search_result(SseDeserializer deserializer);
@@ -158,6 +199,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -193,10 +237,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
   void sse_encode_fetched_page(FetchedPage self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_fetched_page(
@@ -213,6 +263,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_provider_config(
     List<ProviderConfig> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_provider_issue(
+    List<ProviderIssue> self,
     SseSerializer serializer,
   );
 
@@ -244,10 +300,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_provider_config(
     ProviderConfig self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_provider_issue(ProviderIssue self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_batch(SearchBatch self, SseSerializer serializer);
 
   @protected
   void sse_encode_search_result(SearchResult self, SseSerializer serializer);
@@ -263,6 +328,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

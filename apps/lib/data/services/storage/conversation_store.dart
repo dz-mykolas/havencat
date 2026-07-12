@@ -9,6 +9,7 @@ import 'platform_io.dart'
 
 import '../../../domain/models/conversation.dart';
 import '../../../domain/models/message.dart';
+import '../../../domain/models/message_attachment.dart';
 import '../../../src/rust/api/conversations.dart' as rust;
 import '../../../src/rust/conversations/db.dart' as rust_types;
 
@@ -55,6 +56,7 @@ class RustConversationStore implements ConversationStore {
       messages: messages,
       providerAccountId: s.providerAccount,
       createdAt: DateTime.tryParse(s.createdAt),
+      isPinned: s.isPinned,
     )..currentLeafId = s.currentLeafId;
     return conv;
   }
@@ -80,6 +82,15 @@ class RustConversationStore implements ConversationStore {
         parentId: m.parentId,
         children: childrenIds,
         originalContent: m.originalContent,
+        attachments: m.attachmentsJson != null
+            ? (jsonDecode(m.attachmentsJson!) as List<dynamic>)
+                  .map(
+                    (dynamic value) => MessageAttachment.fromJson(
+                      Map<String, Object?>.from(value as Map),
+                    ),
+                  )
+                  .toList()
+            : const <MessageAttachment>[],
       )
       ..hasError = m.hasError
       ..activeChildId = m.activeChildId
@@ -117,6 +128,7 @@ class RustConversationStore implements ConversationStore {
       createdAt:
           c.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
       currentLeafId: c.currentLeafId,
+      isPinned: c.isPinned,
       updatedAt: (platform.isWeb ? BigInt.zero : 0) as PlatformInt64,
       messages: c.messages.map((m) => _messageToStored(m, c.id)).toList(),
     );
@@ -150,6 +162,13 @@ class RustConversationStore implements ConversationStore {
       completionTokens: _intToPlatformInt64(m.completionTokens),
       totalTokens: _intToPlatformInt64(m.totalTokens),
       reasoning: m.reasoning.isEmpty ? null : m.reasoning,
+      attachmentsJson: m.attachments.isEmpty
+          ? null
+          : jsonEncode(
+              m.attachments
+                  .map((MessageAttachment value) => value.toJson())
+                  .toList(),
+            ),
     );
   }
 }

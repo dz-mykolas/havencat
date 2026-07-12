@@ -13,6 +13,10 @@ int estimateTokens(String text) => (text.length / 4).ceil();
 int estimateMessageTokens(ChatMessage m) {
   int n = 4; // role + delimiters
   n += estimateTokens(m.text);
+  // Image tokenization depends on provider, resolution, and detail level.
+  // Reserve a conservative fixed amount so compaction does not treat image
+  // turns as free when no provider tokenizer is available.
+  n += m.attachments.length * 1024;
   for (final tc in m.toolCalls) {
     n += estimateTokens(tc.args) + 8;
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../settings_viewmodel.dart';
 import 'add_account_dialog.dart';
@@ -20,44 +21,45 @@ import 'chatgpt_login_dialog.dart';
 void showProviderPicker(BuildContext context, SettingsViewModel viewModel) {
   showModalBottomSheet<void>(
     context: context,
-    backgroundColor: AppTheme.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (BuildContext sheetContext) {
       return SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Text(
-                  'Add account',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
+        child: AppScrollView(
+          builder: (BuildContext context, AppScrollController controller) =>
+              SingleChildScrollView(
+                controller: controller,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+                      child: Text(
+                        'Add account',
+                        style: TextStyle(
+                          color: context.appColors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1),
+                    _SectionLabel('Subscription logins'),
+                    for (final ProviderDefinition d
+                        in viewModel.subscriptionCatalog)
+                      _ProviderTile(
+                        definition: d,
+                        // A subscription can only be connected once. Grey out the
+                        // tile when an account for this definition already exists.
+                        disabled: viewModel.hasAccountForDefinition(d.id),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _launch(context, viewModel, d);
+                        },
+                      ),
+                    SizedBox(height: 12),
+                  ],
                 ),
               ),
-              const Divider(height: 1),
-              _SectionLabel('Subscription logins'),
-              for (final ProviderDefinition d in viewModel.subscriptionCatalog)
-                _ProviderTile(
-                  definition: d,
-                  // A subscription can only be connected once. Grey out the
-                  // tile when an account for this definition already exists.
-                  disabled: viewModel.hasAccountForDefinition(d.id),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _launch(context, viewModel, d);
-                  },
-                ),
-              const SizedBox(height: 12),
-            ],
-          ),
         ),
       );
     },
@@ -93,11 +95,11 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
       child: Text(
         text,
-        style: const TextStyle(
-          color: AppTheme.textSecondary,
+        style: TextStyle(
+          color: context.appColors.textSecondary,
           fontSize: 12,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.5,
@@ -123,44 +125,57 @@ class _ProviderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color fg = disabled ? AppTheme.textSecondary : AppTheme.textPrimary;
+    final Color fg = disabled
+        ? context.appColors.textSecondary
+        : context.appColors.textPrimary;
     final Color iconColor = disabled
-        ? AppTheme.textSecondary
-        : AppTheme.textSecondary;
+        ? context.appColors.textSecondary
+        : context.appColors.textSecondary;
     return ListTile(
+      dense: true,
+      visualDensity: VisualDensity(vertical: -2),
+      contentPadding: EdgeInsets.symmetric(horizontal: 16),
+      minLeadingWidth: 24,
+      horizontalTitleGap: 8,
       onTap: disabled ? null : onTap,
       leading: Icon(
         definition.requiresOAuth
             ? Icons.workspace_premium_outlined
             : Icons.key_outlined,
         color: iconColor,
-        size: 22,
+        size: 19,
       ),
       title: Text(
         definition.displayName,
-        style: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: fg,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w500,
+        ),
       ),
       subtitle: Text(
         disabled ? 'Already connected' : definition.description,
         style: TextStyle(
-          color: disabled ? AppTheme.textSecondary : AppTheme.textSecondary,
-          fontSize: 12,
+          color: disabled
+              ? context.appColors.textSecondary
+              : context.appColors.textSecondary,
+          fontSize: 10.5,
         ),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
       trailing: disabled
-          ? const Tooltip(
+          ? Tooltip(
               message: 'You can only connect one account per subscription',
               child: Icon(
                 Icons.lock_outline,
-                color: AppTheme.textSecondary,
+                color: context.appColors.textSecondary,
                 size: 18,
               ),
             )
-          : const Icon(
+          : Icon(
               Icons.chevron_right,
-              color: AppTheme.textSecondary,
+              color: context.appColors.textSecondary,
               size: 20,
             ),
     );

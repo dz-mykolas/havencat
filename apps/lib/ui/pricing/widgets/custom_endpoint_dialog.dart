@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
+import '../../core/widgets/credential_security_button.dart';
 import '../../settings/settings_viewmodel.dart';
 
 /// Dialog for adding a custom provider endpoint — any OpenAI-compatible,
@@ -140,98 +142,107 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Custom endpoint'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            DropdownButtonFormField<_AdapterOption>(
-              initialValue: _adapter,
-              decoration: const InputDecoration(
-                labelText: 'Adapter',
-                border: OutlineInputBorder(),
-              ),
-              items: _adapters
-                  .map(
-                    (_AdapterOption a) => DropdownMenuItem<_AdapterOption>(
-                      value: a,
-                      child: Text(a.label),
+      title: Text('Custom endpoint'),
+      content: AppScrollView(
+        builder: (BuildContext context, AppScrollController controller) =>
+            SingleChildScrollView(
+              controller: controller,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  DropdownButtonFormField<_AdapterOption>(
+                    initialValue: _adapter,
+                    decoration: InputDecoration(
+                      labelText: 'Adapter',
+                      border: OutlineInputBorder(),
                     ),
-                  )
-                  .toList(),
-              onChanged: _saving ? null : _onAdapterChanged,
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                _adapter.hint,
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                ),
+                    items: _adapters
+                        .map(
+                          (_AdapterOption a) =>
+                              DropdownMenuItem<_AdapterOption>(
+                                value: a,
+                                child: Text(a.label),
+                              ),
+                        )
+                        .toList(),
+                    onChanged: _saving ? null : _onAdapterChanged,
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(top: 6, left: 4),
+                    child: Text(
+                      _adapter.hint,
+                      style: TextStyle(
+                        color: context.appColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _name,
+                    decoration: InputDecoration(
+                      labelText: 'Display name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _key,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'API key',
+                      border: OutlineInputBorder(),
+                      suffixIcon: CredentialSecurityButton(),
+                    ),
+                  ),
+                  if (_adapter.showBaseUrl) ...<Widget>[
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: _baseUrl,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: InputDecoration(
+                        labelText: 'Base URL',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _model,
+                    decoration: InputDecoration(
+                      labelText: 'Default model',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (_error != null) ...<Widget>[
+                    SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(color: context.appColors.brandPink),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _name,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _key,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(
-                labelText: 'API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            if (_adapter.showBaseUrl) ...<Widget>[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _baseUrl,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Base URL',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _model,
-              decoration: const InputDecoration(
-                labelText: 'Default model',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            if (_error != null) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: AppTheme.brandPink)),
-            ],
-          ],
-        ),
       ),
       actions: <Widget>[
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('Cancel'),
         ),
         FilledButton(
           onPressed: _canSubmit ? _submit : null,
           child: _saving
-              ? const SizedBox(
+              ? SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Add'),
+              : Text('Add'),
         ),
       ],
     );

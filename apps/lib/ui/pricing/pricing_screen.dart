@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
-import '../core/widgets/fade_slide_in.dart';
+import '../core/widgets/app_scroll_view.dart';
 import '../../domain/models/model_pricing.dart';
 import 'pricing_format.dart';
 import 'pricing_viewmodel.dart';
@@ -44,39 +45,31 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
         leading: vm.view != PricingView.overview
             ? IconButton(
                 tooltip: 'Back',
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: vm.backToOverview,
               )
             : null,
         title: Text(_title(vm)),
         actions: <Widget>[
-          ListenableBuilder(
-            listenable: vm,
-            builder: (BuildContext context, _) {
-              return IconButton(
-                tooltip: 'Refresh',
-                onPressed: vm.refreshing ? null : vm.refresh,
-                icon: vm.refreshing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-              );
-            },
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: vm.refreshing ? null : vm.refresh,
+            icon: vm.refreshing
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.refresh),
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: 4),
         ],
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AppTheme.panelMaxWidth),
-            child: ListenableBuilder(
-              listenable: vm,
-              builder: (BuildContext context, _) => _buildBody(context, vm),
-            ),
+            constraints: BoxConstraints(maxWidth: AppTheme.panelMaxWidth),
+            child: _buildBody(context, vm),
           ),
         ),
       ),
@@ -96,7 +89,7 @@ class _PricingScreenState extends ConsumerState<PricingScreen> {
 
   Widget _buildBody(BuildContext context, PricingViewModel vm) {
     if (vm.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator());
     }
     if (vm.error != null && vm.catalog == null) {
       return _ErrorState(onRetry: vm.load);
@@ -127,15 +120,15 @@ class _Overview extends StatelessWidget {
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   '${vm.providers.length} providers · ${vm.totalCount} models'
                   '${vm.fetchedAt != null ? ' · updated ${formatRelative(vm.fetchedAt!)}' : ''}',
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
                     fontSize: 12.5,
                   ),
                 ),
@@ -168,7 +161,7 @@ class _ModelList extends StatelessWidget {
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: _SearchField(
             controller: searchController,
             hint: vm.view == PricingView.provider
@@ -182,14 +175,14 @@ class _ModelList extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+          padding: EdgeInsets.fromLTRB(16, 4, 8, 8),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   _statusLine(vm, results.length),
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
                     fontSize: 12.5,
                   ),
                 ),
@@ -200,7 +193,7 @@ class _ModelList extends StatelessWidget {
         ),
         Expanded(
           child: results.isEmpty
-              ? const _NoResults()
+              ? _NoResults()
               : _ResultsGrid(results: results, onTap: onOpenModel),
         ),
       ],
@@ -218,9 +211,6 @@ class _ModelList extends StatelessWidget {
   }
 }
 
-/// Responsive card grid: a lazy two-up grid on wide layouts, single column on
-/// narrow ones. We pair items into rows (rather than a fixed-ratio GridView) so
-/// cards keep their natural, content-driven height.
 class _ResultsGrid extends StatelessWidget {
   const _ResultsGrid({required this.results, required this.onTap});
 
@@ -232,43 +222,25 @@ class _ResultsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final int columns = constraints.maxWidth >= 560 ? 2 : 1;
-        final int rowCount = (results.length / columns).ceil();
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          itemCount: rowCount,
-          itemBuilder: (BuildContext context, int row) {
-            final List<Widget> cells = <Widget>[];
-            for (int col = 0; col < columns; col++) {
-              final int index = row * columns + col;
-              if (col > 0) cells.add(const SizedBox(width: 12));
-              if (index < results.length) {
-                final PricedModel model = results[index];
-                cells.add(
-                  Expanded(
-                    child: ModelCard(model: model, onTap: () => onTap(model)),
-                  ),
-                );
-              } else {
-                cells.add(const Expanded(child: SizedBox.shrink()));
-              }
-            }
-            // Stagger only the first screenful so far-down rows appear instantly.
-            final Duration delay = row < 8
-                ? Duration(milliseconds: row * 45)
-                : Duration.zero;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: FadeSlideIn(
-                delay: delay,
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: cells,
-                  ),
+        return AppScrollView(
+          builder: (BuildContext context, AppScrollController controller) =>
+              GridView.builder(
+                controller: controller,
+                padding: EdgeInsets.fromLTRB(12, 2, 12, 16),
+                scrollCacheExtent: ScrollCacheExtent.pixels(200),
+                addAutomaticKeepAlives: false,
+                itemCount: results.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  mainAxisExtent: columns == 1 ? 86 : 96,
                 ),
+                itemBuilder: (BuildContext context, int index) {
+                  final PricedModel model = results[index];
+                  return ModelCard(model: model, onTap: () => onTap(model));
+                },
               ),
-            );
-          },
         );
       },
     );
@@ -293,41 +265,41 @@ class _SearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+      style: TextStyle(color: context.appColors.textPrimary, fontSize: 15),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: AppTheme.textSecondary),
-        prefixIcon: const Icon(
+        hintStyle: TextStyle(color: context.appColors.textSecondary),
+        prefixIcon: Icon(
           Icons.search,
-          color: AppTheme.textSecondary,
+          color: context.appColors.textSecondary,
           size: 20,
         ),
         suffixIcon: ValueListenableBuilder<TextEditingValue>(
           valueListenable: controller,
           builder: (BuildContext context, TextEditingValue value, _) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
+            if (value.text.isEmpty) return SizedBox.shrink();
             return IconButton(
               tooltip: 'Clear',
-              icon: const Icon(Icons.close, size: 18),
-              color: AppTheme.textSecondary,
+              icon: Icon(Icons.close, size: 18),
+              color: context.appColors.textSecondary,
               onPressed: onClear,
             );
           },
         ),
         filled: true,
-        fillColor: AppTheme.surface,
-        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+        fillColor: context.appColors.surface,
+        contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.outline),
+          borderSide: BorderSide(color: context.appColors.outline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.outline),
+          borderSide: BorderSide(color: context.appColors.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.brandViolet),
+          borderSide: BorderSide(color: context.appColors.brandViolet),
         ),
       ),
     );
@@ -346,7 +318,7 @@ class _SortButton extends StatelessWidget {
       tooltip: 'Sort',
       initialValue: sort,
       onSelected: onSelected,
-      color: AppTheme.surfaceHigh,
+      color: context.appColors.surfaceHigh,
       position: PopupMenuPosition.under,
       itemBuilder: (BuildContext context) => <PopupMenuEntry<PricingSort>>[
         for (final PricingSort option in PricingSort.values)
@@ -354,26 +326,16 @@ class _SortButton extends StatelessWidget {
             value: option,
             child: Text(
               option.label,
-              style: const TextStyle(color: AppTheme.textPrimary),
+              style: TextStyle(color: context.appColors.textPrimary),
             ),
           ),
       ],
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.sort, size: 16, color: AppTheme.textSecondary),
-            SizedBox(width: 6),
-            Text(
-              'Sort',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+      child: Padding(
+        padding: EdgeInsets.all(8),
+        child: Icon(
+          Icons.swap_vert_rounded,
+          size: 18,
+          color: context.appColors.textSecondary,
         ),
       ),
     );
@@ -385,15 +347,22 @@ class _NoResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.search_off, size: 44, color: AppTheme.textSecondary),
+          Icon(
+            Icons.search_off,
+            size: 44,
+            color: context.appColors.textSecondary,
+          ),
           SizedBox(height: 12),
           Text(
             'No models match your search',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+            style: TextStyle(
+              color: context.appColors.textSecondary,
+              fontSize: 14,
+            ),
           ),
         ],
       ),
@@ -410,36 +379,39 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.cloud_off_outlined,
               size: 48,
-              color: AppTheme.textSecondary,
+              color: context.appColors.textSecondary,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 16),
+            Text(
               "Couldn't load model pricing",
               style: TextStyle(
-                color: AppTheme.textPrimary,
+                color: context.appColors.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
+            SizedBox(height: 8),
+            Text(
               'Check your connection and try again. Data is provided by '
               'models.dev.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 13,
+              ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             FilledButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              icon: Icon(Icons.refresh),
+              label: Text('Retry'),
             ),
           ],
         ),

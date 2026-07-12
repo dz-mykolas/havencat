@@ -14,9 +14,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 ///              The proxy makes the actual provider call server-side.
 ///
 /// The proxy base is compile-time configurable via
-/// `--dart-define=LLM_PROXY=...`. The default `/proxy` is same-origin, which is
-/// what you get when the app is served by `bin/serve.dart`. For a hot-reload
-/// dev workflow (Flutter dev server on one port, proxy on another) pass an
+/// `--dart-define=LLM_PROXY=...`. For web development, pass the local server's
 /// absolute URL, e.g. `--dart-define=LLM_PROXY=http://localhost:8088/proxy`.
 class LlmEndpoint {
   const LlmEndpoint({this.proxyBase});

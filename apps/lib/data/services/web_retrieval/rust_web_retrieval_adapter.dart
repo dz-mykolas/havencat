@@ -1,52 +1,67 @@
 import 'package:logging/logging.dart';
 
+import '../../../domain/errors/app_failure.dart';
 import '../../../src/rust/api/web_retrieval.dart' as rust;
 import '../../../src/rust/web_retrieval/provider.dart' as rust_types;
 import 'web_retrieval.dart';
-
-/// Configuration for a single provider slot, passed to [RustWebRetrievalAdapter.configure].
-class ProviderSlotConfig {
-  final String kind;
-  final String? secret;
-
-  const ProviderSlotConfig({required this.kind, this.secret});
-}
+import 'web_retrieval_failure_mapper.dart';
+import 'web_retrieval_provider_registry.dart';
 
 /// Bridge adapter that delegates to the Rust web_retrieval module via FRB.
 ///
 /// Call [configure] once at startup (e.g. from `main()`) before issuing any
 /// search/fetch calls. The Rust side owns the SQLite cache + provider fan-out.
-class RustWebRetrievalAdapter implements WebRetrievalAdapter {
+class RustWebRetrievalAdapter
+    implements WebRetrievalAdapter, WebRetrievalConfigurator {
   RustWebRetrievalAdapter();
 
   static final Logger _log = Logger('web_retrieval.rust');
+  static const WebRetrievalProviderRegistry _registry =
+      WebRetrievalProviderRegistry();
+  static const WebRetrievalFailureMapper _failureMapper =
+      WebRetrievalFailureMapper();
 
-  bool _configured = false;
+  String _dbPath = '';
 
   /// Open the cache DB at [dbPath] (empty string = in-memory) and register
-  /// the given search + fetch providers. Idempotent — subsequent calls are
-  /// no-ops after the first success.
+  /// the given search + fetch providers.
   Future<void> configure({
     required String dbPath,
     required List<ProviderSlotConfig> searchProviders,
     required List<ProviderSlotConfig> fetchProviders,
   }) async {
-    if (_configured) return;
+    _dbPath = dbPath;
+    await configureProviders(
+      searchProviders: searchProviders,
+      fetchProviders: fetchProviders,
+    );
+  }
+
+  @override
+  Future<void> configureProviders({
+    required List<ProviderSlotConfig> searchProviders,
+    required List<ProviderSlotConfig> fetchProviders,
+  }) async {
+    final List<ProviderSlotConfig> resolvedSearch = _registry.normalizeSearch(
+      searchProviders,
+    );
+    final List<ProviderSlotConfig> resolvedFetch = _registry.normalizeFetch(
+      fetchProviders,
+    );
     _log.info(
-      'configure: dbPath="${dbPath.isEmpty ? "<in-memory>" : dbPath}" '
-      'search=${searchProviders.map((p) => p.kind).join(',')} '
-      'fetch=${fetchProviders.map((p) => p.kind).join(',')}',
+      'configure: dbPath="${_dbPath.isEmpty ? "<in-memory>" : _dbPath}" '
+      'search=${resolvedSearch.map((p) => p.kind).join(',')} '
+      'fetch=${resolvedFetch.map((p) => p.kind).join(',')}',
     );
     await rust.configureWebRetrieval(
-      dbPath: dbPath,
-      searchProviders: searchProviders
+      dbPath: _dbPath,
+      searchProviders: resolvedSearch
           .map((p) => rust.ProviderConfig(kind: p.kind, secret: p.secret))
           .toList(),
-      fetchProviders: fetchProviders
+      fetchProviders: resolvedFetch
           .map((p) => rust.ProviderConfig(kind: p.kind, secret: p.secret))
           .toList(),
     );
-    _configured = true;
     _log.info('configure: done');
   }
 
@@ -54,18 +69,44 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
   String get kind => 'rust';
 
   @override
-  Future<List<WebSearchResult>> search(
+  Future<WebSearchResponse> search(
     String query, {
     WebSearchOptions options = const WebSearchOptions(),
   }) async {
     _log.fine('search: query="$query" num=${options.numResults}');
-    final results = await rust.webSearch(
-      query: query,
-      numResults: options.numResults,
-    );
-    final mapped = results.map(_toDart).toList();
-    _log.fine('search: query="$query" → ${mapped.length} results');
-    return mapped;
+    try {
+      final rust_types.SearchBatch batch = await rust.webSearch(
+        query: query,
+        numResults: options.numResults,
+      );
+      final List<WebSearchResult> results = batch.results.map(_toDart).toList();
+      final List<WebProviderIssue> issues = batch.issues
+          .map(
+            (rust_types.ProviderIssue issue) => WebProviderIssue(
+              provider: issue.provider,
+              kind: issue.kind,
+              retryAfter: issue.retryAfterSecs == null
+                  ? null
+                  : Duration(seconds: issue.retryAfterSecs!.toInt()),
+            ),
+          )
+          .toList();
+      _log.fine(
+        'search: query="$query" → ${results.length} results, '
+        '${issues.length} issue(s)',
+      );
+      return WebSearchResponse(
+        results: results,
+        issues: issues,
+        successfulProviders: batch.successfulProviders,
+      );
+    } on Object catch (error) {
+      throw _failureMapper.fromException(
+        error,
+        subsystem: AppSubsystem.webSearch,
+        operation: 'search',
+      );
+    }
   }
 
   @override
@@ -74,14 +115,22 @@ class RustWebRetrievalAdapter implements WebRetrievalAdapter {
     FetchFormat format = FetchFormat.markdown,
   }) async {
     _log.fine('fetch: url=$url format=${_formatName(format)}');
-    final page = await rust.urlFetch(url: url, format: _formatName(format));
-    _log.fine('fetch: url=$url → ${page.content.length} chars');
-    return FetchedPage(
-      url: page.url,
-      title: page.title,
-      content: page.content,
-      contentType: page.contentType,
-    );
+    try {
+      final page = await rust.urlFetch(url: url, format: _formatName(format));
+      _log.fine('fetch: url=$url → ${page.content.length} chars');
+      return FetchedPage(
+        url: page.url,
+        title: page.title,
+        content: page.content,
+        contentType: page.contentType,
+      );
+    } on Object catch (error) {
+      throw _failureMapper.fromException(
+        error,
+        subsystem: AppSubsystem.webFetch,
+        operation: 'fetch',
+      );
+    }
   }
 
   /// Full-text search across all cached pages (BM25 ranked).

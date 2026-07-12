@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../branding.dart';
+import '../../data/services/storage/app_settings.dart';
 import '../../data/services/web_retrieval/web_retrieval.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/animated_background.dart';
+import '../core/widgets/app_scroll_view.dart';
 import '../core/widgets/gradient_text.dart';
+import '../core/widgets/theme_mode_button.dart';
 import '../../data/repositories/conversation_repository.dart';
 import '../../domain/models/conversation.dart';
 import '../../domain/models/message.dart';
+import '../../domain/models/message_attachment.dart';
+import '../../domain/errors/app_failure.dart';
 import '../../providers.dart';
 import '../settings/settings_screen.dart';
 import 'chat_viewmodel.dart';
@@ -16,7 +22,7 @@ import 'widgets/chat_input.dart';
 import 'widgets/conversation_drawer.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/message_bubble.dart';
-import 'widgets/smooth_scroll.dart';
+import '../core/notices/failure_presenter.dart';
 
 /// The main chat view: app bar, conversation drawer, message list, and the
 /// animated input bar.
@@ -33,7 +39,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  final AppScrollController _scrollController = AppScrollController();
 
   @override
   void dispose() {
@@ -52,47 +58,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!force && !nearBottom) return;
       _scrollController.animateTo(
         pos.maxScrollExtent,
-        duration: const Duration(milliseconds: 400),
+        duration: Duration(milliseconds: 400),
         curve: Curves.easeOutCubic,
       );
     });
   }
 
-  Future<void> _send(String text) async {
+  Future<void> _send(String text, List<MessageAttachment> attachments) async {
     _scrollToBottom(force: true);
-    await ref.read(chatViewModelProvider).sendMessage(text);
+    await ref
+        .read(chatViewModelProvider)
+        .sendMessage(text, attachments: attachments);
     _scrollToBottom(force: true);
   }
 
-  void _checkStreamError(ChatViewModel vm) {
-    final String? error = vm.lastStreamError;
-    if (error == null) return;
-    vm.clearStreamError();
+  void _publishFailure(ChatViewModel vm) {
+    final AppFailure? failure = vm.lastFailure;
+    if (failure == null) return;
+    vm.clearLastFailure();
+    final FailurePresenter presenter = FailurePresenter();
+    final notice = presenter.present(
+      failure,
+      onRetry: failure.isRetryable ? vm.retryLastFailure : null,
+      onOpenSettings: () async {
+        if (mounted) _openSettings(context);
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.startsWith('⚠️') ? error : '⚠️ $error'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      ref.read(noticeCenterProvider).publish(notice);
     });
   }
 
   void _openSettings(BuildContext context) {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+    ).push(MaterialPageRoute<void>(builder: (_) => SettingsScreen()));
   }
 
   void _goHome() {
     ref.read(chatViewModelProvider).newConversation();
     _textController.clear();
-    final ScaffoldState? scaffold = Scaffold.maybeOf(context);
-    if (scaffold?.isDrawerOpen ?? false) {
-      Navigator.of(context).pop();
-    }
   }
 
   Widget _buildLogo({required double fontSize}) {
@@ -113,7 +119,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildInput() {
-    final ChatViewModel vm = ref.watch(chatViewModelProvider);
+    final ChatViewModel vm = ref.read(chatViewModelProvider);
     final bool toolsEnabled = ref.watch(toolsEnabledProvider);
     final WebRetrievalAdapter webRetrieval = ref.watch(webRetrievalProvider);
     return ListenableBuilder(
@@ -129,6 +135,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ref.read(conversationRepositoryProvider).toolsEnabled = next;
           },
           webRetrievalAdapter: webRetrieval,
+          imageUploadEnabled: vm.canUploadImages,
         );
       },
     );
@@ -136,32 +143,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ChatViewModel vm = ref.watch(chatViewModelProvider);
-    final ConversationRepository repo = ref.watch(
+    final ChatViewModel vm = ref.read(chatViewModelProvider);
+    final AppSettings settings = ref.watch(appSettingsProvider);
+    final ConversationRepository repo = ref.read(
       conversationRepositoryProvider,
     );
 
     // On wide screens the logo sits on the left; on phones it's slightly
     // smaller. The model selector lives in the input bar now.
-    final bool wide = MediaQuery.of(context).size.width >= 720;
+    final double viewportWidth = MediaQuery.sizeOf(context).width;
+    final double persistentSidebarBreakpoint =
+        ConversationSidebar.expandedWidth * 2 -
+        ConversationSidebar.railWidth +
+        AppTheme.contentMaxWidth;
+    final bool persistentSidebar = viewportWidth >= persistentSidebarBreakpoint;
+    final double topSafeInset = MediaQuery.paddingOf(context).top;
+    final double headerExtent = topSafeInset + kToolbarHeight;
+    final double headerFadeHeight = headerExtent + 44;
 
     final Widget chatScaffold = Scaffold(
-      drawer: wide ? null : ConversationDrawer(viewModel: vm),
+      drawer: persistentSidebar
+          ? null
+          : ConversationDrawer(viewModel: vm, onNewChat: _goHome),
+      drawerEnableOpenDragGesture: !persistentSidebar,
+      drawerEdgeDragWidth: 80,
+      drawerScrimColor: Theme.of(
+        context,
+      ).colorScheme.scrim.withValues(alpha: 0.42),
       appBar: AppBar(
-        titleSpacing: wide ? 16 : 8,
-        title: wide ? _buildLogo(fontSize: 20) : _buildLogo(fontSize: 17),
+        titleSpacing: persistentSidebar ? 16 : 8,
+        title: persistentSidebar ? null : _buildLogo(fontSize: 17),
         actions: <Widget>[
+          ThemeModeButton(
+            slot: settings.themeSlot,
+            onToggle: settings.toggleThemeSlot,
+          ),
           IconButton(
             tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
+            icon: Icon(Icons.settings_outlined),
             onPressed: () => _openSettings(context),
           ),
           IconButton(
             tooltip: 'New chat',
-            icon: const Icon(Icons.add_comment_outlined),
-            onPressed: () => vm.newConversation(),
+            icon: Icon(Icons.add_comment_outlined),
+            onPressed: _goHome,
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: 4),
         ],
       ),
       // Let the animated background bleed behind the transparent app bar.
@@ -180,90 +207,128 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           SafeArea(
             top: false,
             child: ListenableBuilder(
-              listenable: repo,
+              listenable: vm,
               builder: (BuildContext context, _) {
+                _publishFailure(vm);
                 final Conversation conversation = repo.active;
                 if (conversation.isEmpty) {
-                  return EmptyState(input: _buildInput());
+                  return Padding(
+                    padding: EdgeInsets.only(top: headerExtent),
+                    child: EmptyState(input: _buildInput()),
+                  );
                 }
                 // Keep pinned to the newest content as tokens stream in.
                 _scrollToBottom();
-                _checkStreamError(vm);
                 final List<ChatMessage> activePath = conversation.activePath;
+                final List<int> downstreamCounts = List<int>.filled(
+                  activePath.length,
+                  0,
+                );
+                int visibleAfter = 0;
+                for (int i = activePath.length - 1; i >= 0; i--) {
+                  downstreamCounts[i] = visibleAfter;
+                  if (!activePath[i].isTool) visibleAfter++;
+                }
                 return Stack(
                   children: <Widget>[
                     // ListView extends full height; text scrolls behind the
                     // input pill.
-                    SmoothScroll(
+                    ListView.builder(
                       controller: _scrollController,
-                      scrollSpeed: 2.5,
-                      scrollAnimationLength: 600,
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                        itemCount: activePath.length,
-                        cacheExtent: 1500,
-                        itemBuilder: (BuildContext context, int index) {
-                          final ChatMessage message = activePath[index];
-                          // Visible messages on the active path after this
-                          // one (excluding hidden tool-result messages) —
-                          // these are what branch off when editing+resending.
-                          final int downstreamCount = activePath
-                              .sublist(index + 1)
-                              .where((m) => !m.isTool)
-                              .length;
-                          return Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                maxWidth: AppTheme.contentMaxWidth,
-                              ),
-                              child: MessageBubble(
-                                key: ValueKey<String>(message.id),
-                                message: message,
-                                messages: activePath,
-                                siblings: conversation.siblingsOf(message.id),
-                                isLast: index == activePath.length - 1,
-                                isGenerating: vm.isGenerating,
-                                descendantCount: downstreamCount,
-                                actualTokens: message.promptTokens,
-                                completionTokens: message.completionTokens,
-                                totalTokens: message.totalTokens,
-                                estimatedTokens:
-                                    message.isAssistant &&
-                                        index == activePath.length - 1
-                                    ? vm.active.lastEstimatedTokens
-                                    : null,
-                                contextWindow: vm.activeContextWindow,
-                                onEditUser: message.isUser
-                                    ? (newText, resend) => vm.editMessage(
-                                        message.id,
-                                        newText,
-                                        resend: resend,
-                                      )
-                                    : null,
-                                onRegenerate: message.isAssistant
-                                    ? ({String? suggestion}) => vm.regenerate(
-                                        message.id,
-                                        suggestionPrompt: suggestion,
-                                      )
-                                    : null,
-                                onRevert: message.isEdited
-                                    ? () => vm.revertEdit(message.id)
-                                    : null,
-                                onPrevSibling: () =>
-                                    vm.selectSibling(message.id, -1),
-                                onNextSibling: () =>
-                                    vm.selectSibling(message.id, 1),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        headerExtent + 12,
+                        16,
+                        200,
+                      ),
+                      itemCount: activePath.length,
+                      scrollCacheExtent: ScrollCacheExtent.pixels(1500),
+                      itemBuilder: (BuildContext context, int index) {
+                        final ChatMessage message = activePath[index];
+                        return Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: AppTheme.contentMaxWidth,
+                            ),
+                            child: MessageBubble(
+                              key: ValueKey<String>(message.id),
+                              message: message,
+                              messages: activePath,
+                              siblings: conversation.siblingsOf(message.id),
+                              isLast: index == activePath.length - 1,
+                              isGenerating: vm.isGenerating,
+                              descendantCount: downstreamCounts[index],
+                              actualTokens: message.promptTokens,
+                              completionTokens: message.completionTokens,
+                              totalTokens: message.totalTokens,
+                              estimatedTokens:
+                                  message.isAssistant &&
+                                      index == activePath.length - 1
+                                  ? vm.active.lastEstimatedTokens
+                                  : null,
+                              contextWindow: vm.activeContextWindow,
+                              onEditUser: message.isUser
+                                  ? (newText, resend) => vm.editMessage(
+                                      message.id,
+                                      newText,
+                                      resend: resend,
+                                    )
+                                  : null,
+                              onRegenerate: message.isAssistant
+                                  ? ({String? suggestion}) => vm.regenerate(
+                                      message.id,
+                                      suggestionPrompt: suggestion,
+                                    )
+                                  : null,
+                              onRevert: message.isEdited
+                                  ? () => vm.revertEdit(message.id)
+                                  : null,
+                              onPrevSibling: () =>
+                                  vm.selectSibling(message.id, -1),
+                              onNextSibling: () =>
+                                  vm.selectSibling(message.id, 1),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      child: IgnorePointer(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: AppTheme.contentMaxWidth,
+                            ),
+                            child: Container(
+                              height: headerFadeHeight,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: <Color>[
+                                    context.appColors.background,
+                                    context.appColors.background,
+                                    context.appColors.background.withValues(
+                                      alpha: 0,
+                                    ),
+                                  ],
+                                  stops: <double>[
+                                    0,
+                                    headerExtent / headerFadeHeight,
+                                    1,
+                                  ],
+                                ),
                               ),
                             ),
-                          );
-                        },
+                          ),
+                        ),
                       ),
                     ),
                     // Gradient that fades text out before the pill.
-                    // Constrained to content width + centered so it doesn't
-                    // paint over the scrollbar (which lives in the right
-                    // margin of the full-width ListView).
+                    // Constrained to the centered content width.
                     Positioned(
                       left: 0,
                       right: 0,
@@ -271,7 +336,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: IgnorePointer(
                         child: Center(
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(
+                            constraints: BoxConstraints(
                               maxWidth: AppTheme.contentMaxWidth,
                             ),
                             child: Container(
@@ -281,10 +346,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
                                   colors: <Color>[
-                                    AppTheme.background.withValues(alpha: 0),
-                                    AppTheme.background,
+                                    context.appColors.background.withValues(
+                                      alpha: 0,
+                                    ),
+                                    context.appColors.background,
                                   ],
-                                  stops: const <double>[0, 0.5],
+                                  stops: <double>[0, 0.5],
                                 ),
                               ),
                             ),
@@ -298,10 +365,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       right: 0,
                       bottom: 0,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 27),
+                        padding: EdgeInsets.fromLTRB(12, 0, 12, 27),
                         child: Center(
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(
+                            constraints: BoxConstraints(
                               maxWidth: AppTheme.contentMaxWidth,
                             ),
                             child: _buildInput(),
@@ -318,13 +385,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
 
-    // On wide screens, show the sidebar as a persistent panel that pushes
-    // content to the right. On narrow screens, it's a drawer overlay.
-    if (wide) {
+    // At this breakpoint the chat remains wider than its content constraint
+    // throughout the sidebar animation, so the panel can push it without
+    // reflowing message content.
+    if (persistentSidebar) {
       return Row(
         children: <Widget>[
-          ConversationSidebar(viewModel: vm),
-          Expanded(child: chatScaffold),
+          RepaintBoundary(
+            child: ConversationSidebar(viewModel: vm, onNewChat: _goHome),
+          ),
+          Expanded(child: RepaintBoundary(child: chatScaffold)),
         ],
       );
     }

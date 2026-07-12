@@ -473,6 +473,18 @@ impl SseDecode for i64 {
     }
 }
 
+impl SseDecode for Vec<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<String>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::web_retrieval::provider::FetchedPage> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -506,6 +518,20 @@ impl SseDecode for Vec<crate::api::web_retrieval::ProviderConfig> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::web_retrieval::ProviderConfig>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::web_retrieval::provider::ProviderIssue> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::web_retrieval::provider::ProviderIssue>::sse_decode(
                 deserializer,
             ));
         }
@@ -577,6 +603,17 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for crate::api::web_retrieval::ProviderConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -585,6 +622,36 @@ impl SseDecode for crate::api::web_retrieval::ProviderConfig {
         return crate::api::web_retrieval::ProviderConfig {
             kind: var_kind,
             secret: var_secret,
+        };
+    }
+}
+
+impl SseDecode for crate::web_retrieval::provider::ProviderIssue {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_provider = <String>::sse_decode(deserializer);
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_retryAfterSecs = <Option<u64>>::sse_decode(deserializer);
+        return crate::web_retrieval::provider::ProviderIssue {
+            provider: var_provider,
+            kind: var_kind,
+            retry_after_secs: var_retryAfterSecs,
+        };
+    }
+}
+
+impl SseDecode for crate::web_retrieval::provider::SearchBatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_results =
+            <Vec<crate::web_retrieval::provider::SearchResult>>::sse_decode(deserializer);
+        let mut var_issues =
+            <Vec<crate::web_retrieval::provider::ProviderIssue>>::sse_decode(deserializer);
+        let mut var_successfulProviders = <Vec<String>>::sse_decode(deserializer);
+        return crate::web_retrieval::provider::SearchBatch {
+            results: var_results,
+            issues: var_issues,
+            successful_providers: var_successfulProviders,
         };
     }
 }
@@ -615,6 +682,7 @@ impl SseDecode for crate::conversations::db::StoredConversation {
         let mut var_providerAccount = <Option<String>>::sse_decode(deserializer);
         let mut var_createdAt = <String>::sse_decode(deserializer);
         let mut var_currentLeafId = <Option<String>>::sse_decode(deserializer);
+        let mut var_isPinned = <bool>::sse_decode(deserializer);
         let mut var_updatedAt = <i64>::sse_decode(deserializer);
         let mut var_messages =
             <Vec<crate::conversations::db::StoredMessage>>::sse_decode(deserializer);
@@ -624,6 +692,7 @@ impl SseDecode for crate::conversations::db::StoredConversation {
             provider_account: var_providerAccount,
             created_at: var_createdAt,
             current_leaf_id: var_currentLeafId,
+            is_pinned: var_isPinned,
             updated_at: var_updatedAt,
             messages: var_messages,
         };
@@ -653,6 +722,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
         let mut var_completionTokens = <Option<i64>>::sse_decode(deserializer);
         let mut var_totalTokens = <Option<i64>>::sse_decode(deserializer);
         let mut var_reasoning = <Option<String>>::sse_decode(deserializer);
+        let mut var_attachmentsJson = <Option<String>>::sse_decode(deserializer);
         return crate::conversations::db::StoredMessage {
             id: var_id,
             conversation_id: var_conversationId,
@@ -674,6 +744,7 @@ impl SseDecode for crate::conversations::db::StoredMessage {
             completion_tokens: var_completionTokens,
             total_tokens: var_totalTokens,
             reasoning: var_reasoning,
+            attachments_json: var_attachmentsJson,
         };
     }
 }
@@ -682,6 +753,13 @@ impl SseDecode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_u32::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u64::<NativeEndian>().unwrap()
     }
 }
 
@@ -821,6 +899,50 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::web_retrieval::ProviderConfig
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::web_retrieval::provider::ProviderIssue {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.provider.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.retry_after_secs.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::web_retrieval::provider::ProviderIssue
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::web_retrieval::provider::ProviderIssue>
+    for crate::web_retrieval::provider::ProviderIssue
+{
+    fn into_into_dart(self) -> crate::web_retrieval::provider::ProviderIssue {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::web_retrieval::provider::SearchBatch {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.results.into_into_dart().into_dart(),
+            self.issues.into_into_dart().into_dart(),
+            self.successful_providers.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::web_retrieval::provider::SearchBatch
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::web_retrieval::provider::SearchBatch>
+    for crate::web_retrieval::provider::SearchBatch
+{
+    fn into_into_dart(self) -> crate::web_retrieval::provider::SearchBatch {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::web_retrieval::provider::SearchResult {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -853,6 +975,7 @@ impl flutter_rust_bridge::IntoDart for crate::conversations::db::StoredConversat
             self.provider_account.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
             self.current_leaf_id.into_into_dart().into_dart(),
+            self.is_pinned.into_into_dart().into_dart(),
             self.updated_at.into_into_dart().into_dart(),
             self.messages.into_into_dart().into_dart(),
         ]
@@ -894,6 +1017,7 @@ impl flutter_rust_bridge::IntoDart for crate::conversations::db::StoredMessage {
             self.completion_tokens.into_into_dart().into_dart(),
             self.total_tokens.into_into_dart().into_dart(),
             self.reasoning.into_into_dart().into_dart(),
+            self.attachments_json.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -948,6 +1072,16 @@ impl SseEncode for i64 {
     }
 }
 
+impl SseEncode for Vec<String> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <String>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::web_retrieval::provider::FetchedPage> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -974,6 +1108,16 @@ impl SseEncode for Vec<crate::api::web_retrieval::ProviderConfig> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::web_retrieval::ProviderConfig>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::web_retrieval::provider::ProviderIssue> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::web_retrieval::provider::ProviderIssue>::sse_encode(item, serializer);
         }
     }
 }
@@ -1028,11 +1172,39 @@ impl SseEncode for Option<i64> {
     }
 }
 
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for crate::api::web_retrieval::ProviderConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.kind, serializer);
         <Option<String>>::sse_encode(self.secret, serializer);
+    }
+}
+
+impl SseEncode for crate::web_retrieval::provider::ProviderIssue {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.provider, serializer);
+        <String>::sse_encode(self.kind, serializer);
+        <Option<u64>>::sse_encode(self.retry_after_secs, serializer);
+    }
+}
+
+impl SseEncode for crate::web_retrieval::provider::SearchBatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::web_retrieval::provider::SearchResult>>::sse_encode(self.results, serializer);
+        <Vec<crate::web_retrieval::provider::ProviderIssue>>::sse_encode(self.issues, serializer);
+        <Vec<String>>::sse_encode(self.successful_providers, serializer);
     }
 }
 
@@ -1055,6 +1227,7 @@ impl SseEncode for crate::conversations::db::StoredConversation {
         <Option<String>>::sse_encode(self.provider_account, serializer);
         <String>::sse_encode(self.created_at, serializer);
         <Option<String>>::sse_encode(self.current_leaf_id, serializer);
+        <bool>::sse_encode(self.is_pinned, serializer);
         <i64>::sse_encode(self.updated_at, serializer);
         <Vec<crate::conversations::db::StoredMessage>>::sse_encode(self.messages, serializer);
     }
@@ -1083,6 +1256,7 @@ impl SseEncode for crate::conversations::db::StoredMessage {
         <Option<i64>>::sse_encode(self.completion_tokens, serializer);
         <Option<i64>>::sse_encode(self.total_tokens, serializer);
         <Option<String>>::sse_encode(self.reasoning, serializer);
+        <Option<String>>::sse_encode(self.attachments_json, serializer);
     }
 }
 
@@ -1090,6 +1264,13 @@ impl SseEncode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_u32::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for u64 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u64::<NativeEndian>(self).unwrap();
     }
 }
 

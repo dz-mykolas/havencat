@@ -60,6 +60,27 @@ impl WebSearchProvider for SearxngProvider {
             .await?;
 
         let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after_secs = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok());
+            return Err(WebRetrievalError::RateLimit {
+                provider: "searxng".into(),
+                retry_after_secs,
+            });
+        }
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(WebRetrievalError::Auth(
+                "searxng instance rejected the request".into(),
+            ));
+        }
+        if status == reqwest::StatusCode::BAD_REQUEST {
+            return Err(WebRetrievalError::InvalidRequest(
+                "searxng rejected the search parameters".into(),
+            ));
+        }
         if !status.is_success() {
             return Err(WebRetrievalError::Network(format!(
                 "searxng: {status} from {base}"

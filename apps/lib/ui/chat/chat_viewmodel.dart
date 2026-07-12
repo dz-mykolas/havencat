@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/conversation_repository.dart';
 import '../../data/repositories/provider_account_repository.dart';
 import '../../domain/models/conversation.dart';
+import '../../domain/models/message_attachment.dart';
+import '../../domain/errors/app_failure.dart';
 import '../../providers.dart';
 
 /// UI-layer state for the chat screen.
@@ -26,7 +28,10 @@ class ChatViewModel extends ChangeNotifier {
 
   void newConversation() => _conversations.newConversation();
   void selectConversation(String id) => _conversations.selectConversation(id);
-  Future<void> sendMessage(String text) => _conversations.sendMessage(text);
+  Future<void> sendMessage(
+    String text, {
+    List<MessageAttachment> attachments = const <MessageAttachment>[],
+  }) => _conversations.sendMessage(text, attachments: attachments);
   Future<void> cancelGeneration() => _conversations.cancelGeneration();
 
   /// Edit a message. [resend] = true creates a sibling + re-streams; false
@@ -41,9 +46,9 @@ class ChatViewModel extends ChangeNotifier {
   /// Revert an in-place edit, restoring the original text.
   void revertEdit(String id) => _conversations.revertEdit(id);
 
-  /// The last stream error message (for toast display). Null after cleared.
-  String? get lastStreamError => _conversations.lastStreamError;
-  void clearStreamError() => _conversations.clearStreamError();
+  AppFailure? get lastFailure => _conversations.lastFailure;
+  void clearLastFailure() => _conversations.clearLastFailure();
+  Future<void> retryLastFailure() => _conversations.retryLastFailure();
 
   /// Switch active branch. direction = -1 (prev) or +1 (next).
   void selectSibling(String id, int direction) =>
@@ -53,6 +58,9 @@ class ChatViewModel extends ChangeNotifier {
   void renameConversation(String id, String newTitle) =>
       _conversations.renameConversation(id, newTitle);
 
+  void toggleConversationPinned(String id) =>
+      _conversations.toggleConversationPinned(id);
+
   /// Delete a conversation. If active, switches to the next one.
   void deleteConversation(String id) => _conversations.deleteConversation(id);
 
@@ -61,8 +69,18 @@ class ChatViewModel extends ChangeNotifier {
 
   // --- Pass-through getters so the view doesn't reach into the repository ---
 
+  List<ConversationView>? _conversationViews;
+
   List<ConversationView> get conversations =>
-      _conversations.conversations.map(_toView).toList();
+      _conversationViews ??= _buildConversationViews();
+
+  List<ConversationView> _buildConversationViews() {
+    final List<Conversation> conversations = _conversations.conversations;
+    return <ConversationView>[
+      ...conversations.where((c) => c.isPinned).map(_toView),
+      ...conversations.where((c) => !c.isPinned).map(_toView),
+    ];
+  }
 
   ConversationView get active => _toView(_conversations.active);
 
@@ -73,15 +91,22 @@ class ChatViewModel extends ChangeNotifier {
   /// Context window (in tokens) for the active conversation's model.
   int get activeContextWindow => _conversations.activeContextWindow;
 
+  bool get canUploadImages => _conversations.canUploadImages;
+
+  bool get canGenerateImages => _conversations.canGenerateImages;
+
   String? get activeProviderName => _providers.activeAccount?.displayName;
 
-  void _relay() => notifyListeners();
+  void _relay() {
+    _conversationViews = null;
+    notifyListeners();
+  }
 
   static ConversationView _toView(Conversation c) {
     return ConversationView(
       id: c.id,
       title: c.isEmpty ? 'New chat' : c.title,
-      messageCount: c.messages.length,
+      isPinned: c.isPinned,
       lastPromptTokens: c.lastPromptTokens,
       lastCompletionTokens: c.lastCompletionTokens,
       lastTotalTokens: c.lastTotalTokens,
@@ -104,7 +129,7 @@ class ConversationView {
   const ConversationView({
     required this.id,
     required this.title,
-    required this.messageCount,
+    required this.isPinned,
     this.lastPromptTokens,
     this.lastCompletionTokens,
     this.lastTotalTokens,
@@ -113,7 +138,7 @@ class ConversationView {
 
   final String id;
   final String title;
-  final int messageCount;
+  final bool isPinned;
 
   /// Prompt-token count reported by the provider for the most recent reply.
   /// Null when the provider doesn't report usage or before the first reply.

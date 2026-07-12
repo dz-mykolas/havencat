@@ -1,5 +1,33 @@
 # HavenCat
 
+## Multimodal model and message architecture
+
+Runtime model lists are enriched from models.dev's `modalities.input`,
+`modalities.output`, limits, and feature flags. `LlmModel.capabilities` is
+nullable on purpose: missing catalog metadata means “unknown,” not
+“text-only,” so custom/local endpoints remain usable. The chat only disables
+image upload when a matched catalog record explicitly omits image input.
+
+Non-text message content is stored as provider-neutral `MessageAttachment`
+records. Attachments declare a modality, MIME type, and source
+(`inlineBase64`, URL, or provider file id), and are persisted with the message
+tree. `AttachmentEvent` is the matching streaming output contract. This keeps
+future audio, video, and file support out of provider-specific UI state.
+
+Current wire support is:
+
+- OpenAI-compatible chat: image inputs become `image_url` content parts.
+- ChatGPT/Codex Responses: image inputs become `input_image` content parts;
+  image-generation output events are converted to attachments.
+- OpenAI image-output models: `/images/generations`, or `/images/edits` when
+  reference images are attached.
+- OpenRouter image-output models: `/images`, including `input_references`.
+
+Text and image are the only implemented UI modalities today. The capability
+and attachment enums already include audio, video, and PDF so those can add
+pickers/renderers and adapter codecs without changing conversation storage or
+the streaming interface.
+
 ## Provider routing (Discover → Add API key)
 
 The Discover panel's "Add API key" button maps a models.dev provider to one of
@@ -180,4 +208,32 @@ Dart can't suppress it. Two cases appear during normal use:
 
 Native (Android/iOS/desktop) doesn't have this issue — `dart:io` HttpClient
 doesn't log to any console.
+
+## Web retrieval providers
+
+Web search is enabled without a separate account through Exa's hosted MCP
+endpoint. This path is intentionally limited: when Exa returns a rate limit,
+the app surfaces a retryable warning instead of silently switching to an
+unofficial scraped search endpoint.
+
+Provider configuration lives under **Settings → Web search** and applies
+immediately without restarting the app. Non-secret settings are persisted in
+the app preferences; Exa and Brave API keys use the same secure storage layer
+as LLM credentials. In web builds the app sends the active configuration to
+the local server at runtime, so keys do not need to be placed in `.env` files.
+
+- `exa` works without a key; a key can be supplied for higher limits.
+- `brave` requires a Brave Search API key.
+- `searxng` requires an explicit HTTP or HTTPS instance URL. Public instances
+  are not selected automatically because JSON access and rate limits vary.
+
+Search providers run concurrently. Results remain usable when one provider
+fails, while the failed provider is reported as a degraded-search warning.
+If every provider fails, the tool returns a structured failure through the
+shared application error system.
+
+## License
+
+HavenCat is licensed under the [Apache License 2.0](LICENSE). See
+[NOTICE](NOTICE) for attribution information.
 

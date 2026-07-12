@@ -5,13 +5,13 @@
 Pod::Spec.new do |s|
   s.name             = 'app_rust'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter FFI plugin project.'
+  s.summary          = 'Rust bridge for HavenCat.'
   s.description      = <<-DESC
-A new Flutter FFI plugin project.
+Rust bridge for the HavenCat application.
                        DESC
-  s.homepage         = 'http://example.com'
-  s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.homepage         = 'https://github.com/dz-mykolas/havencat'
+  s.license          = { :type => 'Apache-2.0', :file => '../../../LICENSE' }
+  s.author           = 'HavenCat contributors'
 
   # This will ensure the source files in Classes/ are included in the native
   # builds of apps using this FFI plugin. Podspec does not support relative

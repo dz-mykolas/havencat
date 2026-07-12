@@ -4,6 +4,17 @@ import 'package:logging/logging.dart';
 
 import '../llm/llm_event.dart';
 import 'web_retrieval.dart';
+import 'web_retrieval_failure_mapper.dart';
+
+class WebToolResult {
+  const WebToolResult({
+    required this.content,
+    this.warnings = const <AppFailure>[],
+  });
+
+  final String content;
+  final List<AppFailure> warnings;
+}
 
 /// Tool definitions for the web retrieval capabilities exposed to the LLM.
 ///
@@ -14,6 +25,8 @@ class WebSearchTools {
   const WebSearchTools();
 
   static final Logger _log = Logger('web_search_tools');
+  static const WebRetrievalFailureMapper _failureMapper =
+      WebRetrievalFailureMapper();
 
   /// OpenAI-shaped tool definitions for the web search + fetch capabilities.
   /// Pass these in [LlmRequest.tools] when web search is enabled.
@@ -55,7 +68,7 @@ class WebSearchTools {
 
   /// Execute a tool call by name. Returns the result text to append as a
   /// tool message. Throws if the tool name is unknown or the args are bad.
-  Future<String> execute({
+  Future<WebToolResult> execute({
     required String name,
     required String args,
     required WebRetrievalAdapter adapter,
@@ -66,16 +79,39 @@ class WebSearchTools {
         final String query = parsed['query'] as String? ?? '';
         if (query.isEmpty) {
           _log.warning('web_search: missing "query" argument');
-          return 'Error: missing "query" argument.';
+          throw const AppFailure(
+            kind: FailureKind.invalidRequest,
+            source: FailureSource(
+              subsystem: AppSubsystem.webSearch,
+              operation: 'search',
+            ),
+            message: 'The model attempted a web search without a query.',
+          );
         }
         _log.fine('web_search: query="$query"');
-        final List<WebSearchResult> results = await adapter.search(query);
+        final WebSearchResponse response = await adapter.search(query);
+        final List<AppFailure> issues = response.issues
+            .map(
+              (WebProviderIssue issue) => _failureMapper.fromIssue(
+                issue,
+                operation: 'search',
+                degraded: response.results.isNotEmpty,
+              ),
+            )
+            .toList();
+        if (response.results.isEmpty &&
+            issues.isNotEmpty &&
+            response.successfulProviders.isEmpty) {
+          throw issues.first;
+        }
         _log.info(
-          'web_search: query="$query" → ${results.length} result(s) '
-          'provider=${results.isEmpty ? 'n/a' : results.first.provider}',
+          'web_search: query="$query" → ${response.results.length} result(s) '
+          'provider=${response.results.isEmpty ? 'n/a' : response.results.first.provider}',
         );
-        if (results.isEmpty) return 'No results found for "$query".';
-        return results
+        if (response.results.isEmpty) {
+          return WebToolResult(content: 'No results found for "$query".');
+        }
+        final String content = response.results
             .asMap()
             .entries
             .map((e) {
@@ -86,11 +122,22 @@ class WebSearchTools {
               return '${e.key + 1}. ${r.title}$date\n   ${r.url}\n   ${r.snippet}';
             })
             .join('\n\n');
+        final String warning = issues.isEmpty
+            ? ''
+            : '\n\n[Search warning: ${issues.map((AppFailure issue) => issue.message).join(' ')}]';
+        return WebToolResult(content: '$content$warning', warnings: issues);
       case 'fetch_page':
         final String url = parsed['url'] as String? ?? '';
         if (url.isEmpty) {
           _log.warning('fetch_page: missing "url" argument');
-          return 'Error: missing "url" argument.';
+          throw const AppFailure(
+            kind: FailureKind.invalidRequest,
+            source: FailureSource(
+              subsystem: AppSubsystem.webFetch,
+              operation: 'fetch',
+            ),
+            message: 'The model attempted to fetch a page without a URL.',
+          );
         }
         _log.fine('fetch_page: url=$url');
         final FetchedPage page = await adapter.fetch(url);
@@ -101,10 +148,19 @@ class WebSearchTools {
         final String body = page.content.length > 8000
             ? '${page.content.substring(0, 8000)}\n\n[...truncated, ${page.content.length - 8000} more chars]'
             : page.content;
-        return 'Title: ${page.title}\nURL: ${page.url}\n\n$body';
+        return WebToolResult(
+          content: 'Title: ${page.title}\nURL: ${page.url}\n\n$body',
+        );
       default:
         _log.warning('unknown tool: name=$name');
-        return 'Error: unknown tool "$name".';
+        throw AppFailure(
+          kind: FailureKind.unsupported,
+          source: const FailureSource(
+            subsystem: AppSubsystem.webSearch,
+            operation: 'execute_tool',
+          ),
+          message: 'The model requested an unsupported tool "$name".',
+        );
     }
   }
 

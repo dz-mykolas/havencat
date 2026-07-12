@@ -247,11 +247,13 @@ class LlmContextCompactor implements ContextCompactor {
                 buffer.write(delta);
               case ReasoningEvent():
                 break;
+              case AttachmentEvent():
+                break;
               case ToolCallEvent():
                 break;
               case DoneEvent():
                 if (!completer.isCompleted) completer.complete();
-              case ErrorEvent(:final LlmError error):
+              case ErrorEvent(:final AppFailure error):
                 errorMessage = error.message;
                 if (!completer.isCompleted) completer.complete();
             }

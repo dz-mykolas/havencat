@@ -1,21 +1,15 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'branding.dart';
+import 'data/services/storage/app_settings.dart';
+import 'domain/models/app_theme_preferences.dart';
+import 'providers.dart';
 import 'ui/chat/chat_screen.dart';
 import 'ui/core/theme/app_theme.dart';
+import 'ui/core/notices/notice_host.dart';
 
-/// Scroll behavior that gives wheel scrolling on web a smoother, momentum-based
-/// feel (like native browser scrolling) instead of the default dead-stop ticks.
-class _SmoothScrollBehavior extends MaterialScrollBehavior {
-  @override
-  Set<PointerDeviceKind> get dragDevices => <PointerDeviceKind>{
-    PointerDeviceKind.touch,
-    PointerDeviceKind.mouse,
-    PointerDeviceKind.trackpad,
-  };
-
+class _AppScrollBehavior extends MaterialScrollBehavior {
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) =>
       const BouncingScrollPhysics(
@@ -30,12 +24,19 @@ class App extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final AppSettings settings = ref.watch(appSettingsProvider);
     return MaterialApp(
       title: appName,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
-      scrollBehavior: _SmoothScrollBehavior(),
-      home: const ChatScreen(),
+      theme: AppTheme.build(settings.lightTheme),
+      darkTheme: AppTheme.build(settings.darkTheme),
+      themeMode: settings.themeSlot == AppThemeSlot.light
+          ? ThemeMode.light
+          : ThemeMode.dark,
+      themeAnimationDuration: const Duration(milliseconds: 320),
+      themeAnimationCurve: Curves.easeOutCubic,
+      scrollBehavior: _AppScrollBehavior(),
+      home: const NoticeHost(child: ChatScreen()),
     );
   }
 }

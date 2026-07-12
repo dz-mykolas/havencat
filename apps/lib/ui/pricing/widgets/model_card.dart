@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_theme.dart';
 import '../../../domain/models/model_pricing.dart';
+import '../../core/theme/app_theme.dart';
 import '../pricing_format.dart';
 
-/// A single model in the pricing list: name + provider, headline input/output
-/// price, and a row of capability chips. Tapping opens the detail sheet.
 class ModelCard extends StatelessWidget {
   const ModelCard({super.key, required this.model, required this.onTap});
 
@@ -16,106 +14,102 @@ class ModelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ModelCost? cost = model.cost;
     final bool free = cost?.isFree ?? false;
-
     return Material(
-      color: AppTheme.surface,
-      borderRadius: BorderRadius.circular(16),
+      color: context.appColors.surface,
+      borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.outline),
-          ),
-          padding: const EdgeInsets.all(16),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(12, 11, 10, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
+                  _ModelMark(reasoning: model.reasoning),
+                  SizedBox(width: 9),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
                           model.displayName,
-                          maxLines: 2,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 15,
+                          style: TextStyle(
+                            color: context.appColors.textPrimary,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            height: 1.2,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        SizedBox(height: 2),
                         Text(
                           model.providerName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 12.5,
+                          style: TextStyle(
+                            color: context.appColors.textSecondary,
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  if (free) const _FreeBadge(),
+                  if (free) _FreeState(),
+                  SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: context.appColors.textSecondary,
+                  ),
                 ],
               ),
-              const SizedBox(height: 14),
-              if (!free)
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: _PricePill(
-                        label: 'Input',
-                        value: formatPricePerMillion(cost?.input),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _PricePill(
-                        label: 'Output',
-                        value: formatPricePerMillion(cost?.output),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Text(
-                  'No usage charge',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 12.5,
-                  ),
-                ),
-              const SizedBox(height: 12),
+              SizedBox(height: 9),
               Wrap(
-                spacing: 6,
+                spacing: 10,
                 runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: <Widget>[
+                  if (cost?.hasHeadlinePricing ?? false)
+                    _Meta(
+                      icon: model.pricingOfficial
+                          ? Icons.verified_outlined
+                          : Icons.storefront_outlined,
+                      label:
+                          '${formatPricePerMillion(cost?.input)} · '
+                          '${formatPricePerMillion(cost?.output)}',
+                      tooltip: _pricingTooltip(model),
+                    ),
                   if (model.contextLimit != null)
-                    _CapChip(
-                      icon: Icons.view_column_outlined,
-                      label: '${formatTokens(model.contextLimit)} ctx',
+                    _Meta(
+                      icon: Icons.data_object_rounded,
+                      label: formatTokens(model.contextLimit),
+                      tooltip: 'Context window',
                     ),
                   if (model.reasoning)
-                    const _CapChip(
+                    _Capability(
                       icon: Icons.psychology_outlined,
-                      label: 'Reasoning',
+                      tooltip: 'Reasoning',
+                      color: context.appColors.brandViolet,
                     ),
                   if (model.toolCall)
-                    const _CapChip(icon: Icons.build_outlined, label: 'Tools'),
+                    _Capability(
+                      icon: Icons.build_outlined,
+                      tooltip: 'Tool calling',
+                      color: context.appColors.brandBlue,
+                    ),
                   if (model.supportsVision)
-                    const _CapChip(icon: Icons.image_outlined, label: 'Vision'),
+                    _Capability(
+                      icon: Icons.image_outlined,
+                      tooltip: 'Vision',
+                      color: context.appColors.brandPink,
+                    ),
                   if (model.openWeights)
-                    const _CapChip(
+                    _Capability(
                       icon: Icons.lock_open_outlined,
-                      label: 'Open',
+                      tooltip: 'Open weights',
+                      color: context.appColors.textSecondary,
                     ),
                 ],
               ),
@@ -125,86 +119,61 @@ class ModelCard extends StatelessWidget {
       ),
     );
   }
+
+  static String _pricingTooltip(PricedModel model) {
+    final String source = model.pricingProviderName ?? model.providerName;
+    final String kind = model.pricingOfficial
+        ? 'Official $source pricing'
+        : 'Representative pricing from $source';
+    return '$kind · input · output per 1M tokens';
+  }
 }
 
-/// "$/M tokens" caption shared under each price pill value.
-const String kPerMillionCaption = 'per 1M tokens';
+class _ModelMark extends StatelessWidget {
+  const _ModelMark({required this.reasoning});
 
-class _PricePill extends StatelessWidget {
-  const _PricePill({required this.label, required this.value});
-
-  final String label;
-  final String value;
+  final bool reasoning;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      width: 32,
+      height: 32,
       decoration: BoxDecoration(
-        color: AppTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(12),
+        color: context.appColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(9),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
-            ),
-          ),
-          const SizedBox(height: 3),
-          ShaderMask(
-            shaderCallback: (Rect bounds) =>
-                AppTheme.brandGradient.createShader(bounds),
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            kPerMillionCaption,
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10),
-          ),
-        ],
+      alignment: Alignment.center,
+      child: Icon(
+        reasoning ? Icons.psychology_outlined : Icons.auto_awesome_outlined,
+        size: 17,
+        color: context.appColors.brandViolet,
       ),
     );
   }
 }
 
-class _CapChip extends StatelessWidget {
-  const _CapChip({required this.icon, required this.label});
+class _Meta extends StatelessWidget {
+  const _Meta({required this.icon, required this.label, required this.tooltip});
 
   final IconData icon;
   final String label;
+  final String tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.outline),
-      ),
+    return Tooltip(
+      message: tooltip,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 13, color: AppTheme.textSecondary),
-          const SizedBox(width: 5),
+          Icon(icon, size: 13, color: context.appColors.textSecondary),
+          SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 11.5,
+            style: TextStyle(
+              color: context.appColors.textSecondary,
+              fontSize: 10.5,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -214,23 +183,45 @@ class _CapChip extends StatelessWidget {
   }
 }
 
-class _FreeBadge extends StatelessWidget {
-  const _FreeBadge();
+class _Capability extends StatelessWidget {
+  const _Capability({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: AppTheme.brandGradient,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Text(
-        'Free',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+    return Tooltip(
+      message: tooltip,
+      child: Icon(icon, size: 14, color: color),
+    );
+  }
+}
+
+class _FreeState extends StatelessWidget {
+  const _FreeState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Free',
+      child: Container(
+        width: 22,
+        height: 22,
+        decoration: BoxDecoration(
+          color: context.appColors.brandPink.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.money_off_csred_outlined,
+          size: 14,
+          color: context.appColors.brandPink,
         ),
       ),
     );

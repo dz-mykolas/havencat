@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
 import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/provider_account.dart';
 import '../model_selector_viewmodel.dart';
@@ -35,7 +36,7 @@ class ModelSelectorPanel extends StatelessWidget {
             onSelect: vm.selectProvider,
           ),
         ),
-        Container(width: 1, color: AppTheme.outline),
+        Container(width: 1, color: context.appColors.divider),
         Expanded(
           child: _ModelColumn(vm: vm, models: models),
         ),
@@ -60,64 +61,76 @@ class _ProviderColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (accounts.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No providers configured',
-          style: TextStyle(color: AppTheme.textSecondary),
+          style: TextStyle(color: context.appColors.textSecondary),
         ),
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: accounts.length,
-      itemBuilder: (BuildContext context, int index) {
-        final ProviderAccount a = accounts[index];
-        final bool selected = a.id == activeId;
-        final bool locked = a.enabledModels.isEmpty;
-        return ListTile(
-          dense: true,
-          selected: selected,
-          enabled: !locked,
-          leading: Icon(
-            Icons.account_tree_outlined,
-            size: 18,
-            color: selected ? AppTheme.brandBlue : AppTheme.textSecondary,
-          ),
-          title: Text(
-            a.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: locked ? AppTheme.textSecondary : AppTheme.textPrimary,
-            ),
-          ),
-          trailing: locked
-              ? const Tooltip(
-                  message: 'No models enabled',
-                  child: Icon(
-                    Icons.lock_outline,
-                    size: 14,
-                    color: AppTheme.textSecondary,
-                  ),
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    if (vm.newCountFor(a.id) > 0)
-                      _NewCountBadge(count: vm.newCountFor(a.id)),
-                    if (selected)
-                      const Icon(
-                        Icons.check,
-                        size: 16,
-                        color: AppTheme.brandBlue,
-                      ),
-                  ],
+    return AppScrollView(
+      builder: (BuildContext context, AppScrollController controller) =>
+          ListView.builder(
+            controller: controller,
+            padding: EdgeInsets.symmetric(vertical: 4),
+            itemCount: accounts.length,
+            itemBuilder: (BuildContext context, int index) {
+              final ProviderAccount a = accounts[index];
+              final bool selected = a.id == activeId;
+              final bool locked = a.enabledModels.isEmpty;
+              return ListTile(
+                dense: true,
+                visualDensity: VisualDensity(vertical: -3),
+                contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                minLeadingWidth: 20,
+                horizontalTitleGap: 6,
+                selected: selected,
+                enabled: !locked,
+                leading: Icon(
+                  Icons.account_tree_outlined,
+                  size: 18,
+                  color: selected
+                      ? context.appColors.brandBlue
+                      : context.appColors.textSecondary,
                 ),
-          onTap: locked ? null : () => onSelect(a.id),
-        );
-      },
+                title: Text(
+                  a.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: locked
+                        ? context.appColors.textSecondary
+                        : context.appColors.textPrimary,
+                  ),
+                ),
+                trailing: locked
+                    ? Tooltip(
+                        message: 'No models enabled',
+                        child: Icon(
+                          Icons.lock_outline,
+                          size: 14,
+                          color: context.appColors.textSecondary,
+                        ),
+                      )
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (vm.newCountFor(a.id) > 0)
+                            _NewCountBadge(count: vm.newCountFor(a.id)),
+                          if (selected)
+                            Icon(
+                              Icons.check,
+                              size: 16,
+                              color: context.appColors.brandBlue,
+                            ),
+                        ],
+                      ),
+                onTap: locked ? null : () => onSelect(a.id),
+              );
+            },
+          ),
     );
   }
 }
@@ -131,71 +144,85 @@ class _ModelColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (vm.isLoading || models == null) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
     if (vm.error != null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.error_outline, color: AppTheme.brandPink),
-            const SizedBox(height: 8),
-            TextButton(onPressed: vm.refresh, child: const Text('Retry')),
+            Icon(Icons.error_outline, color: context.appColors.brandPink),
+            SizedBox(height: 8),
+            TextButton(onPressed: vm.refresh, child: Text('Retry')),
           ],
         ),
       );
     }
     if (models == null || models!.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No models',
-          style: TextStyle(color: AppTheme.textSecondary),
+          style: TextStyle(color: context.appColors.textSecondary),
         ),
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: models!.length,
-      itemBuilder: (BuildContext context, int index) {
-        final LlmModel m = models![index];
-        final bool selected = m.id == vm.selectedModelId;
-        return ListTile(
-          dense: true,
-          selected: selected,
-          leading: Icon(
-            Icons.bubble_chart_outlined,
-            size: 18,
-            color: selected ? AppTheme.brandBlue : AppTheme.textSecondary,
+    return AppScrollView(
+      builder: (BuildContext context, AppScrollController controller) =>
+          ListView.builder(
+            controller: controller,
+            padding: EdgeInsets.symmetric(vertical: 4),
+            itemCount: models!.length,
+            itemBuilder: (BuildContext context, int index) {
+              final LlmModel m = models![index];
+              final bool selected = m.id == vm.selectedModelId;
+              return ListTile(
+                dense: true,
+                visualDensity: VisualDensity(vertical: -3),
+                contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                minLeadingWidth: 20,
+                horizontalTitleGap: 6,
+                selected: selected,
+                leading: Icon(
+                  Icons.bubble_chart_outlined,
+                  size: 18,
+                  color: selected
+                      ? context.appColors.brandBlue
+                      : context.appColors.textSecondary,
+                ),
+                title: Text(
+                  m.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+                trailing: selected
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (vm.isSelectedModelDeprecated)
+                            Tooltip(
+                              message: 'Provider no longer lists this model',
+                              child: Icon(
+                                Icons.warning_amber,
+                                size: 14,
+                                color: context.appColors.brandPink,
+                              ),
+                            ),
+                          Icon(
+                            Icons.check,
+                            size: 16,
+                            color: context.appColors.brandBlue,
+                          ),
+                        ],
+                      )
+                    : null,
+                onTap: () => vm.selectModel(m.id),
+              );
+            },
           ),
-          title: Text(
-            m.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-          trailing: selected
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    if (vm.isSelectedModelDeprecated)
-                      const Tooltip(
-                        message: 'Provider no longer lists this model',
-                        child: Icon(
-                          Icons.warning_amber,
-                          size: 14,
-                          color: AppTheme.brandPink,
-                        ),
-                      ),
-                    const Icon(Icons.check, size: 16, color: AppTheme.brandBlue),
-                  ],
-                )
-              : null,
-          onTap: () => vm.selectModel(m.id),
-        );
-      },
     );
   }
 }
@@ -212,26 +239,21 @@ class _NewCountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(right: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      margin: EdgeInsets.only(right: 6),
+      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: AppTheme.brandBlue.withValues(alpha: 0.18),
+        color: context.appColors.brandBlue.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.brandBlue.withValues(alpha: 0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(
-            Icons.fiber_new,
-            size: 11,
-            color: AppTheme.brandBlue,
-          ),
-          const SizedBox(width: 3),
+          Icon(Icons.fiber_new, size: 11, color: context.appColors.brandBlue),
+          SizedBox(width: 3),
           Text(
             '$count',
-            style: const TextStyle(
-              color: AppTheme.brandBlue,
+            style: TextStyle(
+              color: context.appColors.brandBlue,
               fontSize: 11,
               fontWeight: FontWeight.w700,
             ),

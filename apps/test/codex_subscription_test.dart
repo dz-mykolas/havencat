@@ -7,6 +7,7 @@ import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 
 import 'package:app/data/services/llm/subscription/chatgpt_subscription_adapter.dart';
 import 'package:app/data/services/llm/subscription/codex_protocol.dart';
+import 'package:app/domain/errors/app_failure.dart';
 import 'package:app/domain/models/adapter_kind.dart';
 import 'package:app/domain/models/llm_model.dart';
 import 'package:app/domain/models/message.dart';
@@ -140,7 +141,13 @@ void main() {
 
       expect(
         () => adapter.listModels(account: account, secret: 'token'),
-        throwsA(isA<DioException>()),
+        throwsA(
+          isA<AppFailure>().having(
+            (AppFailure failure) => failure.kind,
+            'kind',
+            FailureKind.serverError,
+          ),
+        ),
       );
     });
   });

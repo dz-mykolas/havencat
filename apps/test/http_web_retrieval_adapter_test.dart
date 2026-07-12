@@ -6,9 +6,41 @@ import 'package:http/testing.dart';
 
 import 'package:app/data/services/web_retrieval/http_web_retrieval_adapter.dart';
 import 'package:app/data/services/web_retrieval/web_retrieval.dart';
+import 'package:app/domain/errors/app_failure.dart';
 
 void main() {
   group('HttpWebRetrievalAdapter', () {
+    test('configureProviders sends runtime provider configuration', () async {
+      late Map<String, dynamic> body;
+      final client = MockClient((http.Request request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, endsWith('/api/retrieval/configure'));
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response('', 204);
+      });
+      final HttpWebRetrievalAdapter adapter = HttpWebRetrievalAdapter(
+        client: client,
+      );
+
+      await adapter.configureProviders(
+        searchProviders: const <ProviderSlotConfig>[
+          ProviderSlotConfig(kind: 'brave', secret: 'secret'),
+        ],
+        fetchProviders: const <ProviderSlotConfig>[
+          ProviderSlotConfig(kind: 'direct_http'),
+        ],
+      );
+
+      expect(
+        ((body['search_providers'] as List).single as Map)['kind'],
+        'brave',
+      );
+      expect(
+        ((body['search_providers'] as List).single as Map)['secret'],
+        'secret',
+      );
+    });
+
     test('search maps /api/search JSON to List<WebSearchResult>', () async {
       final client = MockClient((request) async {
         expect(request.url.path, endsWith('/api/search'));
@@ -40,7 +72,8 @@ void main() {
         client: client,
       );
 
-      final results = await adapter.search('rust sqlite');
+      final response = await adapter.search('rust sqlite');
+      final results = response.results;
 
       expect(results.length, 2);
       expect(results[0].title, 'Rust + SQLite');
@@ -70,17 +103,14 @@ void main() {
       expect(capturedNum, '10');
     });
 
-    test('search throws WebRetrievalException on non-200', () async {
+    test('search throws AppFailure on non-200', () async {
       final client = MockClient((_) async {
         return http.Response('Internal error', 500);
       });
 
       final adapter = HttpWebRetrievalAdapter(client: client);
 
-      expect(
-        () => adapter.search('test'),
-        throwsA(isA<WebRetrievalException>()),
-      );
+      expect(() => adapter.search('test'), throwsA(isA<AppFailure>()));
     });
 
     test('search handles empty result list', () async {
@@ -89,9 +119,36 @@ void main() {
       });
 
       final adapter = HttpWebRetrievalAdapter(client: client);
-      final results = await adapter.search('nothing');
+      final response = await adapter.search('nothing');
 
-      expect(results, isEmpty);
+      expect(response.results, isEmpty);
+    });
+
+    test('search maps provider issues and successful providers', () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'results': <Object?>[],
+            'issues': <Object?>[
+              <String, Object?>{
+                'provider': 'brave',
+                'kind': 'rate_limited',
+                'retry_after_seconds': 30,
+              },
+            ],
+            'successful_providers': <String>['exa'],
+          }),
+          200,
+        );
+      });
+
+      final WebSearchResponse response = await HttpWebRetrievalAdapter(
+        client: client,
+      ).search('nothing');
+
+      expect(response.successfulProviders, <String>['exa']);
+      expect(response.issues.single.provider, 'brave');
+      expect(response.issues.single.retryAfter, const Duration(seconds: 30));
     });
 
     test('fetch maps /api/fetch JSON to FetchedPage', () async {
@@ -144,7 +201,7 @@ void main() {
       expect(capturedFormat, 'text');
     });
 
-    test('fetch throws WebRetrievalException on non-200', () async {
+    test('fetch throws AppFailure on non-200', () async {
       final client = MockClient((_) async {
         return http.Response('Not found', 404);
       });
@@ -153,7 +210,7 @@ void main() {
 
       expect(
         () => adapter.fetch('https://example.com/missing'),
-        throwsA(isA<WebRetrievalException>()),
+        throwsA(isA<AppFailure>()),
       );
     });
 
@@ -199,7 +256,7 @@ void main() {
 
       expect(
         () => adapter.cacheSearchPages('test'),
-        throwsA(isA<WebRetrievalException>()),
+        throwsA(isA<AppFailure>()),
       );
     });
 
@@ -223,10 +280,7 @@ void main() {
 
       final adapter = HttpWebRetrievalAdapter(client: client);
 
-      expect(
-        () => adapter.cleanupCache(),
-        throwsA(isA<WebRetrievalException>()),
-      );
+      expect(() => adapter.cleanupCache(), throwsA(isA<AppFailure>()));
     });
 
     test('strips trailing slashes from baseUrl', () {

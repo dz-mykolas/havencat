@@ -65,18 +65,20 @@ class _FakeWebRetrieval implements WebRetrievalAdapter {
   String get kind => 'fake';
 
   @override
-  Future<List<WebSearchResult>> search(
+  Future<WebSearchResponse> search(
     String query, {
     WebSearchOptions options = const WebSearchOptions(),
   }) async {
-    return <WebSearchResult>[
-      WebSearchResult(
-        title: 'Result for $query',
-        url: 'https://example.com/$query',
-        snippet: 'Snippet about $query',
-        provider: 'test',
-      ),
-    ];
+    return WebSearchResponse(
+      results: <WebSearchResult>[
+        WebSearchResult(
+          title: 'Result for $query',
+          url: 'https://example.com/$query',
+          snippet: 'Snippet about $query',
+          provider: 'test',
+        ),
+      ],
+    );
   }
 
   @override

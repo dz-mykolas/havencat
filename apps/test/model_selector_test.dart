@@ -219,29 +219,22 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Open the provider picker popup by tapping the provider chip (the
-        // account-tree icon button in the selector bar).
-        await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
+        await tester.tap(find.byType(ModelSelectorBar));
         await tester.pumpAndSettle();
 
-        // "With Models" entry is enabled (selectable, has no lock icon).
         final Finder withRow = find.ancestor(
           of: find.text('With Models'),
-          matching: find.byType(PopupMenuItem<String>),
+          matching: find.byType(ListTile),
         );
         expect(withRow, findsOneWidget);
-        expect(tester.widget<PopupMenuItem<String>>(withRow).enabled, isTrue);
+        expect(tester.widget<ListTile>(withRow).enabled, isTrue);
 
-        // "No Models" entry is disabled (no trailing check + lock icon visible).
         final Finder withoutRow = find.ancestor(
           of: find.text('No Models'),
-          matching: find.byType(PopupMenuItem<String>),
+          matching: find.byType(ListTile),
         );
         expect(withoutRow, findsOneWidget);
-        expect(
-          tester.widget<PopupMenuItem<String>>(withoutRow).enabled,
-          isFalse,
-        );
+        expect(tester.widget<ListTile>(withoutRow).enabled, isFalse);
         expect(
           find.descendant(
             of: withoutRow,
@@ -301,15 +294,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
+      await tester.tap(find.byType(ModelSelectorBar));
       await tester.pumpAndSettle();
 
       final Finder row = find.ancestor(
         of: find.text('Legacy Single'),
-        matching: find.byType(PopupMenuItem<String>),
+        matching: find.byType(ListTile),
       );
       expect(row, findsOneWidget);
-      expect(tester.widget<PopupMenuItem<String>>(row).enabled, isTrue);
+      expect(tester.widget<ListTile>(row).enabled, isTrue);
       expect(
         find.descendant(of: row, matching: find.byIcon(Icons.lock_outline)),
         findsNothing,

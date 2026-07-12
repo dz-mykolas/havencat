@@ -12,7 +12,6 @@ import 'data/services/llm/account_models_service.dart';
 import 'data/services/pricing/models_dev_service.dart';
 import 'data/services/storage/account_store.dart';
 import 'data/services/storage/app_settings.dart';
-import 'data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import 'domain/models/provider_account.dart';
 import 'providers.dart';
 import 'server/app_config.dart';
@@ -51,12 +50,7 @@ Future<void> main() async {
   );
   await container.read(providerAccountRepositoryProvider).load();
 
-  // On native, configure the Rust web_retrieval module (SQLite cache + provider
-  // slots) before any search/fetch calls. On web this is a no-op — the
-  // HttpWebRetrievalAdapter talks to the local server instead.
-  //
-  // Default providers are always enabled so the toggle in the chat input
-  // works out of the box. Custom per-provider configuration can come later.
+  // Configure native conversation persistence before repositories use it.
   if (!kIsWeb) {
     // Configure the conversations SQLite database. On native the DB file
     // lives in the app's support directory (persistent, not user-visible,
@@ -64,21 +58,11 @@ Future<void> main() async {
     final String convDbPath =
         '${(await getApplicationSupportDirectory()).path}/conversations.db';
     await rust_conversations.configureConversations(dbPath: convDbPath);
-
-    final RustWebRetrievalAdapter adapter =
-        container.read(webRetrievalProvider) as RustWebRetrievalAdapter;
-    await adapter.configure(
-      dbPath: '',
-      searchProviders: const <ProviderSlotConfig>[
-        ProviderSlotConfig(kind: 'searxng'),
-        ProviderSlotConfig(kind: 'exa'),
-      ],
-      fetchProviders: const <ProviderSlotConfig>[
-        ProviderSlotConfig(kind: 'direct_http'),
-        ProviderSlotConfig(kind: 'jina_reader'),
-      ],
-    );
   }
+
+  // Provider choices and credentials come from in-app settings. On native
+  // this configures Rust directly; on web it configures the local server.
+  await container.read(webSearchSettingsProvider).initialize();
 
   // Pre-warm the models.dev catalog in the background so the pricing browser
   // (Settings -> Discover) opens to ready data instead of a spinner. This is

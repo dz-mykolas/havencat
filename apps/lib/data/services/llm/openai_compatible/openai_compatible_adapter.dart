@@ -5,9 +5,12 @@ import 'package:dio/dio.dart';
 import 'package:logging/logging.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/content_modality.dart';
 import '../../../../domain/models/llm_model.dart';
 import '../../../../domain/models/message.dart';
+import '../../../../domain/models/message_attachment.dart';
 import '../../../../domain/models/provider_account.dart';
+import '../../errors/provider_failure_mapper.dart';
 import '../llm_adapter.dart';
 import '../llm_endpoint.dart';
 import '../llm_event.dart';
@@ -44,6 +47,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   final Dio _dio;
   final SseClient _sse;
   final LlmEndpoint _endpoint;
+  static const ProviderFailureMapper _failureMapper = ProviderFailureMapper();
 
   @override
   AdapterKind get kind => AdapterKind.openaiCompatible;
@@ -58,6 +62,13 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     final String model = _readModel(account, request);
     final Map<String, String> headers = _readHeaders(account, secret);
     final CancelToken cancelToken = CancelToken();
+    final FailureSource failureSource = FailureSource(
+      subsystem: AppSubsystem.llm,
+      operation: 'generate',
+      providerId: account.displayName,
+      accountId: account.id,
+      modelId: model,
+    );
 
     _log.info(
       'stream: model=$model baseUrl=$baseUrl '
@@ -74,6 +85,15 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
 
     try {
+      if (_usesDedicatedImageApi(baseUrl, request)) {
+        yield* _generateImages(
+          request: request,
+          baseUrl: baseUrl,
+          headers: headers,
+          cancelToken: cancelToken,
+        );
+        return;
+      }
       final ResolvedRequest resolved = _endpoint.resolve(
         '$baseUrl/chat/completions',
         headers,
@@ -99,7 +119,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
           _log.fine('stream: [DONE] received');
           break;
         }
-        final LlmEvent? parsed = _parseChunk(event.data);
+        final LlmEvent? parsed = _parseChunk(event.data, failureSource);
         if (parsed == null) continue;
         if (parsed is DoneEvent) {
           finishReason ??= parsed.finishReason;
@@ -113,13 +133,160 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       _log.warning(
         'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
       );
-      yield ErrorEvent(_mapDioError(e));
+      yield ErrorEvent(
+        _failureMapper.fromDio(
+          e,
+          source: failureSource,
+          flavor: ProviderErrorFlavor.openAi,
+        ),
+      );
     } catch (e, stack) {
       _log.severe('stream: unexpected error', e, stack);
-      yield ErrorEvent(UnknownError(e.toString()));
+      yield ErrorEvent(UnknownError(e.toString(), source: failureSource));
     } finally {
       await signalSub?.cancel();
     }
+  }
+
+  bool _usesDedicatedImageApi(String baseUrl, LlmRequest request) {
+    if (request.modelCapabilities?.produces(ContentModality.image) != true) {
+      return false;
+    }
+    final String host = Uri.tryParse(baseUrl)?.host ?? '';
+    return host == 'api.openai.com' || host == 'openrouter.ai';
+  }
+
+  Stream<LlmEvent> _generateImages({
+    required LlmRequest request,
+    required String baseUrl,
+    required Map<String, String> headers,
+    required CancelToken cancelToken,
+  }) async* {
+    final String host = Uri.tryParse(baseUrl)?.host ?? '';
+    final bool openRouter = host == 'openrouter.ai';
+    final ChatMessage? latestUser = request.messages
+        .where((ChatMessage message) => message.isUser)
+        .lastOrNull;
+    final String prompt = latestUser?.text.trim().isNotEmpty == true
+        ? latestUser!.text.trim()
+        : 'Create an image based on the provided reference.';
+    final List<MessageAttachment> references = request.messages
+        .where((ChatMessage message) => message.isUser)
+        .expand((ChatMessage message) => message.attachments)
+        .where(
+          (MessageAttachment attachment) =>
+              attachment.modality == ContentModality.image &&
+              attachment.dataUrl != null,
+        )
+        .toList(growable: false);
+    final bool openAiEdit = !openRouter && references.isNotEmpty;
+    final String path = openRouter
+        ? '/images'
+        : openAiEdit
+        ? '/images/edits'
+        : '/images/generations';
+    final Map<String, String> requestHeaders = Map<String, String>.from(
+      headers,
+    );
+    if (openAiEdit) {
+      requestHeaders.removeWhere(
+        (String key, _) => key.toLowerCase() == 'content-type',
+      );
+    }
+    final ResolvedRequest resolved = _endpoint.resolve(
+      '$baseUrl$path',
+      requestHeaders,
+    );
+
+    final Object data;
+    if (openAiEdit) {
+      data = FormData.fromMap(<String, Object?>{
+        'model': request.model,
+        'prompt': prompt,
+        'image[]': <MultipartFile>[
+          for (int i = 0; i < references.length; i++)
+            MultipartFile.fromBytes(
+              references[i].inlineBytes!,
+              filename: references[i].name ?? 'reference-$i.png',
+              contentType: DioMediaType.parse(references[i].mimeType),
+            ),
+        ],
+      });
+    } else {
+      data = <String, Object?>{
+        'model': request.model,
+        'prompt': prompt,
+        if (openRouter && references.isNotEmpty)
+          'input_references': <Map<String, Object?>>[
+            for (final MessageAttachment attachment in references)
+              <String, Object?>{
+                'type': 'image_url',
+                'image_url': <String, Object?>{'url': attachment.dataUrl},
+              },
+          ],
+      };
+    }
+
+    final Response<dynamic> response = await _dio.post<dynamic>(
+      resolved.url,
+      options: Options(headers: resolved.headers),
+      cancelToken: cancelToken,
+      data: data,
+    );
+    final Object? body = response.data;
+    final Object? rawImages = body is Map ? body['data'] : null;
+    bool emittedImage = false;
+    if (rawImages is List) {
+      for (int index = 0; index < rawImages.length; index++) {
+        final Object? raw = rawImages[index];
+        if (raw is! Map) continue;
+        final String? base64 = raw['b64_json'] as String?;
+        final String? url = raw['url'] as String?;
+        if (base64 != null && base64.isNotEmpty) {
+          emittedImage = true;
+          yield AttachmentEvent(
+            MessageAttachment(
+              id: 'generated-image-$index',
+              modality: ContentModality.image,
+              mimeType: (raw['media_type'] as String?) ?? 'image/png',
+              source: AttachmentSource.inlineBase64,
+              data: base64,
+              generated: true,
+            ),
+          );
+        } else if (url != null && url.isNotEmpty) {
+          emittedImage = true;
+          yield AttachmentEvent(
+            MessageAttachment.fromUrl(
+              id: 'generated-image-$index',
+              modality: ContentModality.image,
+              url: url,
+              mimeType: (raw['media_type'] as String?) ?? 'image/png',
+              generated: true,
+            ),
+          );
+        }
+      }
+    }
+    if (!emittedImage) {
+      yield const ErrorEvent(
+        InvalidRequestError('The image provider returned no image.'),
+      );
+      return;
+    }
+    final Map<String, dynamic>? usage = body is Map<String, dynamic>
+        ? body['usage'] as Map<String, dynamic>?
+        : null;
+    yield DoneEvent(
+      finishReason: 'stop',
+      usage: usage == null
+          ? null
+          : LlmUsage(
+              promptTokens: (usage['prompt_tokens'] as num?)?.toInt(),
+              completionTokens: (usage['completion_tokens'] as num?)?.toInt(),
+              totalTokens: (usage['total_tokens'] as num?)?.toInt(),
+            ),
+    );
   }
 
   @override
@@ -127,35 +294,50 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     required ProviderAccount account,
     required String? secret,
   }) async {
-    final String baseUrl = _readBaseUrl(account);
-    final Map<String, String> headers = _readHeaders(account, secret);
-    final ResolvedRequest resolved = _endpoint.resolve(
-      '$baseUrl/models',
-      headers,
+    final FailureSource failureSource = FailureSource(
+      subsystem: AppSubsystem.modelCatalog,
+      operation: 'list_models',
+      providerId: account.displayName,
+      accountId: account.id,
     );
+    try {
+      final String baseUrl = _readBaseUrl(account);
+      final Map<String, String> headers = _readHeaders(account, secret);
+      final ResolvedRequest resolved = _endpoint.resolve(
+        '$baseUrl/models',
+        headers,
+      );
 
-    final Response<dynamic> response = await _dio.get<dynamic>(
-      resolved.url,
-      options: Options(headers: resolved.headers),
-    );
+      final Response<dynamic> response = await _dio.get<dynamic>(
+        resolved.url,
+        options: Options(headers: resolved.headers),
+      );
 
-    // OpenAI shape: { "object": "list", "data": [ { "id": "gpt-4o" }, ... ] }.
-    final Object? body = response.data;
-    final List<dynamic>? data = body is Map<String, dynamic>
-        ? body['data'] as List<dynamic>?
-        : (body is List ? body : null);
-    if (data == null) return const <LlmModel>[];
+      // OpenAI shape: { "object": "list", "data": [ { "id": "gpt-4o" }, ... ] }.
+      final Object? body = response.data;
+      final List<dynamic>? data = body is Map<String, dynamic>
+          ? body['data'] as List<dynamic>?
+          : (body is List ? body : null);
+      if (data == null) return const <LlmModel>[];
 
-    final List<LlmModel> models = <LlmModel>[];
-    for (final dynamic entry in data) {
-      if (entry is Map<String, dynamic>) {
-        final String? id = entry['id'] as String?;
-        if (id != null && id.isNotEmpty) models.add(LlmModel(id: id));
-      } else if (entry is String && entry.isNotEmpty) {
-        models.add(LlmModel(id: entry));
+      final List<LlmModel> models = <LlmModel>[];
+      for (final dynamic entry in data) {
+        if (entry is Map<String, dynamic>) {
+          final String? id = entry['id'] as String?;
+          if (id != null && id.isNotEmpty) models.add(LlmModel(id: id));
+        } else if (entry is String && entry.isNotEmpty) {
+          models.add(LlmModel(id: entry));
+        }
       }
+      return models;
+    } on Object catch (error) {
+      throw _failureMapper.fromException(
+        error,
+        source: failureSource,
+        flavor: ProviderErrorFlavor.openAi,
+        fallbackMessage: 'Models could not be loaded from this provider.',
+      );
     }
-    return models;
   }
 
   String _readBaseUrl(ProviderAccount account) {
@@ -194,7 +376,12 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
 
   Map<String, Object?> _buildBody(LlmRequest request, String model) {
     final List<Map<String, Object?>> messages = request.messages
-        .where((m) => m.text.trim().isNotEmpty || m.toolCalls.isNotEmpty)
+        .where(
+          (m) =>
+              m.text.trim().isNotEmpty ||
+              m.toolCalls.isNotEmpty ||
+              m.attachments.isNotEmpty,
+        )
         .map(_messageToJson)
         .toList();
     if (request.systemPrompt != null && request.systemPrompt!.isNotEmpty) {
@@ -239,7 +426,19 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
     }
     final Map<String, Object?> json = <String, Object?>{
       'role': m.isUser ? 'user' : 'assistant',
-      'content': m.text,
+      'content': m.isUser && m.attachments.isNotEmpty
+          ? <Map<String, Object?>>[
+              if (m.text.trim().isNotEmpty)
+                <String, Object?>{'type': 'text', 'text': m.text},
+              for (final MessageAttachment attachment in m.attachments)
+                if (attachment.modality == ContentModality.image &&
+                    attachment.dataUrl != null)
+                  <String, Object?>{
+                    'type': 'image_url',
+                    'image_url': <String, Object?>{'url': attachment.dataUrl},
+                  },
+            ]
+          : m.text,
     };
     if (m.toolCalls.isNotEmpty) {
       json['tool_calls'] = m.toolCalls
@@ -265,7 +464,7 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   /// as tool calls accumulate in the delta — note that OpenAI streams
   /// tool_calls in fragments (id/function name first, then argument tokens),
   /// so the repository must accumulate them by index.
-  LlmEvent? _parseChunk(String data) {
+  LlmEvent? _parseChunk(String data, FailureSource failureSource) {
     if (data.trim().isEmpty) return null;
     final Object? decoded;
     try {
@@ -277,6 +476,16 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       return null;
     }
     if (decoded is! Map<String, dynamic>) return null;
+
+    if (decoded['error'] != null || decoded['type'] == 'error') {
+      return ErrorEvent(
+        _failureMapper.fromPayload(
+          decoded,
+          source: failureSource,
+          flavor: ProviderErrorFlavor.openAi,
+        ),
+      );
+    }
 
     // When stream_options.include_usage is set, OpenAI sends the usage in a
     // final chunk with an empty choices array. Emit it as a DoneEvent so the
@@ -316,15 +525,31 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       }
     }
 
-    if (finishReason != null) {
-      // Don't emit DoneEvent here — the stream loop buffers it so usage
-      // (which arrives in a separate empty-choices chunk) isn't lost.
-      return DoneEvent(finishReason: finishReason, usage: _parseUsage(decoded));
+    final Object? content = delta?['content'];
+    if (content is String && content.isNotEmpty) {
+      return TokenEvent(content);
     }
 
-    final String? content = delta?['content'] as String?;
-    if (content != null && content.isNotEmpty) {
-      return TokenEvent(content);
+    final Object? images = delta?['images'] ?? choice['images'];
+    if (images is List && images.isNotEmpty) {
+      final Object? first = images.first;
+      if (first is Map) {
+        final Object? imageUrl = first['image_url'];
+        final String? url = imageUrl is Map
+            ? imageUrl['url'] as String?
+            : imageUrl as String?;
+        if (url != null && url.isNotEmpty) {
+          return AttachmentEvent(
+            MessageAttachment.fromUrl(
+              id: 'generated-image-${url.hashCode}',
+              modality: ContentModality.image,
+              url: url,
+              mimeType: 'image/png',
+              generated: true,
+            ),
+          );
+        }
+      }
     }
 
     // Some providers stream reasoning under `reasoning_content` (e.g. DeepSeek)
@@ -334,6 +559,12 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
         (delta?['reasoning'] as String?);
     if (reasoning != null && reasoning.isNotEmpty) {
       return ReasoningEvent(reasoning);
+    }
+
+    if (finishReason != null) {
+      // Don't emit DoneEvent here — the stream loop buffers it so usage
+      // (which arrives in a separate empty-choices chunk) isn't lost.
+      return DoneEvent(finishReason: finishReason, usage: _parseUsage(decoded));
     }
 
     return null;
@@ -351,30 +582,5 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       completionTokens: (usageJson['completion_tokens'] as num?)?.toInt(),
       totalTokens: (usageJson['total_tokens'] as num?)?.toInt(),
     );
-  }
-
-  LlmError _mapDioError(DioException e) {
-    final int? status = e.response?.statusCode;
-    final String body = e.response?.data?.toString() ?? e.message ?? '';
-
-    if (status == 401 || status == 403) {
-      return AuthError('Authentication failed ($status). Check your API key.');
-    }
-    if (status == 429) {
-      return RateLimitError('Rate limited. Please slow down.');
-    }
-    if (status == 402) {
-      return QuotaError('Insufficient quota / billing issue.');
-    }
-    if (status != null && status >= 400 && status < 500) {
-      return InvalidRequestError('Request rejected ($status): $body');
-    }
-    if (e.type == DioExceptionType.connectionTimeout ||
-        e.type == DioExceptionType.sendTimeout ||
-        e.type == DioExceptionType.receiveTimeout ||
-        e.type == DioExceptionType.connectionError) {
-      return NetworkError('Network error: ${e.message ?? e.type.name}');
-    }
-    return UnknownError('Request failed: ${e.message ?? e.type.name}');
   }
 }

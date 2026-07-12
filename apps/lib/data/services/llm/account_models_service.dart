@@ -125,10 +125,7 @@ class AccountModelsService extends ChangeNotifier {
         account: account,
         secret: secret,
       );
-      final List<LlmModel> enriched = await _enrichWithContextWindow(
-        models,
-        account,
-      );
+      final List<LlmModel> enriched = await _enrichFromCatalog(models, account);
       _cache[id] = enriched;
       _errors.remove(id);
       await _persist(id, enriched);
@@ -220,6 +217,8 @@ class AccountModelsService extends ChangeNotifier {
               if (m.displayName != null) 'displayName': m.displayName,
               'hidden': m.hidden,
               if (m.contextWindow != null) 'contextWindow': m.contextWindow,
+              if (m.capabilities != null)
+                'capabilities': m.capabilities!.toJson(),
             },
           )
           .toList(),
@@ -243,16 +242,22 @@ class AccountModelsService extends ChangeNotifier {
     if (json != null) {
       try {
         final List<dynamic> decoded = jsonDecode(json) as List<dynamic>;
-        _cache[accountId] = decoded
-            .map(
-              (dynamic m) => LlmModel(
-                id: m['id'] as String,
-                displayName: m['displayName'] as String?,
-                hidden: (m['hidden'] as bool?) ?? false,
-                contextWindow: (m['contextWindow'] as num?)?.toInt(),
-              ),
-            )
-            .toList();
+        _cache[accountId] = decoded.map((dynamic value) {
+          final Map<String, Object?> m = Map<String, Object?>.from(
+            value as Map,
+          );
+          return LlmModel(
+            id: m['id'] as String,
+            displayName: m['displayName'] as String?,
+            hidden: (m['hidden'] as bool?) ?? false,
+            contextWindow: (m['contextWindow'] as num?)?.toInt(),
+            capabilities: m['capabilities'] is Map
+                ? ModelCapabilities.fromJson(
+                    Map<String, Object?>.from(m['capabilities'] as Map),
+                  )
+                : null,
+          );
+        }).toList();
       } catch (_) {
         // Corrupt cache — ignore, the network fetch will repopulate.
       }
@@ -282,12 +287,12 @@ class AccountModelsService extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Enriches [models] with context windows from the models.dev catalog.
+  /// Enriches [models] with limits and capabilities from models.dev.
   ///
   /// Returns the original list unchanged when the catalog isn't available
   /// (offline, not yet fetched) — the caller falls back to
   /// [kFallbackContextWindow] at the compaction call site. Never throws.
-  Future<List<LlmModel>> _enrichWithContextWindow(
+  Future<List<LlmModel>> _enrichFromCatalog(
     List<LlmModel> models,
     ProviderAccount account,
   ) async {
@@ -314,10 +319,12 @@ class AccountModelsService extends ChangeNotifier {
     ModelsCatalog catalog,
     ProviderAccount account,
   ) {
+    if (account.kind == AdapterKind.subscription) return 'openai';
     final String baseUrl = (account.config['baseUrl'] as String?) ?? '';
     if (baseUrl.isEmpty) return null;
     final String host = Uri.tryParse(baseUrl)?.host ?? '';
     if (host.isEmpty) return null;
+    if (host == 'api.openai.com') return 'openai';
     for (final prov in catalog.providers) {
       final String? api = prov.apiUrl;
       if (api == null) continue;

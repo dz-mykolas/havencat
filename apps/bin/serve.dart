@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:app/branding.dart';
 import 'package:app/data/services/storage/conversation_store.dart';
 import 'package:app/data/services/web_retrieval/rust_web_retrieval_adapter.dart';
+import 'package:app/data/services/web_retrieval/web_retrieval.dart';
 import 'package:app/server/app_config.dart';
 import 'package:app/server/conversations_api.dart';
 import 'package:app/server/logging.dart';
@@ -13,45 +14,30 @@ import 'package:app/src/rust/frb_generated.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:shelf_static/shelf_static.dart';
 
 final Logger _log = Logger('server');
 
-/// Self-host server: one lightweight Dart process that serves the
-/// built Flutter web app **and** a same-origin LLM reverse proxy. This is the
-/// whole "backend" for the web build — it ships inside the app, runs on the
-/// user's own machine, and exists only so the browser can reach providers that
-/// don't send CORS headers. Native (Android/iOS/desktop) builds don't use it.
-///
-/// Build the web app first, then run this:
-///   flutter build web
-///   dart run bin/serve.dart            # http://localhost:8088
+/// Local API server for the Flutter web development app. It provides the LLM
+/// reverse proxy and Rust-backed web retrieval/conversation APIs that browsers
+/// cannot access directly. Native (Android/iOS/desktop) builds don't use it.
 ///
 /// Environment (any of these may also be set in a `.env` file at the repo
 /// root; real shell env vars win over `.env`):
 ///   PORT                 listen port (default 8088)
 ///   HOST                 bind address (default 127.0.0.1 — local only)
-///   WEB_ROOT             static files dir (default build/web)
 ///   LOG_LEVEL            Dart log level: debug/info/warning/severe (default info)
 ///   RUST_LOG              Rust tracing filter: debug/trace/web_retrieval=trace
 ///                         (default info)
-///   SEARCH_PROVIDERS     comma-separated search providers (default exa)
-///                         e.g. searxng:https://searx.be,exa:EXA_KEY
-///   FETCH_PROVIDERS      comma-separated fetch providers (default direct_http,jina_reader)
-///                         e.g. direct_http,jina_reader:JINA_KEY
 ///
-/// The web app must point at this proxy. Served from here it's same-origin, so
-/// the default `--dart-define=LLM_PROXY=/proxy` just works. For a hot-reload
-/// dev session, run this alongside `flutter run` and build with
+/// Run this alongside `flutter run` and point the web app at it with
 /// `--dart-define=LLM_PROXY=http://localhost:8088/proxy`.
-Future<void> main(List<String> args) async {
+Future<void> main() async {
   final AppConfig config = AppConfig.load();
 
   initLogging(level: config.logLevel);
 
   final int port = config.port;
   final String host = config.host;
-  final String webRoot = config.webRoot;
 
   final Logger proxyLog = Logger('proxy');
   final Handler proxy = llmProxyHandler(
@@ -66,8 +52,13 @@ Future<void> main(List<String> args) async {
 
   await webRetrieval.configure(
     dbPath: '', // in-memory; TODO: persist to a file next to the server
-    searchProviders: config.searchProviders,
-    fetchProviders: config.fetchProviders,
+    searchProviders: const <ProviderSlotConfig>[
+      ProviderSlotConfig(kind: 'exa'),
+    ],
+    fetchProviders: const <ProviderSlotConfig>[
+      ProviderSlotConfig(kind: 'direct_http'),
+      ProviderSlotConfig(kind: 'jina_reader'),
+    ],
   );
   final Handler webRetrievalApi = webRetrievalApiHandler(webRetrieval);
 
@@ -85,28 +76,9 @@ Future<void> main(List<String> args) async {
     RustConversationStore(),
   );
 
-  Handler handler;
-  if (Directory(webRoot).existsSync()) {
-    // Try the proxy first; fall through to static files for everything else.
-    final Handler static = createStaticHandler(
-      webRoot,
-      defaultDocument: 'index.html',
-    );
-    // Only fall through to static files on 404 — NOT 405 (Cascade's other
-    // default), so a genuine upstream 405 from the proxy isn't masked as a
-    // static 404.
-    handler = Cascade(
-      statusCodes: const <int>{404},
-    ).add(proxy).add(webRetrievalApi).add(conversationsApi).add(static).handler;
-  } else {
-    _log.warning(
-      'WEB_ROOT "$webRoot" not found — serving the proxy only. '
-      'Run `flutter build web` to serve the app too.',
-    );
-    handler = Cascade(
-      statusCodes: const <int>{404},
-    ).add(proxy).add(webRetrievalApi).add(conversationsApi).handler;
-  }
+  final Handler handler = Cascade(
+    statusCodes: const <int>{404},
+  ).add(proxy).add(webRetrievalApi).add(conversationsApi).handler;
 
   final Handler pipeline = const Pipeline()
       .addMiddleware(logRequests())
@@ -121,7 +93,6 @@ Future<void> main(List<String> args) async {
     ..info('  url        http://$host:${server.port}')
     ..info('  llm proxy  http://$host:${server.port}/proxy')
     ..info('  web api    http://$host:${server.port}/api/search|fetch|cache')
-    ..info('  web root   $webRoot')
     ..info('  ssrf       deny-list (private/link-local/metadata blocked)')
     ..info('  log level  ${Logger.root.level.name}')
     ..info('  requests are logged below as they arrive')

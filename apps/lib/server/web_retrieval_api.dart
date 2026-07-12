@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
+import '../domain/errors/app_failure.dart';
 import '../data/services/web_retrieval/rust_web_retrieval_adapter.dart';
 import '../data/services/web_retrieval/web_retrieval.dart';
 
@@ -15,6 +16,7 @@ final Logger _log = Logger('web_retrieval');
 /// Routes:
 ///   GET  /api/search?q=`<query>`&num=`<n>`     → JSON array of [WebSearchResult]
 ///   GET  /api/fetch?url=`<url>`&format=`<f>`  → JSON [FetchedPage]
+///   POST /api/retrieval/configure          → replace provider configuration
 ///   GET  /api/cache/search?q=`<query>`&limit=`<n>` → JSON array of [FetchedPage]
 ///   POST /api/cache/cleanup                → empty 204
 Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
@@ -38,6 +40,7 @@ Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
       final isOurRoute =
           subPath == 'search' ||
           subPath == 'fetch' ||
+          subPath == 'retrieval/configure' ||
           subPath.startsWith('cache/');
       if (!isOurRoute) {
         return Response.notFound('Not a web_retrieval route.');
@@ -52,6 +55,14 @@ Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
           response = await _handleSearch(adapter, request);
         case 'fetch':
           response = await _handleFetch(adapter, request);
+        case 'retrieval/configure':
+          if (!_trustedConfigurationOrigin(request)) {
+            response = _jsonResponse(403, <String, String>{
+              'error': 'Provider configuration is restricted to the local app.',
+            });
+          } else {
+            response = await _handleConfigure(adapter, request);
+          }
         case 'cache/search':
           response = await _handleCacheSearch(adapter, request);
         case 'cache/cleanup':
@@ -65,6 +76,11 @@ Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
           response = Response.notFound('unknown web_retrieval route: $path');
       }
       return _withCors(response, origin);
+    } on FormatException catch (error) {
+      return _withCors(_badRequest(error.message), origin);
+    } on AppFailure catch (failure, st) {
+      _log.severe('request failed: ${request.method} $path', failure, st);
+      return _withCors(_failureResponse(failure), origin);
     } catch (e, st) {
       _log.severe('request failed: ${request.method} $path', e, st);
       return _withCors(
@@ -81,6 +97,7 @@ Handler webRetrievalApiHandler(RustWebRetrievalAdapter adapter) {
 Map<String, String> _corsHeaders(String origin) => <String, String>{
   'access-control-allow-origin': origin,
   'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type, accept',
   'access-control-max-age': '86400',
   'vary': 'origin',
 };
@@ -114,12 +131,19 @@ Future<Response> _handleSearch(
   final numResults =
       int.tryParse(request.url.queryParameters['num'] ?? '5') ?? 5;
   _log.fine('search: q="$query" num=$numResults');
-  final results = await adapter.search(
+  final WebSearchResponse response = await adapter.search(
     query,
     options: WebSearchOptions(numResults: numResults),
   );
-  _log.info('search: q="$query" → ${results.length} results');
-  return _jsonResponse(200, results.map(_searchResultToJson).toList());
+  _log.info(
+    'search: q="$query" → ${response.results.length} results, '
+    '${response.issues.length} issue(s)',
+  );
+  return _jsonResponse(200, <String, Object?>{
+    'results': response.results.map(_searchResultToJson).toList(),
+    'issues': response.issues.map(_providerIssueToJson).toList(),
+    'successful_providers': response.successfulProviders,
+  });
 }
 
 Future<Response> _handleFetch(
@@ -146,6 +170,51 @@ Future<Response> _handleFetch(
   return _jsonResponse(200, _fetchedPageToJson(page));
 }
 
+Future<Response> _handleConfigure(
+  RustWebRetrievalAdapter adapter,
+  Request request,
+) async {
+  if (request.method != 'POST') return Response(405);
+  final Object? decoded = jsonDecode(await request.readAsString());
+  if (decoded is! Map) return _badRequest('expected a JSON object');
+  final Map<String, dynamic> body = Map<String, dynamic>.from(decoded);
+  final List<ProviderSlotConfig> searchProviders = _providerConfigs(
+    body['search_providers'],
+  );
+  final List<ProviderSlotConfig> fetchProviders = _providerConfigs(
+    body['fetch_providers'],
+  );
+  await adapter.configureProviders(
+    searchProviders: searchProviders,
+    fetchProviders: fetchProviders,
+  );
+  return Response(204);
+}
+
+List<ProviderSlotConfig> _providerConfigs(Object? value) {
+  if (value is! List) throw const FormatException('provider list required');
+  return value.map((Object? item) {
+    if (item is! Map) throw const FormatException('invalid provider entry');
+    final Map<String, dynamic> config = Map<String, dynamic>.from(item);
+    final String? kind = config['kind'] as String?;
+    if (kind == null || kind.trim().isEmpty) {
+      throw const FormatException('provider kind required');
+    }
+    return ProviderSlotConfig(kind: kind, secret: config['secret'] as String?);
+  }).toList();
+}
+
+bool _trustedConfigurationOrigin(Request request) {
+  final String? origin = request.headers['origin'];
+  if (origin == null) return true;
+  final Uri? uri = Uri.tryParse(origin);
+  if (uri == null) return false;
+  return uri.host == request.requestedUri.host ||
+      uri.host == 'localhost' ||
+      uri.host == '127.0.0.1' ||
+      uri.host == '::1';
+}
+
 Future<Response> _handleCacheSearch(
   RustWebRetrievalAdapter adapter,
   Request request,
@@ -168,6 +237,37 @@ Map<String, Object?> _searchResultToJson(WebSearchResult r) => {
   'published_at': r.publishedAt?.millisecondsSinceEpoch,
   'provider': r.provider,
 };
+
+Map<String, Object?> _providerIssueToJson(WebProviderIssue issue) => {
+  'provider': issue.provider,
+  'kind': issue.kind,
+  if (issue.retryAfter != null)
+    'retry_after_seconds': issue.retryAfter!.inSeconds,
+};
+
+Response _failureResponse(AppFailure failure) {
+  final int status =
+      failure.httpStatus ??
+      switch (failure.kind) {
+        FailureKind.invalidRequest => 400,
+        FailureKind.authentication => 401,
+        FailureKind.permission => 403,
+        FailureKind.quotaExhausted || FailureKind.billingRequired => 402,
+        FailureKind.rateLimited => 429,
+        FailureKind.timeout => 504,
+        FailureKind.unavailable => 503,
+        _ => 500,
+      };
+  return _jsonResponse(status, <String, Object?>{
+    'error': <String, Object?>{
+      'code': failure.kind.name,
+      'message': failure.message,
+      if (failure.source.providerId != null)
+        'provider': failure.source.providerId,
+      if (failure.requestId != null) 'request_id': failure.requestId,
+    },
+  });
+}
 
 Map<String, Object?> _fetchedPageToJson(FetchedPage p) => {
   'url': p.url,

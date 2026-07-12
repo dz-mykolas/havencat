@@ -69,11 +69,6 @@ class ModelSelectorBar extends ConsumerWidget {
         context: context,
         builder: (BuildContext context) {
           return Dialog(
-            backgroundColor: AppTheme.surface,
-            surfaceTintColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
             child: SizedBox(
               width: 560,
               height: 420,
@@ -81,25 +76,25 @@ class ModelSelectorBar extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                    padding: EdgeInsets.fromLTRB(20, 16, 12, 12),
                     child: Row(
                       children: <Widget>[
-                        const Text(
+                        Text(
                           'Select model',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const Spacer(),
+                        Spacer(),
                         IconButton(
-                          icon: const Icon(Icons.close, size: 20),
+                          icon: Icon(Icons.close, size: 20),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
                       ],
                     ),
                   ),
-                  const Divider(height: 1),
+                  Divider(height: 1),
                   Expanded(
                     child: ListenableBuilder(
                       listenable: vm,
@@ -118,38 +113,31 @@ class ModelSelectorBar extends ConsumerWidget {
       return showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: AppTheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-          ),
-        ),
         builder: (BuildContext context) {
           return SizedBox(
             height: MediaQuery.of(context).size.height * 0.7,
             child: Column(
               children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                  padding: EdgeInsets.fromLTRB(20, 16, 12, 12),
                   child: Row(
                     children: <Widget>[
-                      const Text(
+                      Text(
                         'Select model',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const Spacer(),
+                      Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.close, size: 20),
+                        icon: Icon(Icons.close, size: 20),
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(height: 1),
                 Expanded(
                   child: ListenableBuilder(
                     listenable: vm,
@@ -191,24 +179,28 @@ class _Chip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 20, color: AppTheme.textSecondary),
+          Icon(icon, size: 20, color: context.appColors.textSecondary),
           if (!hideLabel) ...<Widget>[
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Flexible(
               child: Text(
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: AppTheme.textPrimary,
+                  color: context.appColors.textPrimary,
                   fontSize: dense ? 14 : 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
           ],
-          const SizedBox(width: 4),
-          Icon(Icons.expand_more, size: 20, color: AppTheme.textSecondary),
+          SizedBox(width: 4),
+          Icon(
+            Icons.expand_more,
+            size: 20,
+            color: context.appColors.textSecondary,
+          ),
         ],
       ),
     );

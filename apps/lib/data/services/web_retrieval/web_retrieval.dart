@@ -26,6 +26,37 @@ class WebSearchOptions {
   const WebSearchOptions({this.numResults = 5});
 }
 
+class WebProviderIssue {
+  const WebProviderIssue({
+    required this.provider,
+    required this.kind,
+    this.retryAfter,
+  });
+
+  final String provider;
+  final String kind;
+  final Duration? retryAfter;
+}
+
+class WebSearchResponse {
+  const WebSearchResponse({
+    required this.results,
+    this.issues = const <WebProviderIssue>[],
+    this.successfulProviders = const <String>[],
+  });
+
+  final List<WebSearchResult> results;
+  final List<WebProviderIssue> issues;
+  final List<String> successfulProviders;
+}
+
+class ProviderSlotConfig {
+  const ProviderSlotConfig({required this.kind, this.secret});
+
+  final String kind;
+  final String? secret;
+}
+
 /// A fetched page.
 class FetchedPage {
   final String url;
@@ -47,7 +78,7 @@ enum FetchFormat { markdown, text, html }
 /// A pluggable web search provider.
 abstract class WebSearchProvider {
   String get kind;
-  Future<List<WebSearchResult>> search(
+  Future<WebSearchResponse> search(
     String query, {
     WebSearchOptions options = const WebSearchOptions(),
   });
@@ -66,3 +97,10 @@ abstract class UrlFetchProvider {
 /// Used by the Riverpod provider so consumers get a single typed handle.
 abstract class WebRetrievalAdapter
     implements WebSearchProvider, UrlFetchProvider {}
+
+abstract interface class WebRetrievalConfigurator {
+  Future<void> configureProviders({
+    required List<ProviderSlotConfig> searchProviders,
+    required List<ProviderSlotConfig> fetchProviders,
+  });
+}

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../domain/models/app_theme_preferences.dart';
+
 /// Global, app-wide user preferences (not tied to any single account).
 ///
 /// Backed by [SharedPreferences] when injected (the running app), with an
@@ -16,7 +18,22 @@ class AppSettings extends ChangeNotifier {
       _staticFallback = prefs?.getBool(_staticFallbackKey) ?? true,
       _abortOnSummaryFailure =
           prefs?.getBool(_abortOnSummaryFailureKey) ?? false,
-      _autoFocusTopic = prefs?.getBool(_autoFocusTopicKey) ?? false;
+      _autoFocusTopic = prefs?.getBool(_autoFocusTopicKey) ?? false,
+      _themeSlot = enumByNameOr(
+        AppThemeSlot.values,
+        prefs?.getString(_themeSlotKey),
+        AppThemeSlot.dark,
+      ),
+      _lightTheme = enumByNameOr(
+        AppThemePreset.values,
+        prefs?.getString(_lightThemeKey),
+        AppThemePreset.parchment,
+      ),
+      _darkTheme = enumByNameOr(
+        AppThemePreset.values,
+        prefs?.getString(_darkThemeKey),
+        AppThemePreset.haven,
+      );
 
   final SharedPreferences? _prefs;
 
@@ -29,6 +46,44 @@ class AppSettings extends ChangeNotifier {
   static const String _abortOnSummaryFailureKey =
       'compaction.abort_on_summary_failure::v1';
   static const String _autoFocusTopicKey = 'compaction.auto_focus_topic::v1';
+  static const String _themeSlotKey = 'appearance.theme_slot::v1';
+  static const String _lightThemeKey = 'appearance.light_theme::v1';
+  static const String _darkThemeKey = 'appearance.dark_theme::v1';
+
+  AppThemeSlot _themeSlot;
+  AppThemePreset _lightTheme;
+  AppThemePreset _darkTheme;
+
+  AppThemeSlot get themeSlot => _themeSlot;
+  AppThemePreset get lightTheme => _lightTheme;
+  AppThemePreset get darkTheme => _darkTheme;
+
+  Future<void> setThemeSlot(AppThemeSlot value) async {
+    if (value == _themeSlot) return;
+    _themeSlot = value;
+    notifyListeners();
+    await _prefs?.setString(_themeSlotKey, value.name);
+  }
+
+  Future<void> toggleThemeSlot() {
+    return setThemeSlot(
+      _themeSlot == AppThemeSlot.light ? AppThemeSlot.dark : AppThemeSlot.light,
+    );
+  }
+
+  Future<void> setLightTheme(AppThemePreset value) async {
+    if (value == _lightTheme) return;
+    _lightTheme = value;
+    notifyListeners();
+    await _prefs?.setString(_lightThemeKey, value.name);
+  }
+
+  Future<void> setDarkTheme(AppThemePreset value) async {
+    if (value == _darkTheme) return;
+    _darkTheme = value;
+    notifyListeners();
+    await _prefs?.setString(_darkThemeKey, value.name);
+  }
 
   bool _showHiddenModels;
 

@@ -1,69 +1,217 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/theme/app_theme.dart';
-import '../core/widgets/fade_slide_in.dart';
 import '../../data/services/storage/app_settings.dart';
+import '../../domain/models/app_theme_preferences.dart';
 import '../../providers.dart';
+import '../core/theme/app_theme.dart';
+import '../core/widgets/app_scroll_view.dart';
+import '../core/widgets/fade_slide_in.dart';
+import '../core/widgets/theme_mode_button.dart';
 import '../pricing/discover_panel.dart';
+import 'widgets/web_search_settings_panel.dart';
 
-/// Settings screen: Discover (catalog + accounts, via the Discover panel's
-/// Accounts tab) and Preferences. Account management — adding, activating,
-/// removing provider accounts — lives in the Discover panel's Accounts tab
-/// now, so this screen no longer hosts an Accounts section or an "Add
-/// account" app-bar button.
-///
-/// Layout is responsive: on desktop/wide screens the content is centered in a
-/// fixed-width column (so it doesn't hug the left edge); on phones it's a
-/// single edge-to-edge column. Sections animate in with a soft stagger.
-class SettingsScreen extends ConsumerWidget {
+enum _SettingsCategory { models, webSearch, appearance, general, context }
+
+extension on _SettingsCategory {
+  String get label => switch (this) {
+    _SettingsCategory.models => 'Models & providers',
+    _SettingsCategory.webSearch => 'Web search',
+    _SettingsCategory.appearance => 'Appearance',
+    _SettingsCategory.general => 'General',
+    _SettingsCategory.context => 'Context',
+  };
+
+  IconData get icon => switch (this) {
+    _SettingsCategory.models => Icons.hub_outlined,
+    _SettingsCategory.webSearch => Icons.travel_explore_rounded,
+    _SettingsCategory.appearance => Icons.palette_outlined,
+    _SettingsCategory.general => Icons.tune_rounded,
+    _SettingsCategory.context => Icons.compress_rounded,
+  };
+}
+
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  _SettingsCategory _category = _SettingsCategory.models;
+  _SettingsCategory? _mobileCategory;
+
+  @override
+  Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(appSettingsProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AppTheme.panelMaxWidth),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              children: <Widget>[
-                FadeSlideIn(
-                  delay: const Duration(milliseconds: 20),
-                  child: _Section(
-                    label: 'Discover',
-                    child: const _DiscoverCard(),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                FadeSlideIn(
-                  delay: const Duration(milliseconds: 90),
-                  child: _Section(
-                    label: 'Preferences',
-                    child: _PreferencesCard(settings: settings),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                FadeSlideIn(
-                  delay: const Duration(milliseconds: 160),
-                  child: _Section(
-                    label: 'Context compaction',
-                    child: _CompactionCard(settings: settings),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const FadeSlideIn(
-                  delay: Duration(milliseconds: 230),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: _SecureStorageNote(),
-                  ),
-                ),
-              ],
+    final bool wide =
+        MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint;
+    final bool showingMobileDetail = !wide && _mobileCategory != null;
+
+    return PopScope(
+      canPop: !showingMobileDetail,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (!didPop && showingMobileDetail) _closeMobileCategory();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: showingMobileDetail
+              ? BackButton(onPressed: _closeMobileCategory)
+              : null,
+          title: Text(
+            showingMobileDetail ? _mobileCategory!.label : 'Settings',
+          ),
+          actions: <Widget>[
+            ThemeModeButton(
+              slot: settings.themeSlot,
+              onToggle: settings.toggleThemeSlot,
             ),
+            SizedBox(width: 4),
+          ],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: 1120),
+              child: wide
+                  ? Padding(
+                      padding: EdgeInsets.fromLTRB(24, 16, 24, 28),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          SizedBox(
+                            width: 220,
+                            child: _CategoryNavigation(
+                              selected: _category,
+                              onSelected: _selectCategory,
+                            ),
+                          ),
+                          SizedBox(width: 24),
+                          Expanded(
+                            child: _CategoryContent(
+                              category: _category,
+                              settings: settings,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _mobileCategory == null
+                  ? _MobileCategoryList(onSelected: _openMobileCategory)
+                  : Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: _CategoryContent(
+                        category: _mobileCategory!,
+                        settings: settings,
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openMobileCategory(_SettingsCategory category) {
+    setState(() {
+      _category = category;
+      _mobileCategory = category;
+    });
+  }
+
+  void _closeMobileCategory() {
+    setState(() => _mobileCategory = null);
+  }
+
+  void _selectCategory(_SettingsCategory category) {
+    setState(() => _category = category);
+  }
+}
+
+class _MobileCategoryList extends StatelessWidget {
+  const _MobileCategoryList({required this.onSelected});
+
+  final ValueChanged<_SettingsCategory> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScrollView(
+      builder: (BuildContext context, AppScrollController controller) =>
+          ListView(
+            controller: controller,
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: <Widget>[
+              for (
+                int index = 0;
+                index < _SettingsCategory.values.length;
+                index++
+              )
+                Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: FadeSlideIn(
+                    delay: Duration(milliseconds: 35 * index),
+                    child: _MobileCategoryButton(
+                      category: _SettingsCategory.values[index],
+                      onTap: () => onSelected(_SettingsCategory.values[index]),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+    );
+  }
+}
+
+class _MobileCategoryButton extends StatelessWidget {
+  const _MobileCategoryButton({required this.category, required this.onTap});
+
+  final _SettingsCategory category;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.appColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: context.appColors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  category.icon,
+                  size: 18,
+                  color: context.appColors.brandViolet,
+                ),
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  category.label,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: context.appColors.textSecondary,
+              ),
+            ],
           ),
         ),
       ),
@@ -71,12 +219,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// A labelled group: a small caption above a content area.
-class _Section extends StatelessWidget {
-  const _Section({required this.label, required this.child});
+class _CategoryNavigation extends StatelessWidget {
+  const _CategoryNavigation({required this.selected, required this.onSelected});
 
-  final String label;
-  final Widget child;
+  final _SettingsCategory selected;
+  final ValueChanged<_SettingsCategory> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -84,24 +231,153 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+          padding: EdgeInsets.fromLTRB(12, 10, 12, 12),
           child: Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.4,
+            'CATEGORIES',
+            style: TextStyle(
+              color: context.appColors.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
             ),
           ),
         ),
-        child,
+        for (final _SettingsCategory category in _SettingsCategory.values) ...[
+          _CategoryButton(
+            category: category,
+            selected: category == selected,
+            onTap: () => onSelected(category),
+          ),
+          SizedBox(height: 6),
+        ],
       ],
     );
   }
 }
 
-/// Rounded surface container used to group related controls into a "card".
+class _CategoryButton extends StatelessWidget {
+  const _CategoryButton({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _SettingsCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? context.appColors.surface : Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                category.icon,
+                size: 18,
+                color: selected
+                    ? context.appColors.brandViolet
+                    : context.appColors.textSecondary,
+              ),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  category.label,
+                  style: TextStyle(
+                    color: selected
+                        ? context.appColors.textPrimary
+                        : context.appColors.textSecondary,
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (selected)
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: context.appColors.textSecondary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryContent extends StatelessWidget {
+  const _CategoryContent({required this.category, required this.settings});
+
+  final _SettingsCategory category;
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(0.025, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: switch (category) {
+        _SettingsCategory.models => _ModelsCategory(
+          key: ValueKey<_SettingsCategory>(_SettingsCategory.models),
+        ),
+        _SettingsCategory.webSearch => const WebSearchSettingsPanel(
+          key: ValueKey<_SettingsCategory>(_SettingsCategory.webSearch),
+        ),
+        _SettingsCategory.appearance => _ScrollableCategory(
+          key: ValueKey<_SettingsCategory>(_SettingsCategory.appearance),
+          children: <Widget>[_AppearanceCard(settings: settings)],
+        ),
+        _SettingsCategory.general => _ScrollableCategory(
+          key: ValueKey<_SettingsCategory>(_SettingsCategory.general),
+          children: <Widget>[_PreferencesCard(settings: settings)],
+        ),
+        _SettingsCategory.context => _ScrollableCategory(
+          key: ValueKey<_SettingsCategory>(_SettingsCategory.context),
+          children: <Widget>[_CompactionCard(settings: settings)],
+        ),
+      },
+    );
+  }
+}
+
+class _ScrollableCategory extends StatelessWidget {
+  const _ScrollableCategory({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScrollView(
+      builder: (BuildContext context, AppScrollController controller) =>
+          ListView(
+            controller: controller,
+            padding: EdgeInsets.only(bottom: 24),
+            children: children,
+          ),
+    );
+  }
+}
+
 class _Card extends StatelessWidget {
   const _Card({required this.child, this.padding});
 
@@ -110,34 +386,287 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // A [Material] (not a plain DecoratedBox) so any ListTile/InkWell children
-    // paint their background + ink on this surface rather than asserting.
     return Material(
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: AppTheme.outline),
-      ),
+      color: context.appColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias,
-      child: Padding(padding: padding ?? const EdgeInsets.all(6), child: child),
+      child: Padding(padding: padding ?? EdgeInsets.all(6), child: child),
     );
   }
 }
 
-/// Bounded-height card hosting the four-tab [DiscoverPanel]. The panel renders
-/// its own scrolling content (groups grid + drill-in model list), so we clamp
-/// the height — taller on wide screens so the two-up grids breathe, shorter on
-/// phones so it doesn't dominate the settings scroll.
-class _DiscoverCard extends StatelessWidget {
-  const _DiscoverCard();
+class _ModelsCategory extends StatelessWidget {
+  const _ModelsCategory({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final double width = MediaQuery.sizeOf(context).width;
-    final double height = width >= AppTheme.wideBreakpoint ? 560 : 460;
+    return DiscoverPanel();
+  }
+}
+
+class _AppearanceCard extends StatelessWidget {
+  const _AppearanceCard({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
     return _Card(
-      padding: const EdgeInsets.all(8),
-      child: SizedBox(height: height, child: const DiscoverPanel()),
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: <Widget>[
+          _ThemePreferenceTile(
+            icon: Icons.light_mode_rounded,
+            label: 'Light theme',
+            preset: settings.lightTheme,
+            onTap: () => _showThemePicker(
+              context,
+              title: 'Light theme',
+              selected: settings.lightTheme,
+              onSelected: settings.setLightTheme,
+            ),
+          ),
+          _SettingsDivider(),
+          _ThemePreferenceTile(
+            icon: Icons.dark_mode_rounded,
+            label: 'Dark theme',
+            preset: settings.darkTheme,
+            onTap: () => _showThemePicker(
+              context,
+              title: 'Dark theme',
+              selected: settings.darkTheme,
+              onSelected: settings.setDarkTheme,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemePreferenceTile extends StatelessWidget {
+  const _ThemePreferenceTile({
+    required this.icon,
+    required this.label,
+    required this.preset,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final AppThemePreset preset;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      leading: Icon(icon, size: 19, color: context.appColors.brandViolet),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: context.appColors.textPrimary,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        preset.label,
+        style: TextStyle(color: context.appColors.textSecondary, fontSize: 11),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _ThemeSwatches(preset: preset),
+          SizedBox(width: 8),
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: context.appColors.textSecondary,
+          ),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _ThemeSwatches extends StatelessWidget {
+  const _ThemeSwatches({required this.preset});
+
+  final AppThemePreset preset;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 42,
+      height: 18,
+      child: Stack(
+        children: <Widget>[
+          for (final (int index, Color color) in <Color>[
+            preset.primary,
+            preset.secondary,
+            preset.tertiary,
+          ].indexed)
+            Positioned(
+              left: index * 12,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: context.appColors.surface,
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showThemePicker(
+  BuildContext context, {
+  required String title,
+  required AppThemePreset selected,
+  required ValueChanged<AppThemePreset> onSelected,
+}) {
+  final Widget content = _ThemePicker(
+    title: title,
+    selected: selected,
+    onSelected: onSelected,
+  );
+  if (MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint) {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => Dialog(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 420, maxHeight: 560),
+          child: content,
+        ),
+      ),
+    );
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (BuildContext context) => SafeArea(top: false, child: content),
+  );
+}
+
+class _ThemePicker extends StatelessWidget {
+  const _ThemePicker({
+    required this.title,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String title;
+  final AppThemePreset selected;
+  final ValueChanged<AppThemePreset> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 8, 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: AppScrollView(
+            builder: (BuildContext context, AppScrollController controller) =>
+                ListView.builder(
+                  controller: controller,
+                  shrinkWrap: true,
+                  padding: EdgeInsets.fromLTRB(8, 0, 8, 12),
+                  itemCount: AppThemePreset.values.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final AppThemePreset preset = AppThemePreset.values[index];
+                    final bool active = preset == selected;
+                    return ListTile(
+                      leading: _ThemePreview(preset: preset),
+                      title: Text(preset.label),
+                      subtitle: Text(preset.description),
+                      trailing: active
+                          ? Icon(
+                              Icons.check_circle_rounded,
+                              color: context.appColors.brandViolet,
+                            )
+                          : Icon(
+                              preset.brightness == Brightness.dark
+                                  ? Icons.dark_mode_outlined
+                                  : Icons.light_mode_outlined,
+                              size: 17,
+                              color: context.appColors.textSecondary,
+                            ),
+                      selected: active,
+                      selectedTileColor: context.appColors.brandViolet
+                          .withValues(alpha: 0.1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      onTap: () {
+                        onSelected(preset);
+                        Navigator.of(context).pop();
+                      },
+                    );
+                  },
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThemePreview extends StatelessWidget {
+  const _ThemePreview({required this.preset});
+
+  final AppThemePreset preset;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData preview = AppTheme.build(preset);
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: preview.scaffoldBackgroundColor,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      alignment: Alignment.center,
+      child: Container(
+        width: 17,
+        height: 17,
+        decoration: BoxDecoration(
+          color: preview.colorScheme.primary,
+          shape: BoxShape.circle,
+        ),
+      ),
     );
   }
 }
@@ -150,20 +679,25 @@ class _PreferencesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Card(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(vertical: 4),
       child: SwitchListTile(
+        dense: true,
+        visualDensity: VisualDensity(vertical: -2),
         value: settings.showHiddenModels,
         onChanged: settings.setShowHiddenModels,
-        title: const Text(
+        title: Text(
           'Show hidden models',
-          style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+          style: TextStyle(color: context.appColors.textPrimary, fontSize: 14),
         ),
-        subtitle: const Text(
-          "Include models providers mark as internal (e.g. ChatGPT's "
-          'codex-auto-review). Off by default.',
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        subtitle: Text(
+          'Include models that providers mark as internal. Hidden models are '
+          'excluded by default.',
+          style: TextStyle(
+            color: context.appColors.textSecondary,
+            fontSize: 11,
+          ),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        contentPadding: EdgeInsets.symmetric(horizontal: 12),
       ),
     );
   }
@@ -177,92 +711,61 @@ class _CompactionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Card(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: <Widget>[
-          SwitchListTile(
+          _SettingsSwitch(
             value: settings.redactSecrets,
             onChanged: settings.setRedactSecrets,
-            title: const Text(
-              'Redact secrets in summaries',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Strip API keys, tokens, and passwords before the summarizer '
-              'sees them. On by default — disable only for debugging.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Redact secrets in summaries',
+            subtitle:
+                'Strip API keys, tokens, and passwords before the summarizer '
+                'sees them. On by default.',
           ),
-          SwitchListTile(
+          _SettingsDivider(),
+          _SettingsSwitch(
             value: settings.temporalAnchoring,
             onChanged: settings.setTemporalAnchoring,
-            title: const Text(
-              'Temporal anchoring',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Rewrite "currently doing" into dated past-tense so resumed '
-              'chats don\'t re-execute completed actions. On by default.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Temporal anchoring',
+            subtitle:
+                'Rewrite active tasks into dated past tense so resumed chats '
+                'do not repeat completed actions.',
           ),
-          SwitchListTile(
+          _SettingsDivider(),
+          _SettingsSwitch(
             value: settings.antiThrash,
             onChanged: settings.setAntiThrash,
-            title: const Text(
-              'Anti-thrash guard',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Back off when a compression pass produces no savings. '
-              'On by default.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Anti-thrash guard',
+            subtitle:
+                'Back off when a compression pass produces no savings. On by '
+                'default.',
           ),
-          SwitchListTile(
+          _SettingsDivider(),
+          _SettingsSwitch(
             value: settings.staticFallback,
             onChanged: settings.setStaticFallback,
-            title: const Text(
-              'Static fallback summary',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Insert a deterministic summary (user asks + tool names + file '
-              'paths) when the LLM summary call fails. On by default.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Static fallback summary',
+            subtitle:
+                'Insert a deterministic summary when the LLM summary call '
+                'fails. On by default.',
           ),
-          SwitchListTile(
+          _SettingsDivider(),
+          _SettingsSwitch(
             value: settings.abortOnSummaryFailure,
             onChanged: settings.setAbortOnSummaryFailure,
-            title: const Text(
-              'Abort on summary failure',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Freeze the chat when summarization fails instead of using a '
-              'fallback. Off by default — only enable for strict workflows.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Abort on summary failure',
+            subtitle:
+                'Freeze the chat when summarization fails instead of using a '
+                'fallback. Best for strict workflows.',
           ),
-          SwitchListTile(
+          _SettingsDivider(),
+          _SettingsSwitch(
             value: settings.autoFocusTopic,
             onChanged: settings.setAutoFocusTopic,
-            title: const Text(
-              'Auto focus topic',
-              style: TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-            ),
-            subtitle: const Text(
-              'Infer a focus topic from recent turns to prioritize related '
-              'info in the summary. Off by default — can be noisy.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: 'Auto focus topic',
+            subtitle:
+                'Infer a focus topic from recent turns and prioritize related '
+                'information in the summary.',
           ),
         ],
       ),
@@ -270,28 +773,48 @@ class _CompactionCard extends StatelessWidget {
   }
 }
 
-class _SecureStorageNote extends StatelessWidget {
-  const _SecureStorageNote();
+class _SettingsSwitch extends StatelessWidget {
+  const _SettingsSwitch({
+    required this.value,
+    required this.onChanged,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const Icon(Icons.lock_outline, size: 16, color: AppTheme.textSecondary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            "API keys are stored in this device's secure storage and never "
-            'leave it except to call the provider directly.',
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 12,
-              height: 1.4,
-            ),
-          ),
+    return SwitchListTile(
+      dense: true,
+      visualDensity: VisualDensity(vertical: -2),
+      value: value,
+      onChanged: onChanged,
+      title: Text(
+        title,
+        style: TextStyle(color: context.appColors.textPrimary, fontSize: 14),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: context.appColors.textSecondary,
+          fontSize: 11,
+          height: 1.35,
         ),
-      ],
+      ),
+      contentPadding: EdgeInsets.symmetric(horizontal: 12),
     );
+  }
+}
+
+class _SettingsDivider extends StatelessWidget {
+  const _SettingsDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(height: 1, indent: 12, endIndent: 12);
   }
 }

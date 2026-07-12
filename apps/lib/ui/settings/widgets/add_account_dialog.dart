@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
+import '../../core/widgets/credential_security_button.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../settings_viewmodel.dart';
 
@@ -124,91 +126,99 @@ class _AddAccountDialogState extends State<AddAccountDialog> {
         def?.configTemplate.containsKey('baseUrl') ?? false;
     final bool showModel = def?.configTemplate.containsKey('model') ?? false;
     return AlertDialog(
-      title: const Text('Add account'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            DropdownButtonFormField<String>(
-              initialValue: _definitionId,
-              decoration: const InputDecoration(
-                labelText: 'Provider',
-                border: OutlineInputBorder(),
-              ),
-              hint: const Text('Select a provider'),
-              items: widget.viewModel.apiKeyCatalog
-                  .map(
-                    (ProviderDefinition d) => DropdownMenuItem<String>(
-                      value: d.id,
-                      child: Text(d.displayName),
+      title: Text('Add account'),
+      content: AppScrollView(
+        builder: (BuildContext context, AppScrollController controller) =>
+            SingleChildScrollView(
+              controller: controller,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  DropdownButtonFormField<String>(
+                    initialValue: _definitionId,
+                    decoration: InputDecoration(
+                      labelText: 'Provider',
+                      border: OutlineInputBorder(),
                     ),
-                  )
-                  .toList(),
-              onChanged: _saving ? null : _onDefinitionChanged,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                border: OutlineInputBorder(),
+                    hint: Text('Select a provider'),
+                    items: widget.viewModel.apiKeyCatalog
+                        .map(
+                          (ProviderDefinition d) => DropdownMenuItem<String>(
+                            value: d.id,
+                            child: Text(d.displayName),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: _saving ? null : _onDefinitionChanged,
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _nameController,
+                    decoration: InputDecoration(
+                      labelText: 'Display name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _keyController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'API key',
+                      border: OutlineInputBorder(),
+                      suffixIcon: CredentialSecurityButton(),
+                    ),
+                  ),
+                  if (showBaseUrl) ...<Widget>[
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: _baseUrlController,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: InputDecoration(
+                        labelText: 'Base URL',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (showModel) ...<Widget>[
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: _modelController,
+                      decoration: InputDecoration(
+                        labelText: 'Model',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (_error != null) ...<Widget>[
+                    SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(color: context.appColors.brandPink),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _keyController,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(
-                labelText: 'API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            if (showBaseUrl) ...<Widget>[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _baseUrlController,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Base URL',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-            if (showModel) ...<Widget>[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _modelController,
-                decoration: const InputDecoration(
-                  labelText: 'Model',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-            if (_error != null) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: AppTheme.brandPink)),
-            ],
-          ],
-        ),
       ),
       actions: <Widget>[
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text('Cancel'),
         ),
         FilledButton(
           onPressed: _canSubmit ? _submit : null,
           child: _saving
-              ? const SizedBox(
+              ? SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Add'),
+              : Text('Add'),
         ),
       ],
     );

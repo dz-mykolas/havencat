@@ -4,6 +4,7 @@ import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/provider_account.dart';
 import '../../chat/model_selector_viewmodel.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
 import '../settings_viewmodel.dart';
 
 /// Opens the Manage Models flow for [account]: a scrollable list of every
@@ -29,13 +30,10 @@ Future<void> showManageModels(
     await showDialog<void>(
       context: context,
       builder: (BuildContext ctx) => Dialog(
-        backgroundColor: AppTheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
+          constraints: BoxConstraints(maxWidth: 520, maxHeight: 680),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 16),
             child: _ManageModelsContent(
               account: account,
               selector: selector,
@@ -53,15 +51,11 @@ Future<void> showManageModels(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: AppTheme.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
     builder: (BuildContext ctx) {
       return ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
+        constraints: BoxConstraints(maxWidth: 560),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: _ManageModelsContent(
             account: account,
             selector: selector,
@@ -143,11 +137,13 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
   @override
   Widget build(BuildContext context) {
     final String accountId = widget.account.id;
-    final List<LlmModel>? available =
-        widget.selector.availableModelsFor(accountId);
+    final List<LlmModel>? available = widget.selector.availableModelsFor(
+      accountId,
+    );
     final Set<String> newIds = widget.selector.newModelIdsFor(accountId);
-    final Set<String> deprecatedIds =
-        widget.selector.deprecatedModelIdsFor(accountId);
+    final Set<String> deprecatedIds = widget.selector.deprecatedModelIdsFor(
+      accountId,
+    );
 
     // Build the row list: every available model, plus any enabled-but-
     // deprecated ids that are no longer in `available` (so the user can
@@ -174,27 +170,33 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
       if (a.deprecated != b.deprecated) return a.deprecated ? 1 : -1;
       return a.label.compareTo(b.label);
     });
+    final List<String> selectableIds = rows
+        .take(maxEnabled)
+        .map((_ModelRow row) => row.id)
+        .toList(growable: false);
+    final bool allSelected =
+        selectableIds.isNotEmpty && selectableIds.every(_selected.contains);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: EdgeInsets.only(bottom: 8),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   'Manage models · ${widget.account.displayName}',
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close, size: 20),
+                icon: Icon(Icons.close, size: 20),
                 onPressed: widget.onDone,
                 tooltip: 'Close',
               ),
@@ -202,7 +204,7 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
           ),
         ),
         if (available == null)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: SizedBox(
@@ -213,12 +215,15 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
             ),
           )
         else if (rows.isEmpty)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
                 'No models available. Check the provider connection.',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                style: TextStyle(
+                  color: context.appColors.textSecondary,
+                  fontSize: 13,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -229,7 +234,7 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  padding: EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: <Widget>[
                       Expanded(
@@ -240,43 +245,39 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
                                     '${_atCap ? ' · cap $maxEnabled' : ''}',
                           style: TextStyle(
                             color: _selected.isEmpty
-                                ? AppTheme.brandPink
-                                : AppTheme.textSecondary,
+                                ? context.appColors.brandPink
+                                : context.appColors.textSecondary,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
-                      InkWell(
-                        borderRadius: BorderRadius.circular(6),
-                        onTap: _saving
-                            ? null
-                            : () {
-                                setState(() {
-                                  if (_selected.length == rows.length) {
-                                    _selected.clear();
-                                  } else {
-                                    _selected
-                                      ..clear()
-                                      ..addAll(
-                                        rows
-                                            .take(maxEnabled)
-                                            .map((_ModelRow r) => r.id),
-                                      );
-                                  }
-                                });
-                              },
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: Text(
-                            'Select all',
-                            style: TextStyle(
-                              color: AppTheme.brandBlue,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
+                      Tooltip(
+                        message: allSelected ? 'Unselect all' : 'Select all',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(7),
+                          onTap: _saving
+                              ? null
+                              : () {
+                                  setState(() {
+                                    if (allSelected) {
+                                      _selected.clear();
+                                    } else {
+                                      _selected
+                                        ..clear()
+                                        ..addAll(selectableIds);
+                                    }
+                                  });
+                                },
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Icon(
+                              allSelected
+                                  ? Icons.deselect_rounded
+                                  : Icons.select_all_rounded,
+                              size: 17,
+                              color: context.appColors.brandBlue,
                             ),
                           ),
                         ),
@@ -285,106 +286,118 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
                   ),
                 ),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 360),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: rows.length,
-                    separatorBuilder: (BuildContext _, _) =>
-                        const Divider(height: 1, color: AppTheme.outline),
-                    itemBuilder: (BuildContext context, int index) {
-                      final _ModelRow r = rows[index];
-                      final bool on = _selected.contains(r.id);
-                      final bool lockedOff = !on && _atCap;
-                      return InkWell(
-                        onTap: _saving || lockedOff
-                            ? null
-                            : () {
-                                setState(() {
-                                  if (on) {
-                                    _selected.remove(r.id);
-                                  } else {
-                                    _selected.add(r.id);
-                                  }
-                                });
-                              },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                            horizontal: 4,
+                  constraints: BoxConstraints(maxHeight: 360),
+                  child: AppScrollView(
+                    builder:
+                        (
+                          BuildContext context,
+                          AppScrollController controller,
+                        ) => ListView.separated(
+                          controller: controller,
+                          shrinkWrap: true,
+                          itemCount: rows.length,
+                          separatorBuilder: (BuildContext _, _) => Divider(
+                            height: 1,
+                            color: context.appColors.divider,
                           ),
-                          child: Row(
-                            children: <Widget>[
-                              Icon(
-                                on
-                                    ? Icons.check_box
-                                    : Icons.check_box_outline_blank,
-                                size: 18,
-                                color: on
-                                    ? AppTheme.brandViolet
-                                    : AppTheme.textSecondary,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  r.label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: r.deprecated
-                                        ? AppTheme.textSecondary
-                                        : AppTheme.textPrimary,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                          itemBuilder: (BuildContext context, int index) {
+                            final _ModelRow r = rows[index];
+                            final bool on = _selected.contains(r.id);
+                            final bool lockedOff = !on && _atCap;
+                            return InkWell(
+                              onTap: _saving || lockedOff
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        if (on) {
+                                          _selected.remove(r.id);
+                                        } else {
+                                          _selected.add(r.id);
+                                        }
+                                      });
+                                    },
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  vertical: 6,
+                                  horizontal: 4,
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    Icon(
+                                      on
+                                          ? Icons.check_box
+                                          : Icons.check_box_outline_blank,
+                                      size: 18,
+                                      color: on
+                                          ? context.appColors.brandViolet
+                                          : context.appColors.textSecondary,
+                                    ),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        r.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: r.deprecated
+                                              ? context.appColors.textSecondary
+                                              : context.appColors.textPrimary,
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (r.isNew)
+                                      _Badge(
+                                        icon: Icons.fiber_new,
+                                        label: 'New',
+                                        color: context.appColors.brandBlue,
+                                      ),
+                                    if (r.deprecated)
+                                      _Badge(
+                                        icon: Icons.warning_amber,
+                                        label: 'Deprecated',
+                                        color: context.appColors.brandPink,
+                                      ),
+                                  ],
                                 ),
                               ),
-                              if (r.isNew)
-                                const _Badge(
-                                  icon: Icons.fiber_new,
-                                  label: 'New',
-                                  color: AppTheme.brandBlue,
-                                ),
-                              if (r.deprecated)
-                                const _Badge(
-                                  icon: Icons.warning_amber,
-                                  label: 'Deprecated',
-                                  color: AppTheme.brandPink,
-                                ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
-                      );
-                    },
                   ),
                 ),
               ],
             ),
           ),
         if (_error != null) ...<Widget>[
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           Text(
             _error!,
-            style: const TextStyle(color: AppTheme.brandPink, fontSize: 12.5),
+            style: TextStyle(
+              color: context.appColors.brandPink,
+              fontSize: 12.5,
+            ),
           ),
         ],
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: <Widget>[
             TextButton(
               onPressed: _saving ? null : widget.onDone,
-              child: const Text('Cancel'),
+              child: Text('Cancel'),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             FilledButton(
               onPressed: _canSubmit ? _submit : null,
               child: _saving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save'),
+                  : Text('Save'),
             ),
           ],
         ),
@@ -394,7 +407,7 @@ class _ManageModelsContentState extends State<_ManageModelsContent> {
 }
 
 class _ModelRow {
-  const _ModelRow({
+  _ModelRow({
     required this.id,
     required this.label,
     required this.isNew,
@@ -417,21 +430,10 @@ class _Badge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      padding: EdgeInsets.only(left: 6),
+      child: Tooltip(
+        message: label,
+        child: Icon(icon, size: 14, color: color),
       ),
     );
   }

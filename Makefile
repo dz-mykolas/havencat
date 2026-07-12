@@ -11,11 +11,11 @@ DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
 RUN_ARGS := -d $(DEVICE)
 
 # Load `.env` (if present) into the make environment so targets like `server`
-# and `run` pick up PORT/LOG_LEVEL/SEARCH_PROVIDERS/etc. Shell env vars still
+# and `run` pick up PORT/LOG_LEVEL/etc. Shell env vars still
 # win over `.env` values. Lines starting with `#` and blank lines are skipped.
 -include .env
 # Export so subprocesses (dart run, flutter run) inherit them as shell env vars.
-export PORT HOST WEB_ROOT LOG_LEVEL RUST_LOG SEARCH_PROVIDERS FETCH_PROVIDERS
+export PORT HOST LOG_LEVEL RUST_LOG
 
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)
@@ -36,7 +36,7 @@ RUN_ARGS += --dart-define=CODEX_CLIENT_VERSION=$(CODEX_CLIENT_VERSION)
 endif
 endif
 
-.PHONY: install run run-profile run-release server serve rust check format build-play build-apk build-ios build-web build-desktop clean
+.PHONY: install run run-profile run-release server rust check format build-play build-apk build-ios build-desktop clean
 
 # Install the pinned Flutter SDK and project dependencies.
 install:
@@ -82,15 +82,6 @@ build-apk-all: build-apk
 # Build iOS IPA. Run on macOS only.
 build-ios:
 	cd $(APP) && $(FLUTTER) build ipa
-
-# Build web app.
-build-web:
-	cd $(APP) && $(FLUTTER) build web --dart-define=LLM_PROXY=/proxy
-
-# Self-host the web build: one Dart process serves the app + a same-origin
-# LLM reverse proxy (so the browser isn't blocked by CORS). Builds first.
-serve: build-web
-	cd $(APP) && PORT=$(SERVE_PORT) $(DART) run bin/serve.dart
 
 # Build the Rust crate (cdylib) that the server + native apps load via FFI.
 # `dart run` and `flutter run` don't trigger Cargokit for the server path,

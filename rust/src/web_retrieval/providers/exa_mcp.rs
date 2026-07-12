@@ -13,9 +13,8 @@ use crate::web_retrieval::provider::{
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// Exa hosted MCP provider. No-key path uses the server free-tier key + IP
-/// rate limiting. If `secret` is set, it's appended as `?exaApiKey=...` to
-/// bypass IP rate limiting.
+/// Exa hosted MCP provider. The no-key path uses Exa's limited free access;
+/// an optional API key raises those limits.
 ///
 /// Mirrors OpenCode's approach: a single stateless JSON-RPC `tools/call` POST,
 /// no `initialize` handshake (Exa's hosted MCP allows this).
@@ -32,20 +31,11 @@ impl ExaMcpProvider {
         Self { client }
     }
 
-    fn endpoint(secret: Option<&str>) -> String {
-        match secret {
-            Some(key) if !key.is_empty() => {
-                format!("{EXA_MCP_URL}?exaApiKey={}", urlencoding::encode(key))
-            }
-            _ => EXA_MCP_URL.to_string(),
-        }
-    }
-
     async fn call_tool(
         &self,
-        endpoint: &str,
         tool: &str,
         args: serde_json::Value,
+        secret: Option<&str>,
     ) -> Result<String> {
         let body = json!({
             "jsonrpc": "2.0",
@@ -54,13 +44,15 @@ impl ExaMcpProvider {
             "params": { "name": tool, "arguments": args }
         });
 
-        let resp = self
+        let mut request = self
             .client
-            .post(endpoint)
+            .post(EXA_MCP_URL)
             .header("Accept", "application/json, text/event-stream")
-            .json(&body)
-            .send()
-            .await?;
+            .json(&body);
+        if let Some(key) = secret.filter(|key| !key.trim().is_empty()) {
+            request = request.header("x-api-key", key);
+        }
+        let resp = request.send().await?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -77,14 +69,21 @@ impl ExaMcpProvider {
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(WebRetrievalError::Auth("exa: invalid api key".into()));
         }
+        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+            return Err(WebRetrievalError::Quota("exa".into()));
+        }
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(WebRetrievalError::Network(format!("exa: {status} {text}")));
         }
 
         let text = resp.text().await?;
-        parse_mcp_response(&text)
-            .ok_or_else(|| WebRetrievalError::Network("exa: empty/unparseable response".into()))
+        let (content, is_error) = parse_mcp_response(&text)
+            .ok_or_else(|| WebRetrievalError::Network("exa: empty/unparseable response".into()))?;
+        if is_error {
+            return Err(classify_mcp_error(&content));
+        }
+        Ok(content)
     }
 }
 
@@ -106,14 +105,13 @@ impl WebSearchProvider for ExaMcpProvider {
         secret: Option<&str>,
         options: SearchOptions,
     ) -> Result<Vec<SearchResult>> {
-        let endpoint = Self::endpoint(secret);
         let args = json!({
             "query": query,
             "type": "auto",
             "numResults": options.num_results,
             "livecrawl": "fallback",
         });
-        let text = self.call_tool(&endpoint, "web_search_exa", args).await?;
+        let text = self.call_tool("web_search_exa", args, secret).await?;
         tracing::debug!(query = query, response = %text, "exa raw search response");
 
         // Exa's MCP tools/call returns results as markdown text, not JSON:
@@ -144,9 +142,8 @@ impl UrlFetchProvider for ExaMcpProvider {
         secret: Option<&str>,
         options: FetchOptions,
     ) -> Result<FetchedPage> {
-        let endpoint = Self::endpoint(secret);
         let args = json!({ "url": url });
-        let text = self.call_tool(&endpoint, "web_fetch_exa", args).await?;
+        let text = self.call_tool("web_fetch_exa", args, secret).await?;
         let parsed: ExaFetchResponse = serde_json::from_str(&text).unwrap_or_default();
         Ok(FetchedPage {
             url: url.to_string(),
@@ -164,7 +161,7 @@ impl UrlFetchProvider for ExaMcpProvider {
 
 /// Parse an MCP `tools/call` response. Handles both direct JSON and SSE
 /// `data:` lines (Exa may return either).
-fn parse_mcp_response(body: &str) -> Option<String> {
+fn parse_mcp_response(body: &str) -> Option<(String, bool)> {
     if let Some(s) = parse_payload(body.trim()) {
         return Some(s);
     }
@@ -179,18 +176,40 @@ fn parse_mcp_response(body: &str) -> Option<String> {
     None
 }
 
-fn parse_payload(payload: &str) -> Option<String> {
+fn parse_payload(payload: &str) -> Option<(String, bool)> {
     if !payload.starts_with('{') {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(payload).ok()?;
     let content = v.get("result")?.get("content")?.as_array()?;
-    content
+    let text = content
         .iter()
         .find(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
-        .map(|s| s.to_string())
+        .map(|s| s.to_string())?;
+    let is_error = v
+        .get("result")
+        .and_then(|result| result.get("isError"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    Some((text, is_error))
+}
+
+fn classify_mcp_error(message: &str) -> WebRetrievalError {
+    let normalized = message.to_lowercase();
+    if normalized.contains("rate limit") || normalized.contains("too many requests") {
+        WebRetrievalError::RateLimit {
+            provider: "exa".into(),
+            retry_after_secs: None,
+        }
+    } else if normalized.contains("api key") || normalized.contains("unauthorized") {
+        WebRetrievalError::Auth("exa credentials rejected".into())
+    } else if normalized.contains("credit") || normalized.contains("quota") {
+        WebRetrievalError::Quota("exa".into())
+    } else {
+        WebRetrievalError::Other("exa tool call failed".into())
+    }
 }
 
 /// Parse Exa's markdown-formatted search response into [SearchResult]s.
@@ -315,18 +334,20 @@ struct ExaFetchResponse {
     markdown: Option<String>,
 }
 
-// Minimal URL-encoding for the api key query param (avoid pulling a crate).
-mod urlencoding {
-    pub fn encode(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for b in s.bytes() {
-            match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    out.push(b as char)
-                }
-                _ => out.push_str(&format!("%{:02X}", b)),
-            }
-        }
-        out
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_mcp_error_payloads() {
+        let payload = r#"{"jsonrpc":"2.0","id":1,"result":{"isError":true,"content":[{"type":"text","text":"Rate limit exceeded"}]}}"#;
+        let (content, is_error) = parse_mcp_response(payload).expect("payload");
+
+        assert_eq!(content, "Rate limit exceeded");
+        assert!(is_error);
+        assert!(matches!(
+            classify_mcp_error(&content),
+            WebRetrievalError::RateLimit { .. }
+        ));
     }
 }

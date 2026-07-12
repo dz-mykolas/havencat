@@ -27,21 +27,20 @@ class EmptyState extends StatelessWidget {
         Expanded(
           child: Align(
             alignment: Alignment.bottomCenter,
-            child: SingleChildScrollView(
-              reverse: true,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
               child: _Greeting(),
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         _Centered(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.symmetric(horizontal: 12),
             child: input,
           ),
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         Expanded(child: SizedBox()),
       ],
     );
@@ -54,8 +53,8 @@ class EmptyState extends StatelessWidget {
       fit: StackFit.expand,
       children: <Widget>[
         Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
             child: _Greeting(),
           ),
         ),
@@ -64,12 +63,10 @@ class EmptyState extends StatelessWidget {
           right: 0,
           bottom: 0,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 27),
+            padding: EdgeInsets.fromLTRB(12, 0, 12, 27),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: AppTheme.contentMaxWidth,
-                ),
+                constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
                 child: input,
               ),
             ),
@@ -91,7 +88,7 @@ class _Centered extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
+        constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
         child: child,
       ),
     );
@@ -107,28 +104,32 @@ class _Greeting extends StatelessWidget {
         Container(
           width: 56,
           height: 56,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: AppTheme.brandGradient,
+            gradient: context.appColors.brandGradient,
           ),
-          child: const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
+          child: Icon(
+            Icons.auto_awesome,
+            color: Theme.of(context).colorScheme.onPrimary,
+            size: 28,
+          ),
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         GradientText(
           'Hello there',
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 34,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 6),
-        const Text(
+        SizedBox(height: 6),
+        Text(
           'How can I help you today?',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: AppTheme.textSecondary,
+            color: context.appColors.textSecondary,
             fontSize: 20,
             fontWeight: FontWeight.w500,
           ),

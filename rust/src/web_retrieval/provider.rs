@@ -16,6 +16,25 @@ pub struct SearchResult {
     pub provider: String,
 }
 
+/// A provider problem that did not necessarily fail the whole search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderIssue {
+    pub provider: String,
+    pub kind: String,
+    #[serde(default)]
+    pub retry_after_secs: Option<u64>,
+}
+
+/// Search results plus any provider issues encountered during fan-out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchBatch {
+    pub results: Vec<SearchResult>,
+    #[serde(default)]
+    pub issues: Vec<ProviderIssue>,
+    #[serde(default)]
+    pub successful_providers: Vec<String>,
+}
+
 /// Options for a search call.
 #[derive(Debug, Clone)]
 pub struct SearchOptions {

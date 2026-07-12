@@ -10,6 +10,7 @@ import 'package:app/data/services/auth/chatgpt_token_service.dart';
 import 'package:app/data/services/auth/secret_store.dart';
 import 'package:app/data/services/storage/account_store.dart';
 import 'package:app/domain/models/adapter_kind.dart';
+import 'package:app/domain/models/conversation.dart';
 import 'package:app/domain/models/oauth_tokens.dart';
 import 'package:app/domain/models/provider_account.dart';
 
@@ -17,6 +18,15 @@ import 'package:app/domain/models/provider_account.dart';
 /// an app restart / browser refresh in this fully-local (no backend) app.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('conversation pin state round-trips and defaults to unpinned', () {
+    final Conversation pinned = Conversation(id: 'pinned', isPinned: true);
+    expect(Conversation.fromJson(pinned.toJson()).isPinned, isTrue);
+    expect(
+      Conversation.fromJson(<String, dynamic>{'id': 'legacy'}).isPinned,
+      isFalse,
+    );
+  });
 
   group('OAuthTokens', () {
     test('encode/decode round-trips', () {

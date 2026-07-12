@@ -1,4 +1,21 @@
 import '../../../domain/models/message.dart';
+import '../../../domain/models/message_attachment.dart';
+import '../../../domain/models/llm_model.dart';
+import '../../../domain/errors/app_failure.dart';
+
+export '../../../domain/errors/app_failure.dart'
+    show
+        AppFailure,
+        AppSubsystem,
+        AuthError,
+        FailureImpact,
+        FailureKind,
+        FailureSource,
+        InvalidRequestError,
+        NetworkError,
+        QuotaError,
+        RateLimitError,
+        UnknownError;
 
 /// A single chunk emitted while streaming an assistant reply.
 ///
@@ -24,6 +41,17 @@ final class ReasoningEvent extends LlmEvent {
   final String delta;
 }
 
+/// A non-text output produced by the model.
+///
+/// Re-emitting the same attachment id replaces the prior value, which lets an
+/// adapter surface progressive image previews without adding UI-specific
+/// events to the transport contract.
+final class AttachmentEvent extends LlmEvent {
+  const AttachmentEvent(this.attachment);
+
+  final MessageAttachment attachment;
+}
+
 /// The model invoked a tool. The repository executes the call and appends a
 /// tool-result message, then re-streams so the model can use the results.
 final class ToolCallEvent extends LlmEvent {
@@ -42,11 +70,7 @@ final class ToolCallEvent extends LlmEvent {
 /// `stream_options: {include_usage: true}` is requested) or in a non-streaming
 /// response. Null when the provider doesn't report usage.
 class LlmUsage {
-  const LlmUsage({
-    this.promptTokens,
-    this.completionTokens,
-    this.totalTokens,
-  });
+  const LlmUsage({this.promptTokens, this.completionTokens, this.totalTokens});
 
   final int? promptTokens;
   final int? completionTokens;
@@ -72,38 +96,7 @@ final class DoneEvent extends LlmEvent {
 final class ErrorEvent extends LlmEvent {
   const ErrorEvent(this.error);
 
-  final LlmError error;
-}
-
-/// Typed error hierarchy for adapter failures.
-sealed class LlmError {
-  const LlmError(this.message);
-
-  final String message;
-}
-
-final class NetworkError extends LlmError {
-  const NetworkError(super.message);
-}
-
-final class AuthError extends LlmError {
-  const AuthError(super.message);
-}
-
-final class RateLimitError extends LlmError {
-  const RateLimitError(super.message);
-}
-
-final class QuotaError extends LlmError {
-  const QuotaError(super.message);
-}
-
-final class InvalidRequestError extends LlmError {
-  const InvalidRequestError(super.message);
-}
-
-final class UnknownError extends LlmError {
-  const UnknownError(super.message);
+  final AppFailure error;
 }
 
 /// A function/tool the model can call (OpenAI `tools` shape). The model emits
@@ -135,6 +128,7 @@ class LlmRequest {
     this.maxTokens,
     this.signal,
     this.tools = const <ToolDefinition>[],
+    this.modelCapabilities,
   });
 
   /// Full conversation history, oldest first, ending with the user's prompt.
@@ -158,4 +152,8 @@ class LlmRequest {
 
   /// Tools the model may call this turn. Empty = no tools (plain completion).
   final List<ToolDefinition> tools;
+
+  /// Catalog metadata for the selected model. Null means unknown, not
+  /// text-only; adapters should only branch on explicit capabilities.
+  final ModelCapabilities? modelCapabilities;
 }

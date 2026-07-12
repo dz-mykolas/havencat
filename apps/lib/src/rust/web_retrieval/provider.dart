@@ -35,6 +35,58 @@ class FetchedPage {
           contentType == other.contentType;
 }
 
+/// A provider problem that did not necessarily fail the whole search.
+class ProviderIssue {
+  final String provider;
+  final String kind;
+  final BigInt? retryAfterSecs;
+
+  const ProviderIssue({
+    required this.provider,
+    required this.kind,
+    this.retryAfterSecs,
+  });
+
+  @override
+  int get hashCode =>
+      provider.hashCode ^ kind.hashCode ^ retryAfterSecs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProviderIssue &&
+          runtimeType == other.runtimeType &&
+          provider == other.provider &&
+          kind == other.kind &&
+          retryAfterSecs == other.retryAfterSecs;
+}
+
+/// Search results plus any provider issues encountered during fan-out.
+class SearchBatch {
+  final List<SearchResult> results;
+  final List<ProviderIssue> issues;
+  final List<String> successfulProviders;
+
+  const SearchBatch({
+    required this.results,
+    required this.issues,
+    required this.successfulProviders,
+  });
+
+  @override
+  int get hashCode =>
+      results.hashCode ^ issues.hashCode ^ successfulProviders.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SearchBatch &&
+          runtimeType == other.runtimeType &&
+          results == other.results &&
+          issues == other.issues &&
+          successfulProviders == other.successfulProviders;
+}
+
 /// A single search result.
 class SearchResult {
   final String title;

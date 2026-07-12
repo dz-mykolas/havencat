@@ -2,6 +2,8 @@
 name = "app_rust"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/dz-mykolas/havencat"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

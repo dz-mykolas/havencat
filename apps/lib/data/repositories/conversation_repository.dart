@@ -5,10 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
 import '../../../domain/models/conversation.dart';
+import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/message.dart';
+import '../../../domain/models/message_attachment.dart';
+import '../../../domain/models/content_modality.dart';
 import '../../../domain/models/provider_account.dart';
 import '../services/auth/credential_resolver.dart';
+import '../services/errors/provider_failure_mapper.dart';
 import '../services/llm/account_models_service.dart';
 import '../services/llm/adapter_registry.dart';
 import '../services/llm/context_compaction.dart';
@@ -73,15 +77,25 @@ class ConversationRepository extends ChangeNotifier {
   final ConversationStore _store;
 
   Future<void> _init() async {
-    final List<Conversation> loaded = await _store.load();
-    // Don't persist streaming state — if the app crashed mid-stream, mark
-    // those messages as done so they don't hang on reload.
-    for (final Conversation c in loaded) {
-      for (final ChatMessage m in c.messages) {
-        m.isStreaming = false;
+    try {
+      final List<Conversation> loaded = await _store.load();
+      // Don't persist streaming state — if the app crashed mid-stream, mark
+      // those messages as done so they don't hang on reload.
+      for (final Conversation c in loaded) {
+        for (final ChatMessage m in c.messages) {
+          m.isStreaming = false;
+        }
       }
+      _conversations.addAll(loaded);
+    } on Object catch (error, stack) {
+      _recordStorageFailure(
+        error,
+        stack,
+        operation: 'load_conversations',
+        message: 'Saved conversations could not be loaded.',
+        notify: false,
+      );
     }
-    _conversations.addAll(loaded);
     // Don't auto-select the latest chat — start on the welcome/empty state.
     // The user picks a conversation from the sidebar or starts a new one.
     _loaded = true;
@@ -95,7 +109,53 @@ class ConversationRepository extends ChangeNotifier {
   String? _activeId;
 
   void _persist(Conversation conversation) {
-    _store.upsert(conversation);
+    unawaited(_persistConversation(conversation));
+  }
+
+  Future<void> _persistConversation(Conversation conversation) async {
+    try {
+      await _store.upsert(conversation);
+    } on Object catch (error, stack) {
+      _recordStorageFailure(
+        error,
+        stack,
+        operation: 'save_conversation',
+        message: 'This conversation could not be saved.',
+      );
+    }
+  }
+
+  Future<void> _deletePersistedConversation(String id) async {
+    try {
+      await _store.delete(id);
+    } on Object catch (error, stack) {
+      _recordStorageFailure(
+        error,
+        stack,
+        operation: 'delete_conversation',
+        message: 'The conversation was removed here but not from storage.',
+      );
+    }
+  }
+
+  void _recordStorageFailure(
+    Object error,
+    StackTrace stack, {
+    required String operation,
+    required String message,
+    bool notify = true,
+  }) {
+    final AppFailure failure = _failureMapper.fromException(
+      error,
+      source: FailureSource(
+        subsystem: AppSubsystem.storage,
+        operation: operation,
+      ),
+      fallbackMessage: message,
+    );
+    _lastFailure = failure;
+    _log.severe(message, failure, stack);
+    if (notify) notifyListeners();
   }
 
   static final Logger _log = Logger('conversation');
@@ -108,6 +168,7 @@ class ConversationRepository extends ChangeNotifier {
   final WebSearchTools _webSearchTools = const WebSearchTools();
   final AppSettings? _appSettings;
   final AccountModelsService? _accountModels;
+  static const ProviderFailureMapper _failureMapper = ProviderFailureMapper();
 
   /// Resolves the context window for the active account's selected model.
   /// Falls back to [kFallbackContextWindow] when the model isn't found in
@@ -155,12 +216,16 @@ class ConversationRepository extends ChangeNotifier {
   StreamSubscription<LlmEvent>? _replySub;
   int _counter = 0;
 
-  /// Set when the last stream failed and was rolled back. The UI shows a
-  /// toast and clears it. Null when no error or after the UI acknowledged it.
-  String? _lastStreamError;
-  String? get lastStreamError => _lastStreamError;
-  void clearStreamError() {
-    _lastStreamError = null;
+  AppFailure? _lastFailure;
+  AppFailure? get lastFailure => _lastFailure;
+  void clearLastFailure() {
+    _lastFailure = null;
+  }
+
+  Future<void> retryLastFailure() async {
+    if (_isGenerating || active.isEmpty) return;
+    _lastFailure = null;
+    await _streamReply();
   }
 
   List<Conversation> get conversations => List.unmodifiable(_conversations);
@@ -204,6 +269,26 @@ class ConversationRepository extends ChangeNotifier {
     return _resolveContextWindow(account, model);
   }
 
+  LlmModel? get activeModel {
+    final ProviderAccount? account = activeAccount;
+    if (account == null || _accountModels == null) return null;
+    final String modelId = (account.config['model'] as String?) ?? '';
+    if (modelId.isEmpty) return null;
+    for (final LlmModel model
+        in _accountModels.modelsFor(account.id) ?? const <LlmModel>[]) {
+      if (model.id == modelId) return model;
+    }
+    return null;
+  }
+
+  /// Unknown metadata remains permissive for custom/local endpoints. Only a
+  /// catalog record that explicitly omits image input disables uploads.
+  bool get canUploadImages =>
+      activeModel?.capabilities?.accepts(ContentModality.image) != false;
+
+  bool get canGenerateImages =>
+      activeModel?.capabilities?.produces(ContentModality.image) == true;
+
   /// The account the active conversation is bound to, falling back to the
   /// user's currently-active account.
   ProviderAccount? get activeAccount {
@@ -236,9 +321,27 @@ class ConversationRepository extends ChangeNotifier {
   /// search + fetch tools are attached; when the model calls them the
   /// repository executes the call, appends a tool-result message, and
   /// re-streams so the model can use the results.
-  Future<void> sendMessage(String text) async {
+  Future<void> sendMessage(
+    String text, {
+    List<MessageAttachment> attachments = const <MessageAttachment>[],
+  }) async {
     final String trimmed = text.trim();
-    if (trimmed.isEmpty || _isGenerating) return;
+    if ((trimmed.isEmpty && attachments.isEmpty) || _isGenerating) return;
+    if (attachments.any(
+          (MessageAttachment value) => value.modality == ContentModality.image,
+        ) &&
+        !canUploadImages) {
+      _lastFailure = const AppFailure(
+        kind: FailureKind.unsupported,
+        source: FailureSource(
+          subsystem: AppSubsystem.llm,
+          operation: 'attach_image',
+        ),
+        message: 'The selected model does not accept image input.',
+      );
+      notifyListeners();
+      return;
+    }
 
     // If there's no active conversation (welcome state / "new chat"),
     // create one now — lazily, only when the first message is sent.
@@ -256,10 +359,15 @@ class ConversationRepository extends ChangeNotifier {
         id: _newId(),
         role: MessageRole.user,
         text: trimmed,
+        attachments: List<MessageAttachment>.from(attachments),
         createdAt: DateTime.now(),
       ),
     );
-    if (wasEmpty) conversation.title = _titleFrom(trimmed);
+    if (wasEmpty) {
+      conversation.title = trimmed.isNotEmpty
+          ? _titleFrom(trimmed)
+          : attachments.first.name ?? 'Image';
+    }
     _persist(conversation);
 
     await _streamReply();
@@ -288,6 +396,7 @@ class ConversationRepository extends ChangeNotifier {
         id: _newId(),
         role: original.role,
         text: trimmed,
+        attachments: List<MessageAttachment>.from(original.attachments),
         createdAt: DateTime.now(),
       );
       // Sibling: same parent as the original. If the original is a root
@@ -394,6 +503,46 @@ class ConversationRepository extends ChangeNotifier {
   /// starting leaf (used when the caller has already set currentLeafId).
   Future<void> _streamReply({String? extraPrompt}) async {
     final Conversation conversation = active;
+    final String? previousLeaf = conversation.currentLeafId;
+    try {
+      await _streamReplyInternal(extraPrompt: extraPrompt);
+    } on Object catch (error, stack) {
+      final ProviderAccount? account = activeAccount;
+      final AppFailure failure = _failureMapper.fromException(
+        error,
+        source: FailureSource(
+          subsystem: AppSubsystem.llm,
+          operation: 'generate',
+          providerId: account?.displayName,
+          accountId: account?.id,
+          modelId: account?.config['model'] as String?,
+        ),
+        flavor: account?.kind == AdapterKind.subscription
+            ? ProviderErrorFlavor.codex
+            : ProviderErrorFlavor.generic,
+      );
+      _log.severe('LLM request failed before completion', failure, stack);
+      final ChatMessage? assistant = conversation.messages
+          .where((ChatMessage message) => message.isStreaming)
+          .lastOrNull;
+      if (assistant != null) {
+        assistant
+          ..text = failure.message
+          ..isStreaming = false
+          ..hasError = true;
+      }
+      if (previousLeaf != null) conversation.currentLeafId = previousLeaf;
+      if (!failure.isCancellation) _lastFailure = failure;
+    } finally {
+      _replySub = null;
+      if (_isGenerating) _isGenerating = false;
+      _persist(conversation);
+      notifyListeners();
+    }
+  }
+
+  Future<void> _streamReplyInternal({String? extraPrompt}) async {
+    final Conversation conversation = active;
 
     // Remember the leaf before we start streaming so we can roll back on
     // error (optimistic rollback — the failed branch stays as a sibling).
@@ -404,11 +553,19 @@ class ConversationRepository extends ChangeNotifier {
 
     final ProviderAccount? account = activeAccount;
     if (account == null) {
+      _lastFailure = const AppFailure(
+        kind: FailureKind.unavailable,
+        source: FailureSource(
+          subsystem: AppSubsystem.llm,
+          operation: 'generate',
+        ),
+        message: 'No provider is configured. Add one in Settings.',
+      );
       conversation.add(
         ChatMessage(
           id: _newId(),
           role: MessageRole.assistant,
-          text: 'No provider configured. Add one in Settings.',
+          text: _lastFailure!.message,
           createdAt: DateTime.now(),
         ),
       );
@@ -447,6 +604,7 @@ class ConversationRepository extends ChangeNotifier {
             toolCallId: orig.toolCallId,
             parentId: orig.parentId,
             children: orig.childrenIds,
+            attachments: List<MessageAttachment>.from(orig.attachments),
           );
           break;
         }
@@ -463,7 +621,7 @@ class ConversationRepository extends ChangeNotifier {
     final Set<String> currentTurnMessageIds = <String>{};
     // Compactor for context compaction. Built once per reply; reuses the
     // active adapter/account/secret.
-    final ContextCompactor? compactor = LlmContextCompactor(
+    final ContextCompactor compactor = LlmContextCompactor(
       adapter: adapter,
       account: account,
       secret: secret,
@@ -530,6 +688,7 @@ class ConversationRepository extends ChangeNotifier {
               model: model,
               systemPrompt: SystemPrompts.base,
               tools: tools,
+              modelCapabilities: activeModel?.capabilities,
             ),
             account: account,
             secret: secret,
@@ -542,6 +701,16 @@ class ConversationRepository extends ChangeNotifier {
                   notifyListeners();
                 case ReasoningEvent(:final String delta):
                   assistant.reasoning += delta;
+                  notifyListeners();
+                case AttachmentEvent(:final MessageAttachment attachment):
+                  final int existing = assistant.attachments.indexWhere(
+                    (MessageAttachment value) => value.id == attachment.id,
+                  );
+                  if (existing < 0) {
+                    assistant.attachments.add(attachment);
+                  } else {
+                    assistant.attachments[existing] = attachment;
+                  }
                   notifyListeners();
                 case ToolCallEvent(
                   :final String id,
@@ -596,12 +765,13 @@ class ConversationRepository extends ChangeNotifier {
                   }
                   notifyListeners();
                   if (!done.isCompleted) done.complete();
-                case ErrorEvent(:final LlmError error):
+                case ErrorEvent(:final AppFailure error):
                   _log.severe(
                     'LLM stream error: ${error.runtimeType}: ${error.message}',
                   );
-                  assistant.text = '⚠️ ${error.message}';
+                  assistant.text = error.isCancellation ? '' : error.message;
                   assistant.isStreaming = false;
+                  if (!error.isCancellation) _lastFailure = error;
                   hadError = true;
                   notifyListeners();
                   if (!done.isCompleted) done.complete();
@@ -609,8 +779,20 @@ class ConversationRepository extends ChangeNotifier {
             },
             onError: (Object error, StackTrace stack) {
               _log.severe('LLM stream onError', error, stack);
-              assistant.text = 'Something went wrong. Please try again.';
+              final AppFailure failure = AppFailure(
+                kind: FailureKind.unknown,
+                source: FailureSource(
+                  subsystem: AppSubsystem.llm,
+                  operation: 'generate',
+                  providerId: account.displayName,
+                  accountId: account.id,
+                  modelId: model,
+                ),
+                message: 'The provider could not complete the request.',
+              );
+              assistant.text = failure.message;
               assistant.isStreaming = false;
+              _lastFailure = failure;
               hadError = true;
               notifyListeners();
               if (!done.isCompleted) done.complete();
@@ -631,7 +813,6 @@ class ConversationRepository extends ChangeNotifier {
           if (previousLeaf != null) {
             conversation.currentLeafId = previousLeaf;
           }
-          _lastStreamError = assistant.text;
         } else {
           _log.info('reply complete: round=$round toolCalls=0');
         }
@@ -665,7 +846,7 @@ class ConversationRepository extends ChangeNotifier {
         final WebRetrievalAdapter retrieval = _webRetrieval;
         for (final ToolCall tc in pendingCalls) {
           _log.fine('executing tool: name=${tc.name} id=${tc.id}');
-          String result;
+          WebToolResult result;
           try {
             result = await _webSearchTools.execute(
               name: tc.name,
@@ -673,17 +854,33 @@ class ConversationRepository extends ChangeNotifier {
               adapter: retrieval,
             );
             _log.fine(
-              'tool result: name=${tc.name} len=${result.length} '
-              'preview=${result.substring(0, result.length.clamp(0, 120))}',
+              'tool result: name=${tc.name} len=${result.content.length} '
+              'preview=${result.content.substring(0, result.content.length.clamp(0, 120))}',
             );
+            if (result.warnings.isNotEmpty) {
+              _lastFailure = result.warnings.first;
+              notifyListeners();
+            }
           } catch (e, stack) {
             _log.severe('tool execution failed: name=${tc.name}', e, stack);
-            result = 'Error executing tool "${tc.name}": $e';
+            final AppFailure failure = _failureMapper.fromException(
+              e,
+              source: FailureSource(
+                subsystem: tc.name == 'fetch_page'
+                    ? AppSubsystem.webFetch
+                    : AppSubsystem.webSearch,
+                operation: tc.name == 'fetch_page' ? 'fetch' : 'search',
+              ),
+            );
+            _lastFailure = failure;
+            result = WebToolResult(
+              content: 'The web tool could not complete: ${failure.message}',
+            );
           }
           final ChatMessage toolResult = ChatMessage(
             id: _newId(),
             role: MessageRole.tool,
-            text: result,
+            text: result.content,
             toolCallId: tc.id,
             createdAt: DateTime.now(),
           );
@@ -737,6 +934,16 @@ class ConversationRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  void toggleConversationPinned(String id) {
+    final Conversation? conversation = _conversations
+        .where((Conversation value) => value.id == id)
+        .firstOrNull;
+    if (conversation == null) return;
+    conversation.isPinned = !conversation.isPinned;
+    _persist(conversation);
+    notifyListeners();
+  }
+
   /// Deletes a conversation by [id]. If it's the active one, returns to
   /// the welcome/empty state.
   void deleteConversation(String id) {
@@ -745,7 +952,7 @@ class ConversationRepository extends ChangeNotifier {
       _activeId = null;
       _placeholderConversation = null;
     }
-    _store.delete(id);
+    unawaited(_deletePersistedConversation(id));
     notifyListeners();
   }
 

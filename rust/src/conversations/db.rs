@@ -69,13 +69,22 @@ impl ConversationsDb {
                     ("completion_tokens", "INTEGER"),
                     ("total_tokens", "INTEGER"),
                     ("reasoning", "TEXT"),
+                    ("attachments_json", "TEXT"),
                 ] {
                     if !existing.contains(col) {
-                        c.execute(
-                            &format!("ALTER TABLE messages ADD COLUMN {col} {decl}"),
-                            [],
-                        )?;
+                        c.execute(&format!("ALTER TABLE messages ADD COLUMN {col} {decl}"), [])?;
                     }
+                }
+                let conversation_columns: std::collections::HashSet<String> = c
+                    .prepare("PRAGMA table_info(conversations)")?
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .filter_map(std::result::Result::ok)
+                    .collect();
+                if !conversation_columns.contains("is_pinned") {
+                    c.execute(
+                        "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
+                        [],
+                    )?;
                 }
                 Ok(())
             })
@@ -91,8 +100,8 @@ impl ConversationsDb {
             .conn
             .call(|c| -> std::result::Result<Vec<StoredConversation>, rusqlite::Error> {
                 let mut conv_stmt = c.prepare(
-                    "SELECT id, title, provider_account, created_at, current_leaf_id, updated_at
-                     FROM conversations ORDER BY updated_at DESC",
+                    "SELECT id, title, provider_account, created_at, current_leaf_id, is_pinned, updated_at
+                     FROM conversations ORDER BY is_pinned DESC, updated_at DESC",
                 )?;
                 let conv_rows = conv_stmt.query_map([], |row| {
                     Ok(StoredConversation {
@@ -101,7 +110,8 @@ impl ConversationsDb {
                         provider_account: row.get(2)?,
                         created_at: row.get(3)?,
                         current_leaf_id: row.get(4)?,
-                        updated_at: row.get(5)?,
+                        is_pinned: row.get::<_, i64>(5)? != 0,
+                        updated_at: row.get(6)?,
                         messages: Vec::new(),
                     })
                 })?;
@@ -113,7 +123,8 @@ impl ConversationsDb {
                             original_content, has_error, active_child_id, tool_call_id,
                             tool_calls_json, created_at, cleared, cleared_summary,
                             refetch_args, is_compaction_summary,
-                            prompt_tokens, completion_tokens, total_tokens, reasoning
+                            prompt_tokens, completion_tokens, total_tokens, reasoning,
+                            attachments_json
                      FROM messages",
                 )?;
                 let msg_rows = msg_stmt.query_map([], |row| {
@@ -138,6 +149,7 @@ impl ConversationsDb {
                         completion_tokens: row.get(17)?,
                         total_tokens: row.get(18)?,
                         reasoning: row.get(19)?,
+                        attachments_json: row.get(20)?,
                     })
                 })?;
                 let msgs: Vec<StoredMessage> =
@@ -171,14 +183,15 @@ impl ConversationsDb {
 
                 c.execute(
                     "INSERT OR REPLACE INTO conversations
-                     (id, title, provider_account, created_at, current_leaf_id, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                     (id, title, provider_account, created_at, current_leaf_id, is_pinned, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         conv.id,
                         conv.title,
                         conv.provider_account,
                         conv.created_at,
                         conv.current_leaf_id,
+                        conv.is_pinned as i64,
                         now,
                     ],
                 )?;
@@ -195,9 +208,10 @@ impl ConversationsDb {
                           original_content, has_error, active_child_id, tool_call_id,
                           tool_calls_json, created_at, cleared, cleared_summary,
                           refetch_args, is_compaction_summary,
-                          prompt_tokens, completion_tokens, total_tokens, reasoning)
+                          prompt_tokens, completion_tokens, total_tokens, reasoning,
+                          attachments_json)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                         params![
                             m.id,
                             m.conversation_id,
@@ -219,6 +233,7 @@ impl ConversationsDb {
                             m.completion_tokens,
                             m.total_tokens,
                             m.reasoning,
+                            m.attachments_json,
                         ],
                     )?;
                 }
@@ -253,6 +268,7 @@ pub struct StoredConversation {
     pub provider_account: Option<String>,
     pub created_at: String,
     pub current_leaf_id: Option<String>,
+    pub is_pinned: bool,
     pub updated_at: i64,
     pub messages: Vec<StoredMessage>,
 }
@@ -279,4 +295,40 @@ pub struct StoredMessage {
     pub completion_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning: Option<String>,
+    pub attachments_json: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConversationsDb, StoredConversation};
+
+    fn conversation(id: &str, is_pinned: bool) -> StoredConversation {
+        StoredConversation {
+            id: id.to_string(),
+            title: id.to_string(),
+            provider_account: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            current_leaf_id: None,
+            is_pinned,
+            updated_at: 0,
+            messages: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn pin_state_persists_and_pinned_conversations_load_first() {
+        let db = ConversationsDb::open_in_memory().await.unwrap();
+        db.upsert_conversation(&conversation("regular", false))
+            .await
+            .unwrap();
+        db.upsert_conversation(&conversation("pinned", true))
+            .await
+            .unwrap();
+
+        let loaded = db.load_all().await.unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].id, "pinned");
+        assert!(loaded[0].is_pinned);
+        assert!(!loaded[1].is_pinned);
+    }
 }

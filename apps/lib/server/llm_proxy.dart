@@ -314,6 +314,15 @@ Map<String, String> _corsHeaders(String origin, Request request) {
     'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': requested,
+    'access-control-expose-headers':
+        'retry-after, request-id, x-request-id, ratelimit-reset, '
+        'x-ratelimit-reset, x-ratelimit-reset-requests, '
+        'x-ratelimit-reset-tokens, anthropic-ratelimit-requests-reset, '
+        'anthropic-ratelimit-tokens-reset, x-codex-active-limit, '
+        'x-codex-primary-reset-at, x-codex-primary-resets-at, '
+        'x-codex-primary-reset-after-seconds, x-codex-secondary-reset-at, '
+        'x-codex-secondary-resets-at, '
+        'x-codex-secondary-reset-after-seconds',
     'access-control-max-age': '86400',
     'vary': 'origin',
   };

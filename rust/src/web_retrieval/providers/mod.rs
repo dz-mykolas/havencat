@@ -1,3 +1,4 @@
+pub mod brave;
 pub mod direct_http;
 pub mod exa_mcp;
 pub mod jina_reader;

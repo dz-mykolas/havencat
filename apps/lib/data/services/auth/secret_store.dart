@@ -1,8 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Wraps `flutter_secure_storage` so the rest of the app doesn't depend on it
-/// directly. Stores API keys and OAuth token bundles keyed by provider
-/// account id.
+/// directly. Stores API keys and OAuth token bundles under caller-owned ids.
 ///
 /// Backends, in order of preference:
 ///   * native (iOS/macOS/Android/Windows/Linux) — the OS keystore (Keychain,
@@ -35,28 +34,28 @@ class SecretStore {
   final FlutterSecureStorage? _storage;
   final Map<String, String>? _fallback;
 
-  Future<String?> read(String accountId) async {
+  Future<String?> read(String id) async {
     if (_storage != null) {
-      return _storage.read(key: _key(accountId));
+      return _storage.read(key: _key(id));
     }
-    return _fallback![_key(accountId)];
+    return _fallback![_key(id)];
   }
 
-  Future<void> write(String accountId, String secret) async {
+  Future<void> write(String id, String secret) async {
     if (_storage != null) {
-      await _storage.write(key: _key(accountId), value: secret);
+      await _storage.write(key: _key(id), value: secret);
       return;
     }
-    _fallback![_key(accountId)] = secret;
+    _fallback![_key(id)] = secret;
   }
 
-  Future<void> delete(String accountId) async {
+  Future<void> delete(String id) async {
     if (_storage != null) {
-      await _storage.delete(key: _key(accountId));
+      await _storage.delete(key: _key(id));
       return;
     }
-    _fallback!.remove(_key(accountId));
+    _fallback!.remove(_key(id));
   }
 
-  static String _key(String accountId) => 'llm_secret::$accountId';
+  static String _key(String id) => 'llm_secret::$id';
 }

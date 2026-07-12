@@ -1,3 +1,5 @@
+import 'message_attachment.dart';
+
 /// Whether a [ChatMessage] was authored by the user, the assistant, or
 /// synthesized as a tool result.
 enum MessageRole { user, assistant, tool }
@@ -49,13 +51,18 @@ class ChatMessage {
     this.parentId,
     List<String>? children,
     this.originalContent,
-  }) : childrenIds = children ?? <String>[];
+    List<MessageAttachment>? attachments,
+  }) : childrenIds = children ?? <String>[],
+       attachments = attachments ?? <MessageAttachment>[];
 
   final String id;
   final MessageRole role;
 
   /// The (possibly partial, while streaming) message content.
   String text;
+
+  /// Non-text input or output associated with this message.
+  final List<MessageAttachment> attachments;
 
   /// Provider reasoning / chain-of-thought stream (OpenAI `reasoning_content`,
   /// Anthropic `thinking_delta`, etc.). Accumulated token-by-token while
@@ -169,6 +176,9 @@ class ChatMessage {
     'promptTokens': promptTokens,
     'completionTokens': completionTokens,
     'totalTokens': totalTokens,
+    'attachments': attachments
+        .map((MessageAttachment attachment) => attachment.toJson())
+        .toList(),
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) =>
@@ -191,6 +201,15 @@ class ChatMessage {
               ?.map((e) => e as String)
               .toList(),
           originalContent: json['originalContent'] as String?,
+          attachments:
+              (json['attachments'] as List<dynamic>?)
+                  ?.map(
+                    (dynamic value) => MessageAttachment.fromJson(
+                      Map<String, Object?>.from(value as Map),
+                    ),
+                  )
+                  .toList() ??
+              const <MessageAttachment>[],
         )
         ..hasError = json['hasError'] as bool? ?? false
         ..activeChildId = json['activeChildId'] as String?

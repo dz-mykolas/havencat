@@ -25,6 +25,8 @@ class ChatToolsSheet extends StatefulWidget {
     required this.initialEnabled,
     required this.onToggle,
     required this.adapter,
+    required this.imageUploadEnabled,
+    required this.onUploadImages,
   });
 
   /// Starting value for the toggle, from the live source of truth.
@@ -34,6 +36,8 @@ class ChatToolsSheet extends StatefulWidget {
   final ValueChanged<bool> onToggle;
 
   final WebRetrievalAdapter adapter;
+  final bool imageUploadEnabled;
+  final VoidCallback onUploadImages;
 
   @override
   State<ChatToolsSheet> createState() => _ChatToolsSheetState();
@@ -47,13 +51,28 @@ class _ChatToolsSheetState extends State<ChatToolsSheet> {
     widget.onToggle(_enabled);
   }
 
+  @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        padding: EdgeInsets.symmetric(vertical: 7),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            ListTile(
+              enabled: widget.imageUploadEnabled,
+              leading: Icon(Icons.image_outlined),
+              title: Text('Add images'),
+              subtitle: widget.imageUploadEnabled
+                  ? null
+                  : Text('The selected model does not accept images'),
+              onTap: widget.imageUploadEnabled
+                  ? () {
+                      Navigator.of(context).pop();
+                      widget.onUploadImages();
+                    }
+                  : null,
+            ),
             _ToggleRow(label: 'Web search', value: _enabled, onToggle: _toggle),
           ],
         ),
@@ -80,14 +99,16 @@ class _ToggleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 1),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Theme(
           data: Theme.of(context).copyWith(
-            splashColor: AppTheme.textPrimary.withValues(alpha: 0.04),
-            highlightColor: AppTheme.textPrimary.withValues(alpha: 0.06),
-            hoverColor: AppTheme.textPrimary.withValues(alpha: 0.03),
+            splashColor: context.appColors.textPrimary.withValues(alpha: 0.04),
+            highlightColor: context.appColors.textPrimary.withValues(
+              alpha: 0.06,
+            ),
+            hoverColor: context.appColors.textPrimary.withValues(alpha: 0.03),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
@@ -98,32 +119,28 @@ class _ToggleRow extends StatelessWidget {
               child: InkWell(
                 onTap: onToggle,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: double.infinity),
+                  constraints: BoxConstraints(minWidth: double.infinity),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 5,
-                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                     child: Row(
                       children: <Widget>[
                         Text(
                           label,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
+                          style: TextStyle(
+                            color: context.appColors.textPrimary,
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const Spacer(),
+                        Spacer(),
                         SizedBox(
                           height: 24,
                           child: FittedBox(
                             child: Switch.adaptive(
                               value: value,
-                              activeThumbColor: AppTheme.brandViolet,
-                              activeTrackColor: AppTheme.brandViolet.withValues(
-                                alpha: 0.4,
-                              ),
+                              activeThumbColor: context.appColors.brandViolet,
+                              activeTrackColor: context.appColors.brandViolet
+                                  .withValues(alpha: 0.4),
                               onChanged: (_) => onToggle(),
                             ),
                           ),
@@ -150,6 +167,8 @@ Future<void> showChatToolsMenu({
   required ValueChanged<bool> onToggle,
   required WebRetrievalAdapter adapter,
   required GlobalKey anchorKey,
+  required bool imageUploadEnabled,
+  required VoidCallback onUploadImages,
 }) async {
   final bool wide = MediaQuery.of(context).size.width >= 720;
   if (wide) {
@@ -169,6 +188,8 @@ Future<void> showChatToolsMenu({
             initialEnabled: enabled,
             onToggle: onToggle,
             adapter: adapter,
+            imageUploadEnabled: imageUploadEnabled,
+            onUploadImages: onUploadImages,
           ),
         );
       },
@@ -176,16 +197,14 @@ Future<void> showChatToolsMenu({
   } else {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       isScrollControlled: true,
       builder: (BuildContext _) {
         return ChatToolsSheet(
           initialEnabled: enabled,
           onToggle: onToggle,
           adapter: adapter,
+          imageUploadEnabled: imageUploadEnabled,
+          onUploadImages: onUploadImages,
         );
       },
     );
@@ -227,7 +246,7 @@ class _PopoverDialog extends StatelessWidget {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => Navigator.of(context).pop(),
-            child: const SizedBox.expand(),
+            child: SizedBox.expand(),
           ),
         ),
         Positioned(
@@ -239,9 +258,8 @@ class _PopoverDialog extends StatelessWidget {
             child: Container(
               width: 320,
               decoration: BoxDecoration(
-                color: AppTheme.surface,
+                color: context.appColors.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.surfaceHigh),
               ),
               clipBehavior: Clip.antiAlias,
               child: child,

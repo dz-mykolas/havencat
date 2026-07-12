@@ -5,6 +5,8 @@ import '../../../domain/models/adapter_kind.dart';
 import '../../../domain/models/model_pricing.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
+import '../../core/widgets/credential_security_button.dart';
 import '../../settings/settings_viewmodel.dart';
 import '../pricing_format.dart';
 
@@ -29,13 +31,10 @@ Future<void> showQuickAdd(
     await showDialog<void>(
       context: context,
       builder: (BuildContext ctx) => Dialog(
-        backgroundColor: AppTheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
+          constraints: BoxConstraints(maxWidth: 520, maxHeight: 680),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 16),
             child: _QuickAddContent(
               group: group,
               definition: definition,
@@ -68,19 +67,15 @@ Future<void> showQuickAdd(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: AppTheme.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
     builder: (BuildContext ctx) {
       // Pad for the on-screen keyboard when the API key field is focused.
       final double viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
       return Padding(
         padding: EdgeInsets.only(bottom: viewInsets),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: BoxConstraints(maxWidth: 560),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
             child: _QuickAddContent(
               group: group,
               definition: definition,
@@ -222,109 +217,129 @@ class _QuickAddContentState extends State<_QuickAddContent> {
     final bool hasUrlField = templateBaseUrl != null;
     final String? apiKeyUrl = widget.definition.apiKeyUrl;
 
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _Header(title: 'Add ${widget.group.name}', apiKeyUrl: apiKeyUrl),
-          const SizedBox(height: 14),
-          _LabeledField(
-            label: 'Display name',
-            child: TextField(
-              controller: _name,
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-              decoration: const _FieldDecoration(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _LabeledField(
-            label: 'API key',
-            child: TextField(
-              controller: _key,
-              obscureText: true,
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-              decoration: const _FieldDecoration(
-                hintText: 'Paste your API key',
-              ),
-            ),
-          ),
-          if (hasUrlField) ...<Widget>[
-            const SizedBox(height: 12),
-            _LabeledField(
-              label: 'Base URL',
-              child: TextField(
-                controller: _baseUrl,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 14,
+    return AppScrollView(
+      builder: (BuildContext context, AppScrollController controller) =>
+          SingleChildScrollView(
+            controller: controller,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _Header(
+                  title: 'Add ${widget.group.name}',
+                  apiKeyUrl: apiKeyUrl,
                 ),
-                decoration: const _FieldDecoration(),
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          _ModelSection(
-            models: widget.group.models,
-            selected: _selected,
-            maxEnabled: maxEnabled,
-            atCap: _atCap,
-            requiresPick: _requiresModelPick,
-            onToggle: (PricedModel m) {
-              setState(() {
-                if (!_selected.add(m.id)) {
-                  _selected.remove(m.id);
-                }
-              });
-            },
-            onSelectAll: () {
-              setState(() {
-                if (_selected.length == widget.group.models.length) {
-                  _selected.clear();
-                } else {
-                  _selected
-                    ..clear()
-                    ..addAll(
-                      widget.group.models
+                SizedBox(height: 14),
+                _LabeledField(
+                  label: 'Display name',
+                  child: TextField(
+                    controller: _name,
+                    style: TextStyle(
+                      color: context.appColors.textPrimary,
+                      fontSize: 14,
+                    ),
+                    decoration: _FieldDecoration(),
+                  ),
+                ),
+                SizedBox(height: 12),
+                _LabeledField(
+                  label: 'API key',
+                  child: TextField(
+                    controller: _key,
+                    obscureText: true,
+                    style: TextStyle(
+                      color: context.appColors.textPrimary,
+                      fontSize: 14,
+                    ),
+                    decoration: _FieldDecoration(
+                      hintText: 'Paste your API key',
+                      suffixIcon: CredentialSecurityButton(),
+                    ),
+                  ),
+                ),
+                if (hasUrlField) ...<Widget>[
+                  SizedBox(height: 12),
+                  _LabeledField(
+                    label: 'Base URL',
+                    child: TextField(
+                      controller: _baseUrl,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      style: TextStyle(
+                        color: context.appColors.textPrimary,
+                        fontSize: 14,
+                      ),
+                      decoration: _FieldDecoration(),
+                    ),
+                  ),
+                ],
+                SizedBox(height: 14),
+                _ModelSection(
+                  models: widget.group.models,
+                  selected: _selected,
+                  maxEnabled: maxEnabled,
+                  atCap: _atCap,
+                  requiresPick: _requiresModelPick,
+                  onToggle: (PricedModel m) {
+                    setState(() {
+                      if (!_selected.add(m.id)) {
+                        _selected.remove(m.id);
+                      }
+                    });
+                  },
+                  onSelectAll: () {
+                    setState(() {
+                      final List<String> selectableIds = widget.group.models
                           .take(maxEnabled)
-                          .map((PricedModel m) => m.id),
-                    );
-                }
-              });
-            },
-          ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: const TextStyle(color: AppTheme.brandPink, fontSize: 12.5),
+                          .map((PricedModel model) => model.id)
+                          .toList(growable: false);
+                      final bool allSelected =
+                          selectableIds.isNotEmpty &&
+                          selectableIds.every(_selected.contains);
+                      if (allSelected) {
+                        _selected.clear();
+                      } else {
+                        _selected
+                          ..clear()
+                          ..addAll(selectableIds);
+                      }
+                    });
+                  },
+                ),
+                if (_error != null) ...<Widget>[
+                  SizedBox(height: 10),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: context.appColors.brandPink,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ],
+                SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: _saving ? null : widget.onDone,
+                      child: Text('Cancel'),
+                    ),
+                    SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _canSubmit ? _submit : null,
+                      child: _saving
+                          ? SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text('Save'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: <Widget>[
-              TextButton(
-                onPressed: _saving ? null : widget.onDone,
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: _canSubmit ? _submit : null,
-                child: _saving
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Save'),
-              ),
-            ],
           ),
-        ],
-      ),
     );
   }
 }
@@ -342,8 +357,8 @@ class _Header extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
+            style: TextStyle(
+              color: context.appColors.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
@@ -353,7 +368,7 @@ class _Header extends StatelessWidget {
           InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () => launchUrl(Uri.parse(apiKeyUrl!)),
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -361,13 +376,13 @@ class _Header extends StatelessWidget {
                   Icon(
                     Icons.vpn_key_outlined,
                     size: 14,
-                    color: AppTheme.brandBlue,
+                    color: context.appColors.brandBlue,
                   ),
                   SizedBox(width: 4),
                   Text(
                     'Get an API key',
                     style: TextStyle(
-                      color: AppTheme.brandBlue,
+                      color: context.appColors.brandBlue,
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
                     ),
@@ -394,13 +409,13 @@ class _LabeledField extends StatelessWidget {
       children: <Widget>[
         Text(
           label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
+          style: TextStyle(
+            color: context.appColors.textSecondary,
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6),
         child,
       ],
     );
@@ -408,19 +423,7 @@ class _LabeledField extends StatelessWidget {
 }
 
 class _FieldDecoration extends InputDecoration {
-  const _FieldDecoration({super.hintText});
-
-  @override
-  InputBorder get focusedBorder => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(10),
-    borderSide: const BorderSide(color: AppTheme.brandViolet),
-  );
-
-  @override
-  InputBorder get enabledBorder => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(10),
-    borderSide: const BorderSide(color: AppTheme.outline),
-  );
+  const _FieldDecoration({super.hintText, super.suffixIcon});
 }
 
 class _ModelSection extends StatelessWidget {
@@ -444,8 +447,11 @@ class _ModelSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Iterable<String> selectableIds = models
+        .take(maxEnabled)
+        .map((PricedModel model) => model.id);
     final bool allSelected =
-        selected.length == models.length && models.isNotEmpty;
+        selectableIds.isNotEmpty && selectableIds.every(selected.contains);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -459,102 +465,116 @@ class _ModelSection extends StatelessWidget {
                           '${atCap ? ' · cap $maxEnabled' : ''})',
                 style: TextStyle(
                   color: requiresPick && selected.isEmpty
-                      ? AppTheme.brandPink
-                      : AppTheme.textSecondary,
+                      ? context.appColors.brandPink
+                      : context.appColors.textSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ),
             if (models.isNotEmpty)
-              InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: onSelectAll,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    allSelected ? 'Clear' : 'Select all',
-                    style: const TextStyle(
-                      color: AppTheme.brandBlue,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
+              Tooltip(
+                message: allSelected ? 'Unselect all' : 'Select all',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(7),
+                  onTap: onSelectAll,
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: Icon(
+                      allSelected
+                          ? Icons.deselect_rounded
+                          : Icons.select_all_rounded,
+                      size: 17,
+                      color: context.appColors.brandBlue,
                     ),
                   ),
                 ),
               ),
           ],
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: 4),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 260),
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: models.length,
-            separatorBuilder: (BuildContext _, _) =>
-                const Divider(height: 1, color: AppTheme.outline),
-            itemBuilder: (BuildContext context, int index) {
-              final PricedModel m = models[index];
-              final bool on = selected.contains(m.id);
-              final bool free = m.cost?.isFree ?? false;
-              final bool lockedOff = !on && atCap;
-              return InkWell(
-                onTap: lockedOff ? null : () => onToggle(m),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 4,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(
-                        on ? Icons.check_box : Icons.check_box_outline_blank,
-                        size: 18,
-                        color: on
-                            ? AppTheme.brandViolet
-                            : AppTheme.textSecondary,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+          constraints: BoxConstraints(maxHeight: 260),
+          child: AppScrollView(
+            builder: (BuildContext context, AppScrollController controller) =>
+                ListView.separated(
+                  controller: controller,
+                  shrinkWrap: true,
+                  itemCount: models.length,
+                  separatorBuilder: (BuildContext _, _) =>
+                      Divider(height: 1, color: context.appColors.divider),
+                  itemBuilder: (BuildContext context, int index) {
+                    final PricedModel m = models[index];
+                    final bool on = selected.contains(m.id);
+                    final bool free = m.cost?.isFree ?? false;
+                    final bool lockedOff = !on && atCap;
+                    return InkWell(
+                      onTap: lockedOff ? null : () => onToggle(m),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: 6,
+                          horizontal: 4,
+                        ),
+                        child: Row(
                           children: <Widget>[
-                            Text(
-                              m.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppTheme.textPrimary,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
+                            Icon(
+                              on
+                                  ? Icons.check_box
+                                  : Icons.check_box_outline_blank,
+                              size: 18,
+                              color: on
+                                  ? context.appColors.brandViolet
+                                  : context.appColors.textSecondary,
+                            ),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    m.displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: context.appColors.textPrimary,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    m.id,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: context.appColors.textSecondary,
+                                      fontSize: 11.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            Text(
-                              m.id,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 11.5,
+                            if (free)
+                              Tooltip(
+                                message: 'Free',
+                                child: Icon(
+                                  Icons.money_off_csred_outlined,
+                                  size: 16,
+                                  color: context.appColors.brandBlue,
+                                ),
+                              )
+                            else if (m.cost?.output != null)
+                              _Pill(
+                                label:
+                                    '${formatPricePerMillion(m.cost!.output)}/1M',
+                                color: context.appColors.textSecondary,
                               ),
-                            ),
                           ],
                         ),
                       ),
-                      if (free)
-                        _Pill(label: 'Free', color: AppTheme.brandBlue)
-                      else if (m.cost?.output != null)
-                        _Pill(
-                          label: '${formatPricePerMillion(m.cost!.output)}/1M',
-                          color: AppTheme.textSecondary,
-                        ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              );
-            },
           ),
         ),
       ],
@@ -571,7 +591,7 @@ class _Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),

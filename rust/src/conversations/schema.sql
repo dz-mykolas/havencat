@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     provider_account  TEXT,
     created_at        TEXT NOT NULL,
     current_leaf_id   TEXT,
+    is_pinned         INTEGER NOT NULL DEFAULT 0,
     updated_at        INTEGER NOT NULL DEFAULT 0
 );
 
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS messages (
     completion_tokens   INTEGER,
     total_tokens        INTEGER,
     reasoning           TEXT,
+    attachments_json    TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 

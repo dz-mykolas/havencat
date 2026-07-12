@@ -5,8 +5,11 @@ import 'package:dio/dio.dart';
 import 'package:logging/logging.dart';
 
 import '../../../../domain/models/adapter_kind.dart';
+import '../../../../domain/models/content_modality.dart';
 import '../../../../domain/models/llm_model.dart';
+import '../../../../domain/models/message_attachment.dart';
 import '../../../../domain/models/provider_account.dart';
+import '../../errors/provider_failure_mapper.dart';
 import '../../auth/chatgpt_oauth_flow.dart';
 import '../llm_adapter.dart';
 import '../llm_endpoint.dart';
@@ -58,6 +61,7 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
   final SseClient _sse;
   final LlmEndpoint _endpoint;
   final CodexVersionResolver _version;
+  static const ProviderFailureMapper _failureMapper = ProviderFailureMapper();
 
   /// Last-resort model when the account has none selected yet. The model
   /// selector normally fills this in from the live [listModels] result.
@@ -72,9 +76,18 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     required ProviderAccount account,
     required String? secret,
   }) async* {
+    final FailureSource failureSource = FailureSource(
+      subsystem: AppSubsystem.llm,
+      operation: 'generate',
+      providerId: account.displayName,
+      accountId: account.id,
+      modelId: _resolveModel(account),
+    );
     if (secret == null || secret.isEmpty) {
       _log.warning('stream: no secret (not signed in)');
-      yield const ErrorEvent(AuthError('Not signed in. Re-add the account.'));
+      yield ErrorEvent(
+        AuthError('Not signed in. Re-add the account.', source: failureSource),
+      );
       return;
     }
 
@@ -116,14 +129,15 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       );
 
       await for (final SseEvent event in events) {
-        final LlmEvent? parsed = _parseEvent(event.data);
+        final List<LlmEvent> parsed = _parseEvents(event.data, failureSource);
         _log.fine(
           'sse raw: ${event.data.substring(0, event.data.length.clamp(0, 500))}'
-          ' → parsed=${parsed?.runtimeType ?? 'null'}',
+          ' → parsed=${parsed.map((LlmEvent value) => value.runtimeType).join(',')}',
         );
-        if (parsed == null) continue;
-        yield parsed;
-        if (parsed is DoneEvent) return;
+        for (final LlmEvent value in parsed) {
+          yield value;
+          if (value is DoneEvent) return;
+        }
       }
       _log.fine('stream: ended without explicit done');
       yield const DoneEvent();
@@ -131,10 +145,16 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       _log.warning(
         'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
       );
-      yield ErrorEvent(_mapDioError(e));
+      yield ErrorEvent(
+        _failureMapper.fromDio(
+          e,
+          source: failureSource,
+          flavor: ProviderErrorFlavor.codex,
+        ),
+      );
     } catch (e, stack) {
       _log.severe('stream: unexpected error', e, stack);
-      yield ErrorEvent(UnknownError(e.toString()));
+      yield ErrorEvent(UnknownError(e.toString(), source: failureSource));
     } finally {
       await signalSub?.cancel();
     }
@@ -145,21 +165,39 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
     required ProviderAccount account,
     required String? secret,
   }) async {
+    final FailureSource failureSource = FailureSource(
+      subsystem: AppSubsystem.modelCatalog,
+      operation: 'list_models',
+      providerId: account.displayName,
+      accountId: account.id,
+    );
     if (secret == null || secret.isEmpty) {
-      throw StateError('Not signed in.');
+      throw AuthError(
+        'Not signed in. Re-add the account.',
+        source: failureSource,
+      );
     }
 
-    final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
-    final String version = await _version.resolve();
-    final ResolvedRequest resolved = _endpoint.resolve(
-      '$baseUrl${CodexProtocol.modelsPath(version)}',
-      _codexHeaders(secret),
-    );
-    final Response<dynamic> response = await _dio.get<dynamic>(
-      resolved.url,
-      options: Options(headers: resolved.headers),
-    );
-    return _parseModels(response.data);
+    try {
+      final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
+      final String version = await _version.resolve();
+      final ResolvedRequest resolved = _endpoint.resolve(
+        '$baseUrl${CodexProtocol.modelsPath(version)}',
+        _codexHeaders(secret),
+      );
+      final Response<dynamic> response = await _dio.get<dynamic>(
+        resolved.url,
+        options: Options(headers: resolved.headers),
+      );
+      return _parseModels(response.data);
+    } on Object catch (error) {
+      throw _failureMapper.fromException(
+        error,
+        source: failureSource,
+        flavor: ProviderErrorFlavor.codex,
+        fallbackMessage: 'ChatGPT models could not be loaded.',
+      );
+    }
   }
 
   String _resolveModel(ProviderAccount account) {
@@ -236,25 +274,48 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
   ///
   /// Text and reasoning deltas are surfaced as [TokenEvent] / [ReasoningEvent].
   /// Everything else (lifecycle, content parts, annotations) is ignored.
-  LlmEvent? _parseEvent(String data) {
+  List<LlmEvent> _parseEvents(String data, FailureSource failureSource) {
     final String trimmed = data.trim();
-    if (trimmed.isEmpty) return null;
-    if (trimmed == '[DONE]') return const DoneEvent(finishReason: 'stop');
+    if (trimmed.isEmpty) return const <LlmEvent>[];
+    if (trimmed == '[DONE]') {
+      return const <LlmEvent>[DoneEvent(finishReason: 'stop')];
+    }
 
     final Object? decoded = jsonDecode(trimmed);
-    if (decoded is! Map<String, dynamic>) return null;
+    if (decoded is! Map<String, dynamic>) return const <LlmEvent>[];
 
     switch (decoded['type'] as String?) {
       case 'response.output_text.delta':
         final String? delta = decoded['delta'] as String?;
-        return (delta != null && delta.isNotEmpty) ? TokenEvent(delta) : null;
+        return (delta != null && delta.isNotEmpty)
+            ? <LlmEvent>[TokenEvent(delta)]
+            : const <LlmEvent>[];
 
       case 'response.reasoning_summary_text.delta':
       case 'response.reasoning_text.delta':
         final String? delta = decoded['delta'] as String?;
         return (delta != null && delta.isNotEmpty)
-            ? ReasoningEvent(delta)
-            : null;
+            ? <LlmEvent>[ReasoningEvent(delta)]
+            : const <LlmEvent>[];
+
+      case 'response.image_generation_call.partial_image':
+        final String? data =
+            (decoded['partial_image_b64'] ?? decoded['b64_json']) as String?;
+        if (data == null || data.isEmpty) return const <LlmEvent>[];
+        return <LlmEvent>[
+          AttachmentEvent(
+            MessageAttachment(
+              id:
+                  (decoded['item_id'] ?? decoded['id'] ?? 'generated-image-0')
+                      as String,
+              modality: ContentModality.image,
+              mimeType: 'image/png',
+              source: AttachmentSource.inlineBase64,
+              data: data,
+              generated: true,
+            ),
+          ),
+        ];
 
       // Stage 1: function_call item announced with call_id + name.
       case 'response.output_item.added':
@@ -264,35 +325,110 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
           final String? callId = item['call_id'] as String?;
           final String? name = item['name'] as String?;
           if (callId != null && callId.isNotEmpty) {
-            return ToolCallEvent(id: callId, name: name ?? '', args: '');
+            return <LlmEvent>[
+              ToolCallEvent(id: callId, name: name ?? '', args: ''),
+            ];
           }
         }
-        return null;
+        return const <LlmEvent>[];
 
       // Stage 2: argument delta fragments (item_id only, no call_id/name).
       case 'response.function_call_arguments.delta':
         final String? argsDelta = decoded['delta'] as String?;
-        if (argsDelta == null || argsDelta.isEmpty) return null;
-        return ToolCallEvent(id: '', name: '', args: argsDelta);
+        if (argsDelta == null || argsDelta.isEmpty) {
+          return const <LlmEvent>[];
+        }
+        return <LlmEvent>[ToolCallEvent(id: '', name: '', args: argsDelta)];
 
       // Stage 3: arguments finalized. The repository already accumulated
       // the deltas — nothing to emit.
       case 'response.function_call_arguments.done':
-        return null;
+        return const <LlmEvent>[];
 
       case 'response.completed':
-        return DoneEvent(
-          finishReason: 'stop',
-          usage: _parseUsage(decoded['response'] as Map<String, dynamic>?),
-        );
+        final Map<String, dynamic>? response =
+            decoded['response'] as Map<String, dynamic>?;
+        return <LlmEvent>[
+          ..._imageEventsFromResponse(response),
+          DoneEvent(finishReason: 'stop', usage: _parseUsage(response)),
+        ];
 
       case 'response.failed':
       case 'error':
-        return ErrorEvent(UnknownError(_extractError(decoded)));
+        return <LlmEvent>[
+          ErrorEvent(
+            _failureMapper.fromPayload(
+              decoded,
+              source: failureSource,
+              flavor: ProviderErrorFlavor.codex,
+            ),
+          ),
+        ];
 
       default:
-        return null;
+        return const <LlmEvent>[];
     }
+  }
+
+  List<LlmEvent> _imageEventsFromResponse(Map<String, dynamic>? response) {
+    final Object? output = response?['output'];
+    if (output is! List) return const <LlmEvent>[];
+    final List<LlmEvent> result = <LlmEvent>[];
+    for (int i = 0; i < output.length; i++) {
+      final Object? raw = output[i];
+      if (raw is! Map) continue;
+      final String id = (raw['id'] as String?) ?? 'generated-image-$i';
+      final Object? imageData = raw['result'] ?? raw['b64_json'];
+      if (imageData is String && imageData.isNotEmpty) {
+        result.add(
+          AttachmentEvent(
+            MessageAttachment(
+              id: id,
+              modality: ContentModality.image,
+              mimeType: (raw['media_type'] as String?) ?? 'image/png',
+              source: AttachmentSource.inlineBase64,
+              data: imageData,
+              generated: true,
+            ),
+          ),
+        );
+      }
+      final Object? content = raw['content'];
+      if (content is! List) continue;
+      for (int partIndex = 0; partIndex < content.length; partIndex++) {
+        final Object? part = content[partIndex];
+        if (part is! Map) continue;
+        final Object? url = part['image_url'] ?? part['url'];
+        final Object? base64 = part['b64_json'] ?? part['data'];
+        if (url is String && url.isNotEmpty) {
+          result.add(
+            AttachmentEvent(
+              MessageAttachment.fromUrl(
+                id: '$id-$partIndex',
+                modality: ContentModality.image,
+                url: url,
+                mimeType: (part['media_type'] as String?) ?? 'image/png',
+                generated: true,
+              ),
+            ),
+          );
+        } else if (base64 is String && base64.isNotEmpty) {
+          result.add(
+            AttachmentEvent(
+              MessageAttachment(
+                id: '$id-$partIndex',
+                modality: ContentModality.image,
+                mimeType: (part['media_type'] as String?) ?? 'image/png',
+                source: AttachmentSource.inlineBase64,
+                data: base64,
+                generated: true,
+              ),
+            ),
+          );
+        }
+      }
+    }
+    return result;
   }
 
   /// Extracts usage from a `response.completed` payload. The Responses API
@@ -307,52 +443,5 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
       completionTokens: usage['output_tokens'] as int?,
       totalTokens: usage['total_tokens'] as int?,
     );
-  }
-
-  String _extractError(Map<String, dynamic> decoded) {
-    final Object? response = decoded['response'];
-    if (response is Map<String, dynamic>) {
-      final Object? error = response['error'];
-      if (error is Map<String, dynamic>) {
-        final Object? message = error['message'];
-        if (message is String && message.isNotEmpty) return message;
-      }
-    }
-    final Object? error = decoded['error'];
-    if (error is Map<String, dynamic>) {
-      final Object? message = error['message'];
-      if (message is String && message.isNotEmpty) return message;
-    }
-    return 'Stream failed.';
-  }
-
-  LlmError _mapDioError(DioException e) {
-    final int? status = e.response?.statusCode;
-    final String body = e.response?.data?.toString() ?? e.message ?? '';
-
-    // 401 = the access token is genuinely rejected (expired/invalid) → re-auth.
-    if (status == 401) {
-      return AuthError('Session expired. Please sign in again.');
-    }
-    // 403 is NOT necessarily an expired session — surface the real reason.
-    if (status == 403) {
-      return AuthError('Request forbidden by ChatGPT (403). $body');
-    }
-    if (status == 429) {
-      return RateLimitError('Rate limited. Please slow down.');
-    }
-    if (status == 402) {
-      return QuotaError('Subscription quota exhausted.');
-    }
-    if (status != null && status >= 400 && status < 500) {
-      return InvalidRequestError('Request rejected ($status): $body');
-    }
-    if (e.type == DioExceptionType.connectionTimeout ||
-        e.type == DioExceptionType.sendTimeout ||
-        e.type == DioExceptionType.receiveTimeout ||
-        e.type == DioExceptionType.connectionError) {
-      return NetworkError('Network error: ${e.message ?? e.type.name}');
-    }
-    return UnknownError('Request failed: ${e.message ?? e.type.name}');
   }
 }

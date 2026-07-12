@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/widgets/app_scroll_view.dart';
 import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/model_pricing.dart';
 import '../../domain/models/provider_account.dart';
@@ -19,21 +21,22 @@ import 'widgets/model_detail_sheet.dart';
 import 'widgets/provider_grid.dart';
 import 'widgets/quick_add_sheet.dart';
 
-/// Three-tab Discover panel embedded in Settings: **Labs** (the orgs that
-/// own each model), **Models** (every model flat, formerly "Browse all"), and
-/// **Providers** (hosting APIs).
-///
-/// All three tabs share the same cached models.dev catalog via
-/// [PricingViewModel] and the same drill-in model list; the difference is the
-/// top-level grouping. Each tab keeps its own search query (so "gpt" on Models
-/// and "open" on Providers don't clobber each other), and the search bar is
-/// always visible — on the groups grid it filters groups by name, on the model
-/// list it filters models.
-///
-/// Tabs switch with an animated [AnimatedSwitcher]; the groups grid fades/
-/// slides in. Layout is responsive: on wide screens the content is centered to
-/// [AppTheme.panelMaxWidth]; tabs render as a segmented control with a
-/// sliding selection indicator.
+extension on PricingScope {
+  String get title => switch (this) {
+    PricingScope.models => 'Model catalog',
+    PricingScope.providers => 'API providers',
+    PricingScope.labs => 'Model labs',
+    PricingScope.accounts => 'Your accounts',
+  };
+
+  IconData get icon => switch (this) {
+    PricingScope.models => Icons.auto_awesome_outlined,
+    PricingScope.providers => Icons.dns_outlined,
+    PricingScope.labs => Icons.science_outlined,
+    PricingScope.accounts => Icons.key_outlined,
+  };
+}
+
 class DiscoverPanel extends ConsumerStatefulWidget {
   const DiscoverPanel({super.key});
 
@@ -43,6 +46,7 @@ class DiscoverPanel extends ConsumerStatefulWidget {
 
 class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
   final TextEditingController _search = TextEditingController();
+  bool _searchExpanded = false;
 
   @override
   void dispose() {
@@ -68,93 +72,58 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
   Widget build(BuildContext context) {
     final PricingViewModel vm = ref.watch(pricingViewModelProvider);
     _syncSearchField(vm.query);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: AppTheme.panelMaxWidth),
-      child: ListenableBuilder(
-        listenable: vm,
-        builder: (BuildContext context, _) {
-          if (vm.loading) {
-            return const _PanelShell(
-              tabs: _ScopeTabs(),
-              search: SizedBox.shrink(),
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (vm.error != null && vm.catalog == null) {
-            return _PanelShell(
-              tabs: const _ScopeTabs(),
-              search: const SizedBox.shrink(),
-              body: _ErrorState(onRetry: vm.load),
-            );
-          }
-          return _PanelShell(
-            tabs: const _ScopeTabs(),
-            search: _SearchField(
-              controller: _search,
-              hint: _searchHint(vm),
-              onChanged: vm.setQuery,
-              onClear: () {
-                _search.clear();
-                vm.clearQuery();
-              },
-            ),
-            body: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 240),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.linear,
-              // Only render the incoming child; the old tab's content is
-              // dropped instantly so you never see two grids stacked.
-              layoutBuilder:
-                  (Widget? currentChild, List<Widget> previousChildren) {
-                    return currentChild ?? const SizedBox.shrink();
-                  },
-              // Only animate the incoming child; the outgoing tab content just
-              // disappears — fading it out only delays the new tab's reveal.
-              transitionBuilder: (Widget child, Animation<double> a) {
-                if (a.status == AnimationStatus.reverse) return child;
-                return FadeTransition(
-                  opacity: a,
-                  child: SlideTransition(
-                    position:
-                        Tween<Offset>(
-                          begin: const Offset(0, 0.04),
-                          end: Offset.zero,
-                        ).animate(
-                          CurvedAnimation(
-                            parent: a,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        ),
-                    child: child,
-                  ),
-                );
-              },
-              child: vm.scope == PricingScope.accounts
-                  ? _AccountsView(key: const ValueKey<String>('accounts'))
-                  : vm.isFlatModelView
-                  ? _ModelList(
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool wide = constraints.maxWidth >= 680;
+        final Widget workspace = _CatalogWorkspace(
+          vm: vm,
+          searchController: _search,
+          searchHint: _searchHint(vm),
+          searchExpanded: _searchExpanded,
+          onExpandSearch: _expandSearch,
+          onCollapseSearch: _collapseSearch,
+          onClearSearch: () {
+            _search.clear();
+            vm.clearQuery();
+          },
+        );
+        return wide
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  SizedBox(
+                    width: 190,
+                    child: _CatalogNavigation(
                       vm: vm,
-                      onOpenModel: (PricedModel m) =>
-                          showModelDetailSheet(context, m),
-                      key: const ValueKey<String>('models'),
-                    )
-                  : vm.view == PricingView.overview
-                  ? _Overview(
-                      vm: vm,
-                      onOpenGroup: vm.openProvider,
-                      key: ValueKey<String>('overview:${vm.scope}'),
-                    )
-                  : _ModelList(
-                      vm: vm,
-                      onOpenModel: (PricedModel m) =>
-                          showModelDetailSheet(context, m),
-                      key: ValueKey<String>('list:${vm.scope}'),
+                      onSelected: (PricingScope scope) =>
+                          _selectScope(vm, scope),
                     ),
-            ),
-          );
-        },
-      ),
+                  ),
+                  VerticalDivider(width: 1),
+                  Expanded(child: workspace),
+                ],
+              )
+            : Column(
+                children: <Widget>[
+                  _CompactCatalogNavigation(
+                    vm: vm,
+                    onSelected: (PricingScope scope) => _selectScope(vm, scope),
+                  ),
+                  Divider(height: 1),
+                  Expanded(child: workspace),
+                ],
+              );
+      },
     );
+  }
+
+  void _expandSearch() => setState(() => _searchExpanded = true);
+
+  void _collapseSearch() => setState(() => _searchExpanded = false);
+
+  void _selectScope(PricingViewModel vm, PricingScope scope) {
+    vm.setScope(scope);
+    if (_searchExpanded) setState(() => _searchExpanded = false);
   }
 
   String _searchHint(PricingViewModel vm) {
@@ -174,142 +143,683 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
   }
 }
 
-/// Header tabs + always-visible search + body.
-class _PanelShell extends StatelessWidget {
-  const _PanelShell({
-    required this.tabs,
-    required this.search,
-    required this.body,
-  });
+class _CatalogNavigation extends StatelessWidget {
+  const _CatalogNavigation({required this.vm, required this.onSelected});
 
-  final Widget tabs;
-  final Widget search;
-  final Widget body;
+  final PricingViewModel vm;
+  final ValueChanged<PricingScope> onSelected;
+
+  static const List<PricingScope> _catalog = <PricingScope>[
+    PricingScope.providers,
+    PricingScope.models,
+    PricingScope.labs,
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: tabs),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: search,
+    return Padding(
+      padding: EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _NavigationLabel('EXPLORE'),
+          SizedBox(height: 8),
+          for (final PricingScope scope in _catalog) ...<Widget>[
+            _CatalogNavigationItem(
+              scope: scope,
+              selected: vm.scope == scope,
+              count: _countFor(scope),
+              onTap: () => onSelected(scope),
+            ),
+            SizedBox(height: 5),
+          ],
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
+          _NavigationLabel('MY SETUP'),
+          SizedBox(height: 8),
+          Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) {
+              final int count = ref
+                  .watch(settingsViewModelProvider)
+                  .accounts
+                  .length;
+              return _CatalogNavigationItem(
+                scope: PricingScope.accounts,
+                selected: vm.scope == PricingScope.accounts,
+                count: count,
+                onTap: () => onSelected(PricingScope.accounts),
+              );
+            },
+          ),
+          Spacer(),
+          if (vm.fetchedAt != null)
+            Padding(
+              padding: EdgeInsets.all(8),
+              child: Text(
+                'Catalog updated\n${formatRelative(vm.fetchedAt!)}',
+                style: TextStyle(
+                  color: context.appColors.textSecondary,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  int? _countFor(PricingScope scope) => switch (scope) {
+    PricingScope.models => vm.catalog?.models.length,
+    PricingScope.providers => vm.catalog?.providers.length,
+    PricingScope.labs => vm.catalog?.labs.length,
+    PricingScope.accounts => null,
+  };
+}
+
+class _NavigationLabel extends StatelessWidget {
+  const _NavigationLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 9),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: context.appColors.textSecondary,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
         ),
-        Expanded(child: body),
-      ],
+      ),
     );
   }
 }
 
-/// Segmented "Labs / Models / Providers / Accounts" tab control with a sliding
-/// brand-gradient indicator behind the selected label. Reads the current scope
-/// from the view model and calls [PricingViewModel.setScope] on tap.
-class _ScopeTabs extends StatelessWidget {
-  const _ScopeTabs();
+class _CatalogNavigationItem extends StatelessWidget {
+  const _CatalogNavigationItem({
+    required this.scope,
+    required this.selected,
+    required this.onTap,
+    this.count,
+  });
+
+  final PricingScope scope;
+  final bool selected;
+  final VoidCallback onTap;
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
-    return Consumer(
-      builder: (BuildContext context, WidgetRef ref, _) {
-        final PricingViewModel vm = ref.watch(pricingViewModelProvider);
-        return Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.outline),
+    return Material(
+      color: selected ? context.appColors.surface : Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                scope.icon,
+                size: 16,
+                color: selected
+                    ? context.appColors.brandViolet
+                    : context.appColors.textSecondary,
+              ),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  scope == PricingScope.accounts ? 'Accounts' : scope.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? context.appColors.textPrimary
+                        : context.appColors.textSecondary,
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (count != null)
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+            ],
           ),
-          child: LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints c) {
-              final double tabWidth = (c.maxWidth - 8) / 4;
-              final int index = vm.scope.index;
-              return Stack(
-                children: <Widget>[
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    left: 4 + tabWidth * index,
-                    top: 0,
-                    bottom: 0,
-                    width: tabWidth,
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 2),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: AppTheme.brandGradient,
-                          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactCatalogNavigation extends StatelessWidget {
+  const _CompactCatalogNavigation({required this.vm, required this.onSelected});
+
+  final PricingViewModel vm;
+  final ValueChanged<PricingScope> onSelected;
+
+  static const List<PricingScope> _scopes = <PricingScope>[
+    PricingScope.providers,
+    PricingScope.models,
+    PricingScope.labs,
+    PricingScope.accounts,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(6, 6, 6, 5),
+        child: Row(
+          children: <Widget>[
+            for (final PricingScope scope in _scopes)
+              Expanded(
+                child: _CompactNavigationItem(
+                  scope: scope,
+                  selected: vm.scope == scope,
+                  onTap: () => onSelected(scope),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactNavigationItem extends StatelessWidget {
+  const _CompactNavigationItem({
+    required this.scope,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final PricingScope scope;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? context.appColors.surface : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                scope.icon,
+                size: 16,
+                color: selected
+                    ? context.appColors.brandViolet
+                    : context.appColors.textSecondary,
+              ),
+              SizedBox(height: 3),
+              Text(
+                scope == PricingScope.accounts
+                    ? 'Accounts'
+                    : scope == PricingScope.providers
+                    ? 'Providers'
+                    : scope == PricingScope.models
+                    ? 'Models'
+                    : 'Labs',
+                maxLines: 1,
+                style: TextStyle(
+                  color: selected
+                      ? context.appColors.textPrimary
+                      : context.appColors.textSecondary,
+                  fontSize: 10,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogWorkspace extends StatelessWidget {
+  const _CatalogWorkspace({
+    required this.vm,
+    required this.searchController,
+    required this.searchHint,
+    required this.searchExpanded,
+    required this.onExpandSearch,
+    required this.onCollapseSearch,
+    required this.onClearSearch,
+  });
+
+  final PricingViewModel vm;
+  final TextEditingController searchController;
+  final String searchHint;
+  final bool searchExpanded;
+  final VoidCallback onExpandSearch;
+  final VoidCallback onCollapseSearch;
+  final VoidCallback onClearSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _WorkspaceToolbar(
+          vm: vm,
+          searchController: searchController,
+          searchHint: searchHint,
+          searchExpanded: searchExpanded,
+          onExpandSearch: onExpandSearch,
+          onCollapseSearch: onCollapseSearch,
+          onClearSearch: onClearSearch,
+        ),
+        Expanded(child: _buildBody(context)),
+      ],
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (vm.scope == PricingScope.accounts) {
+      return _AccountsView();
+    }
+    if (vm.loading) {
+      return Center(child: CircularProgressIndicator());
+    }
+    if (vm.error != null && vm.catalog == null) {
+      return _ErrorState(onRetry: vm.load);
+    }
+    if (vm.isFlatModelView) {
+      return _ModelList(
+        vm: vm,
+        onOpenModel: (PricedModel model) =>
+            showModelDetailSheet(context, model),
+      );
+    }
+    if (vm.view == PricingView.overview) {
+      return _Overview(vm: vm, onOpenGroup: vm.openProvider);
+    }
+    return _ModelList(
+      vm: vm,
+      onOpenModel: (PricedModel model) => showModelDetailSheet(context, model),
+    );
+  }
+}
+
+class _WorkspaceToolbar extends StatelessWidget {
+  const _WorkspaceToolbar({
+    required this.vm,
+    required this.searchController,
+    required this.searchHint,
+    required this.searchExpanded,
+    required this.onExpandSearch,
+    required this.onCollapseSearch,
+    required this.onClearSearch,
+  });
+
+  final PricingViewModel vm;
+  final TextEditingController searchController;
+  final String searchHint;
+  final bool searchExpanded;
+  final VoidCallback onExpandSearch;
+  final VoidCallback onCollapseSearch;
+  final VoidCallback onClearSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final ProviderModels? group = vm.selectedGroup;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(10, 8, 8, 8),
+      child: Row(
+        children: <Widget>[
+          if (group != null)
+            IconButton(
+              tooltip: 'Back',
+              onPressed: vm.backToOverview,
+              icon: Icon(Icons.arrow_back_rounded),
+              color: context.appColors.textSecondary,
+            )
+          else
+            SizedBox(width: 6),
+          Expanded(
+            child: vm.scope == PricingScope.accounts
+                ? SizedBox.shrink()
+                : _AnimatedSearchControl(
+                    controller: searchController,
+                    hint: searchHint,
+                    expanded: searchExpanded,
+                    onExpand: onExpandSearch,
+                    onCollapse: onCollapseSearch,
+                    onChanged: vm.setQuery,
+                    onClear: onClearSearch,
+                  ),
+          ),
+          if (vm.scope == PricingScope.accounts)
+            Consumer(
+              builder: (BuildContext context, WidgetRef ref, _) {
+                final SettingsViewModel settings = ref.read(
+                  settingsViewModelProvider,
+                );
+                return IconButton.filledTonal(
+                  tooltip: 'Add account',
+                  onPressed: () => showProviderPicker(context, settings),
+                  icon: Icon(Icons.add_rounded),
+                );
+              },
+            )
+          else
+            _AnimatedRefreshSlot(
+              visible: !searchExpanded,
+              refreshing: vm.refreshing,
+              onRefresh: vm.refresh,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnimatedSearchControl extends StatefulWidget {
+  const _AnimatedSearchControl({
+    required this.controller,
+    required this.hint,
+    required this.expanded,
+    required this.onExpand,
+    required this.onCollapse,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final bool expanded;
+  final VoidCallback onExpand;
+  final VoidCallback onCollapse;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  State<_AnimatedSearchControl> createState() => _AnimatedSearchControlState();
+}
+
+class _AnimatedSearchControlState extends State<_AnimatedSearchControl>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animation = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: 240),
+    reverseDuration: Duration(milliseconds: 300),
+    value: widget.expanded ? 1 : 0,
+  );
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void didUpdateWidget(_AnimatedSearchControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.expanded == oldWidget.expanded) return;
+    if (widget.expanded) {
+      _animation.forward();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.expanded) _focusNode.requestFocus();
+      });
+    } else {
+      _focusNode.unfocus();
+      _animation.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animation.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool active = widget.controller.text.isNotEmpty;
+    final String collapsedText = active ? widget.controller.text : widget.hint;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double collapsedWidth = constraints.maxWidth < 280
+            ? constraints.maxWidth
+            : 280;
+        return AnimatedBuilder(
+          animation: _animation,
+          builder: (BuildContext context, Widget? child) {
+            final double expansion = Curves.easeOutCubic.transform(
+              _animation.value,
+            );
+            final double width =
+                collapsedWidth +
+                (constraints.maxWidth - collapsedWidth) * expansion;
+            final double fieldOpacity = Interval(
+              0.08,
+              0.55,
+              curve: Curves.easeOutCubic,
+            ).transform(_animation.value);
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: width,
+                height: 44,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    _CollapsedSearchSurface(
+                      text: collapsedText,
+                      active: active,
+                      animation: _animation,
+                      onTap: widget.onExpand,
+                      ignoring: widget.expanded,
+                    ),
+                    IgnorePointer(
+                      ignoring: !widget.expanded,
+                      child: Opacity(
+                        opacity: fieldOpacity,
+                        child: _SearchField(
+                          controller: widget.controller,
+                          focusNode: _focusNode,
+                          hint: '',
+                          onChanged: widget.onChanged,
+                          onClear: widget.onClear,
+                          onCollapse: widget.onCollapse,
                         ),
                       ),
                     ),
-                  ),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: _TabLabel(
-                          label: 'Labs',
-                          selected: vm.scope == PricingScope.labs,
-                          onTap: () => vm.setScope(PricingScope.labs),
-                        ),
-                      ),
-                      Expanded(
-                        child: _TabLabel(
-                          label: 'Models',
-                          selected: vm.scope == PricingScope.models,
-                          onTap: () => vm.setScope(PricingScope.models),
-                        ),
-                      ),
-                      Expanded(
-                        child: _TabLabel(
-                          label: 'Providers',
-                          selected: vm.scope == PricingScope.providers,
-                          onTap: () => vm.setScope(PricingScope.providers),
-                        ),
-                      ),
-                      Expanded(
-                        child: _TabLabel(
-                          label: 'Accounts',
-                          selected: vm.scope == PricingScope.accounts,
-                          onTap: () => vm.setScope(PricingScope.accounts),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
   }
 }
 
-class _TabLabel extends StatelessWidget {
-  const _TabLabel({
-    required this.label,
-    required this.selected,
+class _CollapsedSearchSurface extends StatelessWidget {
+  const _CollapsedSearchSurface({
+    required this.text,
+    required this.active,
+    required this.animation,
     required this.onTap,
+    required this.ignoring,
   });
 
-  final String label;
-  final bool selected;
+  final String text;
+  final bool active;
+  final Animation<double> animation;
   final VoidCallback onTap;
+  final bool ignoring;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 200),
-          style: TextStyle(
-            color: selected ? Colors.white : AppTheme.textSecondary,
-            fontSize: 13.5,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    return IgnorePointer(
+      ignoring: ignoring,
+      child: Material(
+        color: context.appColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          overlayColor: WidgetStatePropertyAll<Color>(Colors.transparent),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 13),
+            child: Row(
+              children: <Widget>[
+                AnimatedBuilder(
+                  animation: animation,
+                  builder: (BuildContext context, _) {
+                    final bool hiding =
+                        animation.status == AnimationStatus.forward ||
+                        animation.status == AnimationStatus.completed;
+                    final double opacity = hiding
+                        ? (animation.value == 0 ? 1 : 0)
+                        : 1 -
+                              Interval(
+                                0,
+                                0.25,
+                                curve: Curves.easeOutCubic,
+                              ).transform(animation.value);
+                    return Opacity(
+                      opacity: opacity,
+                      child: Icon(
+                        Icons.search_rounded,
+                        size: 19,
+                        color: active
+                            ? context.appColors.brandViolet
+                            : context.appColors.textSecondary,
+                      ),
+                    );
+                  },
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: _StaggeredLetterFade(
+                    text: text,
+                    animation: animation,
+                    color: active
+                        ? context.appColors.textPrimary
+                        : context.appColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Center(child: Text(label)),
+        ),
+      ),
+    );
+  }
+}
+
+class _StaggeredLetterFade extends StatelessWidget {
+  const _StaggeredLetterFade({
+    required this.text,
+    required this.animation,
+    required this.color,
+  });
+
+  final String text;
+  final Animation<double> animation;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> letters = text.characters.toList();
+    return ClipRect(
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (BuildContext context, _) {
+          final int count = letters.isEmpty ? 1 : letters.length;
+          return RichText(
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+            text: TextSpan(
+              children: <InlineSpan>[
+                for (int index = 0; index < letters.length; index++)
+                  TextSpan(
+                    text: letters[index],
+                    style: TextStyle(
+                      color: color.withValues(
+                        alpha: _letterOpacity(index, count, animation.value),
+                      ),
+                      fontSize: 13.5,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  double _letterOpacity(int index, int count, double value) {
+    if (animation.status == AnimationStatus.forward ||
+        animation.status == AnimationStatus.completed) {
+      return value == 0 ? 1 : 0;
+    }
+    final double start = ((count - index - 1) / count) * 0.62;
+    final double progress = ((value - start) / 0.20).clamp(0.0, 1.0);
+    return 1 - Curves.easeOutCubic.transform(progress);
+  }
+}
+
+class _AnimatedRefreshSlot extends StatelessWidget {
+  const _AnimatedRefreshSlot({
+    required this.visible,
+    required this.refreshing,
+    required this.onRefresh,
+  });
+
+  final bool visible;
+  final bool refreshing;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      width: visible ? 52 : 0,
+      child: ClipRect(
+        child: AnimatedOpacity(
+          duration: Duration(milliseconds: 120),
+          opacity: visible ? 1 : 0,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: refreshing
+                ? Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    tooltip: 'Refresh catalog',
+                    onPressed: onRefresh,
+                    icon: Icon(Icons.refresh_rounded),
+                    color: context.appColors.textSecondary,
+                  ),
+          ),
         ),
       ),
     );
@@ -329,22 +839,18 @@ class _Overview extends StatelessWidget {
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          padding: EdgeInsets.fromLTRB(12, 0, 12, 3),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
-                  '${groups.length} '
-                  '${isProviders ? "providers" : "labs"}'
-                  '${vm.fetchedAt != null ? ' · updated ${formatRelative(vm.fetchedAt!)}' : ''}',
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  '${groups.length} ${isProviders ? "providers" : "labs"}',
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
                     fontSize: 12.5,
                   ),
                 ),
               ),
-              if (vm.view == PricingView.provider)
-                _BackToOverviewButton(onTap: vm.backToOverview),
             ],
           ),
         ),
@@ -371,14 +877,22 @@ class _Overview extends StatelessWidget {
   }
 }
 
-class _ModelList extends StatelessWidget {
+class _ModelList extends StatefulWidget {
   const _ModelList({required this.vm, required this.onOpenModel, super.key});
 
   final PricingViewModel vm;
   final ValueChanged<PricedModel> onOpenModel;
 
   @override
+  State<_ModelList> createState() => _ModelListState();
+}
+
+class _ModelListState extends State<_ModelList> {
+  bool _filtersExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final PricingViewModel vm = widget.vm;
     final List<PricedModel> results = vm.results;
     final ProviderModels? selectedGroup = vm.selectedGroup;
     // Show the Quick Add CTA only in the Providers-scope drill-in. The
@@ -395,16 +909,15 @@ class _ModelList extends StatelessWidget {
         : null;
     return Column(
       children: <Widget>[
-        _FilterChipsRow(vm: vm),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+          padding: EdgeInsets.fromLTRB(12, 0, 6, 4),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Text(
                   _statusLine(vm, results.length),
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
                     fontSize: 12.5,
                   ),
                 ),
@@ -427,14 +940,47 @@ class _ModelList extends StatelessWidget {
                     );
                   },
                 ),
+              IconButton(
+                tooltip: _filtersExpanded ? 'Hide filters' : 'Filter models',
+                onPressed: () =>
+                    setState(() => _filtersExpanded = !_filtersExpanded),
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    Icon(Icons.filter_list_rounded, size: 19),
+                    if (vm.filters.isNotEmpty)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: context.appColors.brandViolet,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                color: _filtersExpanded
+                    ? context.appColors.brandViolet
+                    : context.appColors.textSecondary,
+              ),
               _SortButton(sort: vm.sort, onSelected: vm.setSort),
             ],
           ),
         ),
+        AnimatedSize(
+          duration: Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _filtersExpanded ? _FilterChipsRow(vm: vm) : SizedBox.shrink(),
+        ),
         Expanded(
           child: results.isEmpty
-              ? const _NoResults()
-              : _ResultsGrid(results: results, onTap: onOpenModel),
+              ? _NoResults()
+              : _ResultsGrid(results: results, onTap: widget.onOpenModel),
         ),
       ],
     );
@@ -468,33 +1014,29 @@ class _FilterChipsRow extends StatelessWidget {
     // Filters apply to the model list only: hide on the groups grid overview,
     // and on the models tab they always apply (it's always a model list).
     if (!vm.isFlatModelView && vm.view == PricingView.overview) {
-      return const SizedBox.shrink();
+      return SizedBox.shrink();
     }
     final bool any = vm.filters.isNotEmpty;
     return SizedBox(
-      height: 44,
+      height: 36,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        padding: EdgeInsets.fromLTRB(12, 2, 12, 4),
         children: <Widget>[
           for (final PricingFilter f in PricingFilter.values)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: EdgeInsets.only(right: 6),
               child: _FilterChip(
-                label: f.label,
+                filter: f,
                 selected: vm.filters.contains(f),
                 onTap: () => vm.toggleFilter(f),
               ),
             ),
           if (any)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _FilterChip(
-                label: 'Clear',
-                selected: false,
-                subtle: true,
-                onTap: vm.clearFilters,
-              ),
+            _FilterIconButton(
+              icon: Icons.filter_alt_off_outlined,
+              tooltip: 'Clear filters',
+              onTap: vm.clearFilters,
             ),
         ],
       ),
@@ -504,47 +1046,74 @@ class _FilterChipsRow extends StatelessWidget {
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
-    required this.label,
+    required this.filter,
     required this.selected,
     required this.onTap,
-    this.subtle = false,
   });
 
-  final String label;
+  final PricingFilter filter;
   final bool selected;
   final VoidCallback onTap;
-  final bool subtle;
 
   @override
   Widget build(BuildContext context) {
-    final Color bg = selected
-        ? AppTheme.brandViolet
-        : (subtle ? Colors.transparent : AppTheme.surface);
-    final Color fg = selected
-        ? Colors.white
-        : (subtle ? AppTheme.textSecondary : AppTheme.textPrimary);
-    return Material(
-      color: bg,
-      borderRadius: BorderRadius.circular(20),
+    return Tooltip(
+      message: filter.label,
+      child: Material(
+        color: selected
+            ? context.appColors.brandViolet
+            : context.appColors.surface,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          child: SizedBox(
+            width: 30,
+            height: 30,
+            child: Icon(
+              _iconFor(filter),
+              size: 15,
+              color: selected
+                  ? Theme.of(context).colorScheme.onPrimary
+                  : context.appColors.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(PricingFilter filter) => switch (filter) {
+    PricingFilter.reasoning => Icons.psychology_outlined,
+    PricingFilter.nonReasoning => Icons.text_fields_rounded,
+    PricingFilter.vision => Icons.image_outlined,
+    PricingFilter.openWeights => Icons.lock_open_outlined,
+    PricingFilter.free => Icons.money_off_csred_outlined,
+  };
+}
+
+class _FilterIconButton extends StatelessWidget {
+  const _FilterIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected ? Colors.transparent : AppTheme.outline,
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: fg,
-              fontSize: 12.5,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-            ),
-          ),
+        borderRadius: BorderRadius.circular(9),
+        child: SizedBox(
+          width: 30,
+          height: 30,
+          child: Icon(icon, size: 15, color: context.appColors.textSecondary),
         ),
       ),
     );
@@ -564,36 +1133,25 @@ class _ResultsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final int columns = constraints.maxWidth >= 560 ? 2 : 1;
-        final int rowCount = (results.length / columns).ceil();
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          itemCount: rowCount,
-          itemBuilder: (BuildContext context, int row) {
-            final List<Widget> cells = <Widget>[];
-            for (int col = 0; col < columns; col++) {
-              final int index = row * columns + col;
-              if (col > 0) cells.add(const SizedBox(width: 12));
-              if (index < results.length) {
-                final PricedModel model = results[index];
-                cells.add(
-                  Expanded(
-                    child: ModelCard(model: model, onTap: () => onTap(model)),
-                  ),
-                );
-              } else {
-                cells.add(const Expanded(child: SizedBox.shrink()));
-              }
-            }
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: cells,
+        return AppScrollView(
+          builder: (BuildContext context, AppScrollController controller) =>
+              GridView.builder(
+                controller: controller,
+                padding: EdgeInsets.fromLTRB(12, 2, 12, 16),
+                scrollCacheExtent: ScrollCacheExtent.pixels(200),
+                addAutomaticKeepAlives: false,
+                itemCount: results.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  mainAxisExtent: columns == 1 ? 86 : 96,
                 ),
+                itemBuilder: (BuildContext context, int index) {
+                  final PricedModel model = results[index];
+                  return ModelCard(model: model, onTap: () => onTap(model));
+                },
               ),
-            );
-          },
         );
       },
     );
@@ -629,17 +1187,17 @@ class _AddApiKeyButton extends StatelessWidget {
     }
     return Tooltip(
       message: tooltip ?? '',
-      waitDuration: const Duration(milliseconds: 500),
+      waitDuration: Duration(milliseconds: 500),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: enabled ? onTap : null,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            gradient: enabled ? AppTheme.brandGradient : null,
-            color: enabled ? null : AppTheme.surface,
+            color: enabled
+                ? context.appColors.brandViolet.withValues(alpha: 0.14)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
-            border: enabled ? null : Border.all(color: AppTheme.outline),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -647,15 +1205,19 @@ class _AddApiKeyButton extends StatelessWidget {
               Icon(
                 docsUrl != null ? Icons.help_outline : Icons.vpn_key_outlined,
                 size: 14,
-                color: enabled ? Colors.white : AppTheme.textSecondary,
+                color: enabled
+                    ? context.appColors.brandViolet
+                    : context.appColors.textSecondary,
               ),
-              const SizedBox(width: 6),
+              SizedBox(width: 6),
               Text(
                 enabled ? 'Add API key' : 'Add API key',
                 style: TextStyle(
-                  color: enabled ? Colors.white : AppTheme.textSecondary,
+                  color: enabled
+                      ? context.appColors.brandViolet
+                      : context.appColors.textSecondary,
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -666,93 +1228,64 @@ class _AddApiKeyButton extends StatelessWidget {
   }
 }
 
-/// "Back to overview" affordance, shown in the header row when drilled into a
-/// single group (so the user can return to the groups grid).
-class _BackToOverviewButton extends StatelessWidget {
-  const _BackToOverviewButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.arrow_back, size: 16, color: AppTheme.textSecondary),
-            SizedBox(width: 6),
-            Text(
-              'Back',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.controller,
+    required this.focusNode,
     required this.hint,
     required this.onChanged,
     required this.onClear,
+    this.onCollapse,
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String hint;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
+  final VoidCallback? onCollapse;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       onChanged: onChanged,
-      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+      onSubmitted: (_) => onCollapse?.call(),
+      onTapOutside: (_) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        onCollapse?.call();
+      },
+      style: TextStyle(color: context.appColors.textPrimary, fontSize: 15),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: AppTheme.textSecondary),
-        prefixIcon: const Icon(
-          Icons.search,
-          color: AppTheme.textSecondary,
-          size: 20,
-        ),
+        hintStyle: TextStyle(color: context.appColors.textSecondary),
         suffixIcon: ValueListenableBuilder<TextEditingValue>(
           valueListenable: controller,
           builder: (BuildContext context, TextEditingValue value, _) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
+            if (value.text.isEmpty) return SizedBox.shrink();
             return IconButton(
               tooltip: 'Clear',
-              icon: const Icon(Icons.close, size: 18),
-              color: AppTheme.textSecondary,
+              icon: Icon(Icons.close, size: 18),
+              color: context.appColors.textSecondary,
               onPressed: onClear,
             );
           },
         ),
         filled: true,
-        fillColor: AppTheme.surface,
-        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+        fillColor: context.appColors.surface,
+        contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.outline),
+          borderSide: BorderSide(color: context.appColors.outline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.outline),
+          borderSide: BorderSide(color: context.appColors.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppTheme.brandViolet),
+          borderSide: BorderSide(color: context.appColors.brandViolet),
         ),
       ),
     );
@@ -771,7 +1304,7 @@ class _SortButton extends StatelessWidget {
       tooltip: 'Sort',
       initialValue: sort,
       onSelected: onSelected,
-      color: AppTheme.surfaceHigh,
+      color: context.appColors.surfaceHigh,
       position: PopupMenuPosition.under,
       itemBuilder: (BuildContext context) => <PopupMenuEntry<PricingSort>>[
         for (final PricingSort option in PricingSort.values)
@@ -779,26 +1312,16 @@ class _SortButton extends StatelessWidget {
             value: option,
             child: Text(
               option.label,
-              style: const TextStyle(color: AppTheme.textPrimary),
+              style: TextStyle(color: context.appColors.textPrimary),
             ),
           ),
       ],
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.sort, size: 16, color: AppTheme.textSecondary),
-            SizedBox(width: 6),
-            Text(
-              'Sort',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+      child: Padding(
+        padding: EdgeInsets.all(10),
+        child: Icon(
+          Icons.swap_vert_rounded,
+          size: 19,
+          color: context.appColors.textSecondary,
         ),
       ),
     );
@@ -810,15 +1333,22 @@ class _NoResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.search_off, size: 44, color: AppTheme.textSecondary),
+          Icon(
+            Icons.search_off,
+            size: 44,
+            color: context.appColors.textSecondary,
+          ),
           SizedBox(height: 12),
           Text(
             'No models match your search',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+            style: TextStyle(
+              color: context.appColors.textSecondary,
+              fontSize: 14,
+            ),
           ),
         ],
       ),
@@ -835,36 +1365,39 @@ class _ErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.cloud_off_outlined,
               size: 48,
-              color: AppTheme.textSecondary,
+              color: context.appColors.textSecondary,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 16),
+            Text(
               "Couldn't load model catalog",
               style: TextStyle(
-                color: AppTheme.textPrimary,
+                color: context.appColors.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
+            SizedBox(height: 8),
+            Text(
               'Check your connection and try again. Data is provided by '
               'models.dev.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 13,
+              ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             FilledButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              icon: Icon(Icons.refresh),
+              label: Text('Retry'),
             ),
           ],
         ),
@@ -892,51 +1425,56 @@ class _AccountsView extends StatelessWidget {
         if (accounts.isEmpty) {
           return _EmptyAccounts(onAdd: () => _addAccount(context, settings));
         }
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-          children: <Widget>[
-            Material(
-              color: AppTheme.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: AppTheme.outline),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
+        return AppScrollView(
+          builder: (BuildContext context, AppScrollController controller) =>
+              ListView(
+                controller: controller,
+                padding: EdgeInsets.fromLTRB(12, 2, 12, 12),
                 children: <Widget>[
-                  for (final ProviderAccount account in accounts)
-                    AccountTile(
-                      account: account,
-                      onDelete: () =>
-                          _confirmDelete(context, settings, account),
-                      onManageModels: account.kind == AdapterKind.mock
-                          ? null
-                          : () {
-                              final ModelSelectorViewModel selector =
-                                  ProviderScope.containerOf(
-                                    context,
-                                    listen: false,
-                                  ).read(modelSelectorViewModelProvider);
-                              showManageModels(
-                                context,
-                                settings,
-                                selector,
-                                account,
-                              );
-                            },
+                  Material(
+                    color: context.appColors.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: <Widget>[
+                        for (
+                          int index = 0;
+                          index < accounts.length;
+                          index++
+                        ) ...[
+                          AccountTile(
+                            account: accounts[index],
+                            onDelete: () => _confirmDelete(
+                              context,
+                              settings,
+                              accounts[index],
+                            ),
+                            onManageModels:
+                                accounts[index].kind == AdapterKind.mock
+                                ? null
+                                : () {
+                                    final ModelSelectorViewModel selector =
+                                        ProviderScope.containerOf(
+                                          context,
+                                          listen: false,
+                                        ).read(modelSelectorViewModelProvider);
+                                    showManageModels(
+                                      context,
+                                      settings,
+                                      selector,
+                                      accounts[index],
+                                    );
+                                  },
+                          ),
+                          if (index != accounts.length - 1) SizedBox(height: 2),
+                        ],
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 16),
-            Center(
-              child: FilledButton.icon(
-                onPressed: () => _addAccount(context, settings),
-                icon: const Icon(Icons.add),
-                label: const Text('Add account'),
-              ),
-            ),
-          ],
         );
       },
     );
@@ -955,7 +1493,7 @@ class _AccountsView extends StatelessWidget {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Remove account?'),
+          title: Text('Remove account?'),
           content: Text(
             'Remove "${account.displayName}" and its stored API key? '
             'This cannot be undone.',
@@ -963,11 +1501,11 @@ class _AccountsView extends StatelessWidget {
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text('Cancel'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remove'),
+              child: Text('Remove'),
             ),
           ],
         );
@@ -988,34 +1526,37 @@ class _EmptyAccounts extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(
+            Icon(
               Icons.cloud_off_outlined,
               size: 48,
-              color: AppTheme.textSecondary,
+              color: context.appColors.textSecondary,
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 16),
+            Text(
               'No provider accounts yet',
               style: TextStyle(
-                color: AppTheme.textPrimary,
+                color: context.appColors.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
+            SizedBox(height: 8),
+            Text(
               'Add an API key or sign in to start chatting.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 14,
+              ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             FilledButton.icon(
               onPressed: onAdd,
-              icon: const Icon(Icons.add),
-              label: const Text('Add account'),
+              icon: Icon(Icons.add),
+              label: Text('Add account'),
             ),
           ],
         ),

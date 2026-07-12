@@ -25,13 +25,13 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
   // Drives the continuous drift of blobs and the twinkle of stars.
   late final AnimationController _motion = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 24),
+    duration: Duration(seconds: 24),
   );
 
   // Ramps the whole effect in and out so it doesn't pop on/off abruptly.
   late final AnimationController _intensity = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 900),
+    duration: Duration(milliseconds: 900),
   );
 
   late final List<_Star> _stars = _buildStars(46);
@@ -94,7 +94,7 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
         builder: (BuildContext context, _) {
           final double intensity = Curves.easeInOut.transform(_intensity.value);
           if (intensity <= 0.001) {
-            return const SizedBox.expand();
+            return SizedBox.expand();
           }
           return CustomPaint(
             isComplex: true,
@@ -102,6 +102,7 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
               motion: _motion.value,
               intensity: intensity,
               stars: _stars,
+              colors: context.appColors,
             ),
             size: Size.infinite,
           );
@@ -112,7 +113,7 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
 }
 
 class _Star {
-  const _Star({
+  _Star({
     required this.position,
     required this.radius,
     required this.phase,
@@ -127,11 +128,7 @@ class _Star {
 }
 
 class _Blob {
-  const _Blob({
-    required this.color,
-    required this.center,
-    required this.radius,
-  });
+  _Blob({required this.color, required this.center, required this.radius});
 
   final Color color;
   final Offset center;
@@ -143,11 +140,13 @@ class _BackgroundPainter extends CustomPainter {
     required this.motion,
     required this.intensity,
     required this.stars,
+    required this.colors,
   });
 
   final double motion;
   final double intensity;
   final List<_Star> stars;
+  final AppThemeColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -178,17 +177,17 @@ class _BackgroundPainter extends CustomPainter {
     final double r = shortest * 0.62;
     return <_Blob>[
       _Blob(
-        color: AppTheme.brandBlue,
+        color: colors.brandBlue,
         center: drift(0.28, 0.30, 0.18, 0.14, 1.0, 0.0),
         radius: r,
       ),
       _Blob(
-        color: AppTheme.brandViolet,
+        color: colors.brandViolet,
         center: drift(0.72, 0.45, 0.16, 0.20, 0.85, 2.1),
         radius: r * 1.1,
       ),
       _Blob(
-        color: AppTheme.brandPink,
+        color: colors.brandPink,
         center: drift(0.50, 0.78, 0.22, 0.16, 1.15, 4.0),
         radius: r * 0.95,
       ),
@@ -252,7 +251,7 @@ class _BackgroundPainter extends CustomPainter {
       if (alpha <= 0.01) continue;
 
       final double radius = star.radius * (0.7 + 0.5 * proximity);
-      paint.color = Colors.white.withValues(alpha: alpha);
+      paint.color = colors.textPrimary.withValues(alpha: alpha);
       _drawSparkle(canvas, p, radius, paint);
     }
   }

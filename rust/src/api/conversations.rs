@@ -8,7 +8,7 @@ use std::sync::Arc;
 use once_cell::sync::OnceCell;
 
 use crate::conversations::db::{ConversationsDb, SharedConversationsDb, StoredConversation};
-use crate::conversations::error::{Result, ConversationsError};
+use crate::conversations::error::{ConversationsError, Result};
 
 static DB: OnceCell<SharedConversationsDb> = OnceCell::new();
 

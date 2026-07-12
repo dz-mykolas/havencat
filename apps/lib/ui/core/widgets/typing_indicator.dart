@@ -17,7 +17,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1100),
+    duration: Duration(milliseconds: 1100),
   )..repeat();
 
   @override
@@ -39,7 +39,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
             final double pulse =
                 0.4 + 0.6 * (0.5 + 0.5 * math.sin(t * 2 * math.pi));
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
+              padding: EdgeInsets.symmetric(horizontal: 3),
               child: Opacity(
                 opacity: pulse,
                 child: Transform.scale(
@@ -47,9 +47,9 @@ class _TypingIndicatorState extends State<TypingIndicator>
                   child: Container(
                     width: 8,
                     height: 8,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: AppTheme.brandGradient,
+                      gradient: context.appColors.brandGradient,
                     ),
                   ),
                 ),

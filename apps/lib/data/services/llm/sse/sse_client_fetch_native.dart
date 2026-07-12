@@ -28,6 +28,7 @@ Future<void> fetchStream({
       method: method,
       headers: <String, dynamic>{'Accept': 'text/event-stream', ...?headers},
       responseType: ResponseType.stream,
+      validateStatus: (_) => true,
     ),
     cancelToken: cancelToken,
   );
@@ -49,6 +50,7 @@ Future<void> fetchStream({
         requestOptions: response.requestOptions,
         statusCode: response.statusCode,
         data: bodyStr,
+        headers: response.headers,
       ),
       type: DioExceptionType.badResponse,
     );
