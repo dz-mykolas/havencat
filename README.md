@@ -20,10 +20,10 @@ your device. There is no HavenCat account and no hosted HavenCat backend.
 
 | | |
 |---|---|
-| 💬 **One chat interface** | Use ChatGPT subscriptions and OpenAI-compatible APIs without switching apps. (upcoming support for multiple other subscriptions, untested support for Anthropic and Google endpoints)|
+| 💬 **One chat interface** | Use ChatGPT subscriptions and OpenAI-compatible APIs without switching apps. Upcoming support for multiple other subscriptions, untested support for Anthropic and Google endpoints.|
 | 🖼️ **Image support** | Send images to vision models and view generated images directly in the conversation. |
 | 🔎 **Built-in web search** | Start with keyless Exa search, or connect Brave and a self-hosted SearXNG instance. |
-| 🧭 **Model discovery** | Browse models, compare prices and limits, and connect supported providers from the catalog. |
+| 🧭 **Model discovery** | Browse models, compare prices and limits, and connect supported providers from the catalog. Upcoming support for Local on device LLMs with many UX rich features like requirements checking etc.|
 | 🌿 **Local conversations** | Chats, branches, attachments, and pinned conversations are stored locally. |
 | 🔐 **Protected credentials** | API keys and sign-in tokens use protected storage provided by the current platform. |
 | 🎨 **Custom themes** | Pick separate light and dark themes from a small set of built-in palettes. |
