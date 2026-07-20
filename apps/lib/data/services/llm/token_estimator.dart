@@ -23,6 +23,18 @@ int estimateMessageTokens(ChatMessage m) {
   return n;
 }
 
+/// Live estimate of tokens emitted for an assistant response so far.
+int estimateGeneratedTokens(ChatMessage message) {
+  int estimate = 4;
+  estimate += estimateTokens(message.text);
+  estimate += estimateTokens(message.reasoning);
+  for (final ToolCall call in message.toolCalls) {
+    estimate += estimateTokens(call.name);
+    estimate += estimateTokens(call.args) + 8;
+  }
+  return estimate;
+}
+
 /// Token estimate for a list of messages.
 int estimateMessagesTokens(List<ChatMessage> messages) =>
     messages.fold(0, (sum, m) => sum + estimateMessageTokens(m));

@@ -9,6 +9,7 @@ import 'package:app/data/services/auth/chatgpt_token_service.dart';
 import 'package:app/data/services/auth/secret_store.dart';
 import 'package:app/data/services/storage/account_store.dart';
 import 'package:app/domain/models/provider_account.dart';
+import 'package:app/ui/pricing/pricing_viewmodel.dart';
 import 'package:app/ui/settings/settings_screen.dart';
 import 'package:app/ui/settings/settings_viewmodel.dart';
 
@@ -39,6 +40,45 @@ void main() {
     expect(find.text('Context'), findsOneWidget);
     expect(find.text('Show hidden models'), findsNothing);
 
+    await tester.tap(find.text('Models & providers'));
+    await tester.pump(const Duration(milliseconds: 250));
+    final Finder modelsTab = find.ancestor(
+      of: find.text('Models'),
+      matching: find.byType(InkWell),
+    );
+    final Finder indicator = find.byKey(
+      const ValueKey<String>('compact-tab-indicator'),
+    );
+    final double indicatorStart = tester.getTopLeft(indicator).dx;
+    expect(tester.getSize(modelsTab).height, 56);
+    expect(
+      tester.widget<InkWell>(modelsTab).overlayColor!.resolve(<WidgetState>{
+        WidgetState.pressed,
+      }),
+      Colors.transparent,
+    );
+    await tester.tapAt(
+      Offset(
+        tester.getCenter(modelsTab).dx,
+        tester.getBottomLeft(modelsTab).dy - 2,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final double indicatorMid = tester.getTopLeft(indicator).dx;
+    await tester.pump(const Duration(milliseconds: 200));
+    final double indicatorEnd = tester.getTopLeft(indicator).dx;
+    expect(indicatorMid, greaterThan(indicatorStart));
+    expect(indicatorMid, lessThan(indicatorEnd));
+    expect(
+      ProviderScope.containerOf(
+        tester.element(find.text('Models')),
+      ).read(pricingViewModelProvider).scope,
+      PricingScope.models,
+    );
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('General'));
     await tester.pumpAndSettle();
     expect(find.text('Show hidden models'), findsOneWidget);
@@ -60,7 +100,9 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const ProviderScope(child: App()));
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.dragFrom(const Offset(400, 300), const Offset(260, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
 

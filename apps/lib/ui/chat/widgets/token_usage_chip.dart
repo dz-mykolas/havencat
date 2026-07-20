@@ -19,6 +19,7 @@ class TokenUsageChip extends StatefulWidget {
     required this.completionTokens,
     required this.totalTokens,
     required this.estimatedTokens,
+    required this.estimatedCompletionTokens,
     required this.contextWindow,
     required this.isGenerating,
   });
@@ -38,9 +39,11 @@ class TokenUsageChip extends StatefulWidget {
   /// before the first reply completes.
   final int? totalTokens;
 
-  /// Our char/4 estimate for the current/last request. Set immediately on
-  /// send so the chip never lags a turn behind.
+  /// Our char/4 estimate for the current/last request input.
   final int? estimatedTokens;
+
+  /// Live char/4 estimate for output received so far.
+  final int? estimatedCompletionTokens;
 
   /// The model's context window in tokens.
   final int contextWindow;
@@ -64,13 +67,10 @@ class _TokenUsageChipState extends State<TokenUsageChip>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
-    _opacity =
-        Tween<double>(begin: 0.45, end: 1.0).animate(
-          CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed) _pulse.reverse();
-          if (status == AnimationStatus.dismissed) _pulse.forward();
-        });
+    _opacity = Tween<double>(
+      begin: 0.45,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
     _updateAnimation();
   }
 
@@ -82,7 +82,7 @@ class _TokenUsageChipState extends State<TokenUsageChip>
 
   void _updateAnimation() {
     if (widget.isGenerating) {
-      _pulse.forward();
+      _pulse.repeat(reverse: true);
     } else {
       _pulse.stop();
       _pulse.value = 1.0; // fully opaque when idle
@@ -124,14 +124,24 @@ class _TokenUsageChipState extends State<TokenUsageChip>
     final int? prompt = widget.actualTokens;
     final int? completion = widget.completionTokens;
     final int? total = widget.totalTokens;
-    final int? estimate = widget.estimatedTokens;
+    final int? estimatedPrompt = widget.estimatedTokens;
+    final int? estimatedCompletion = widget.estimatedCompletionTokens;
+    final int? estimatedTotal = switch ((
+      estimatedPrompt,
+      estimatedCompletion,
+    )) {
+      (final int prompt, final int completion) => prompt + completion,
+      (final int prompt, null) => prompt,
+      (null, final int completion) => completion,
+      (null, null) => null,
+    };
 
     // Main displayed value: total tokens when available, otherwise fall back
     // to the input estimate (the estimate only covers input/prompt tokens, so
     // it's a lower bound during generation).
     final int? value = widget.isGenerating
-        ? (estimate ?? total)
-        : (total ?? estimate);
+        ? (estimatedTotal ?? total)
+        : (total ?? estimatedTotal);
     if (value == null) return const SizedBox.shrink();
 
     // "Confirmed" = we're showing the provider-reported total for the
@@ -156,10 +166,22 @@ class _TokenUsageChipState extends State<TokenUsageChip>
     final StringBuffer tip = StringBuffer(statusLine);
     tip.writeln();
     tip.write('Input: ');
-    tip.write(prompt != null ? _format(prompt) : '—');
+    tip.write(
+      prompt != null
+          ? _format(prompt)
+          : estimatedPrompt != null
+          ? '~${_format(estimatedPrompt)}'
+          : '—',
+    );
     tip.writeln();
     tip.write('Output: ');
-    tip.write(completion != null ? _format(completion) : '—');
+    tip.write(
+      completion != null
+          ? _format(completion)
+          : estimatedCompletion != null
+          ? '~${_format(estimatedCompletion)}'
+          : '—',
+    );
     tip.writeln();
     tip.write('Total: ');
     tip.write(total != null ? _format(total) : '~${_format(value)}');

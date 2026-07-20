@@ -38,15 +38,23 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
   String _status = 'Starting…';
   String? _error;
   bool _cancelled = false;
+  late final AppLifecycleListener _lifecycleListener;
+  final _PollingWakeSignal _pollingWakeSignal = _PollingWakeSignal();
 
   @override
   void initState() {
     super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onResume: _pollingWakeSignal.wake,
+    );
     _start();
   }
 
   @override
   void dispose() {
+    _cancelled = true;
+    _pollingWakeSignal.wake();
+    _lifecycleListener.dispose();
     _countdown?.cancel();
     super.dispose();
   }
@@ -91,6 +99,7 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
           if (mounted) setState(() => _status = 'Waiting for sign-in');
         },
         shouldCancel: () async => _cancelled,
+        waitForNextPoll: _pollingWakeSignal.wait,
       );
       if (mounted) Navigator.of(context).pop();
     } on Object catch (e) {
@@ -263,6 +272,34 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
       ),
       actions: <Widget>[TextButton(onPressed: _cancel, child: Text('Cancel'))],
     );
+  }
+}
+
+class _PollingWakeSignal {
+  Completer<void>? _waiter;
+  bool _pendingWake = false;
+
+  Future<void> wait(Duration interval) async {
+    if (_pendingWake) {
+      _pendingWake = false;
+      return;
+    }
+
+    final Completer<void> waiter = Completer<void>();
+    _waiter = waiter;
+    final Timer timer = Timer(interval, waiter.complete);
+    await waiter.future;
+    timer.cancel();
+    if (identical(_waiter, waiter)) _waiter = null;
+  }
+
+  void wake() {
+    final Completer<void>? waiter = _waiter;
+    if (waiter == null) {
+      _pendingWake = true;
+    } else if (!waiter.isCompleted) {
+      waiter.complete();
+    }
   }
 }
 

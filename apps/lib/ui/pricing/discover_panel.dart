@@ -319,21 +319,52 @@ class _CompactCatalogNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final int selectedIndex = _scopes.indexOf(vm.scope);
     return Material(
       color: Colors.transparent,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(6, 6, 6, 5),
-        child: Row(
-          children: <Widget>[
-            for (final PricingScope scope in _scopes)
-              Expanded(
-                child: _CompactNavigationItem(
-                  scope: scope,
-                  selected: vm.scope == scope,
-                  onTap: () => onSelected(scope),
-                ),
+        padding: EdgeInsets.symmetric(horizontal: 6),
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final double itemWidth = constraints.maxWidth / _scopes.length;
+            return SizedBox(
+              height: 56,
+              child: Stack(
+                children: <Widget>[
+                  AnimatedPositioned(
+                    key: const ValueKey<String>('compact-tab-indicator'),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    left: itemWidth * selectedIndex,
+                    top: 4,
+                    bottom: 4,
+                    width: itemWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: context.appColors.surface,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: <Widget>[
+                      for (final PricingScope scope in _scopes)
+                        Expanded(
+                          child: _CompactNavigationItem(
+                            scope: scope,
+                            selected: vm.scope == scope,
+                            onTap: () => onSelected(scope),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -354,15 +385,17 @@ class _CompactNavigationItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? context.appColors.surface : Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+        splashFactory: NoSplash.splashFactory,
         borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 6),
+        child: SizedBox(
+          height: 56,
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               Icon(
                 scope.icon,

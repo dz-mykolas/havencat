@@ -477,6 +477,16 @@ MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz
       );
       expect(estimateMessageTokens(m), equals(5)); // 4 + 1
     });
+
+    test('estimateGeneratedTokens includes live text and reasoning', () {
+      final m = ChatMessage(
+        id: 'x',
+        role: MessageRole.assistant,
+        text: 'abcd',
+        createdAt: DateTime.now(),
+      )..reasoning = 'abcde';
+      expect(estimateGeneratedTokens(m), equals(7)); // 4 + 1 + 2
+    });
   });
 }
 

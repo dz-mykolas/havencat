@@ -120,6 +120,147 @@ void main() {
     expect(find.text('Current'), findsNothing);
   });
 
+  testWidgets('theme icon and settings action share the sidebar footer', (
+    WidgetTester tester,
+  ) async {
+    final _TestChat chat = _TestChat();
+    addTearDown(chat.dispose);
+    bool themeToggled = false;
+    bool settingsOpened = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.build(AppThemePreset.haven),
+        home: Scaffold(
+          body: ConversationSidebar(
+            viewModel: chat.viewModel,
+            collapsible: false,
+            themeSlot: AppThemeSlot.dark,
+            onToggleTheme: () => themeToggled = true,
+            onOpenSettings: () => settingsOpened = true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Settings'), findsOneWidget);
+    final Finder themeToggle = find.byKey(
+      const ValueKey<String>('sidebar-theme-toggle'),
+    );
+    expect(themeToggle, findsOneWidget);
+    expect(tester.getSize(themeToggle), const Size.square(40));
+    expect(find.byTooltip('Use light theme'), findsOneWidget);
+
+    await tester.tap(themeToggle);
+    await tester.tap(find.text('Settings'));
+
+    expect(themeToggled, isTrue);
+    expect(settingsOpened, isTrue);
+  });
+
+  testWidgets('search expands beside new chat and filters in place', (
+    WidgetTester tester,
+  ) async {
+    final _TestChat chat = _TestChat(
+      conversations: <Conversation>[
+        _conversation('first', 'First chat'),
+        _conversation('second', 'Second chat'),
+      ],
+    );
+    addTearDown(chat.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.build(AppThemePreset.haven),
+        home: Scaffold(
+          body: ConversationSidebar(
+            viewModel: chat.viewModel,
+            collapsible: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Finder newChat = find.byKey(
+      const ValueKey<String>('sidebar-new-chat'),
+    );
+    final Finder search = find.byKey(
+      const ValueKey<String>('sidebar-chat-search'),
+    );
+    final double initialNewChatWidth = tester.getSize(newChat).width;
+    final double initialSearchWidth = tester.getSize(search).width;
+
+    await tester.tap(find.byTooltip('Search chats'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getSize(newChat).width, lessThan(initialNewChatWidth));
+    expect(tester.getSize(search).width, greaterThan(initialSearchWidth));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(newChat).width, 44);
+    expect(tester.getSize(search).width, initialNewChatWidth);
+    expect(
+      tester.getCenter(find.text('Search chats')).dy,
+      closeTo(tester.getCenter(search).dy, 0.5),
+    );
+    final InputDecoration searchDecoration = tester
+        .widget<TextField>(find.byType(TextField))
+        .decoration!;
+    expect(searchDecoration.filled, isFalse);
+    expect(searchDecoration.focusedBorder, InputBorder.none);
+
+    await tester.enterText(find.byType(TextField), 'Second');
+    await tester.pump();
+    expect(find.text('First chat'), findsNothing);
+    expect(find.text('Second chat'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close search'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('First chat'), findsOneWidget);
+  });
+
+  testWidgets('opening search keeps empty state vertically stable', (
+    WidgetTester tester,
+  ) async {
+    final _TestChat chat = _TestChat();
+    addTearDown(chat.dispose);
+
+    Future<void> pumpSidebar({required bool keyboardOpen}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.build(AppThemePreset.haven),
+          home: MediaQuery(
+            data: MediaQueryData(
+              padding: EdgeInsets.only(bottom: keyboardOpen ? 0 : 24),
+              viewPadding: const EdgeInsets.only(bottom: 24),
+              viewInsets: EdgeInsets.only(bottom: keyboardOpen ? 300 : 0),
+            ),
+            child: Material(
+              child: ConversationSidebar(
+                viewModel: chat.viewModel,
+                collapsible: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    await pumpSidebar(keyboardOpen: false);
+    final Finder emptyState = find.text('No conversations yet');
+    final double initialY = tester.getCenter(emptyState).dy;
+
+    await tester.tap(find.byTooltip('Search chats'));
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(emptyState).dy, closeTo(initialY, 0.01));
+
+    await pumpSidebar(keyboardOpen: true);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(tester.getCenter(emptyState).dy, closeTo(initialY, 0.01));
+  });
+
   testWidgets('desktop chat actions appear only while the row is hovered', (
     WidgetTester tester,
   ) async {
@@ -244,7 +385,7 @@ void main() {
     expect(find.text('Renamed chat'), findsOneWidget);
   });
 
-  testWidgets('mobile drawer opens from a left-edge drag', (
+  testWidgets('mobile drawer opens from a drag anywhere on screen', (
     WidgetTester tester,
   ) async {
     final _TestChat chat = _TestChat();
@@ -257,7 +398,7 @@ void main() {
         home: Scaffold(
           key: scaffoldKey,
           drawerEnableOpenDragGesture: true,
-          drawerEdgeDragWidth: 80,
+          drawerEdgeDragWidth: 800,
           drawer: ConversationDrawer(viewModel: chat.viewModel),
           body: const SizedBox.expand(),
         ),
@@ -265,7 +406,7 @@ void main() {
     );
 
     expect(scaffoldKey.currentState!.isDrawerOpen, isFalse);
-    await tester.dragFrom(const Offset(60, 300), const Offset(260, 0));
+    await tester.dragFrom(const Offset(400, 300), const Offset(260, 0));
     await tester.pumpAndSettle();
     expect(scaffoldKey.currentState!.isDrawerOpen, isTrue);
   });

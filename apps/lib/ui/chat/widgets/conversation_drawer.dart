@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../branding.dart';
+import '../../../domain/models/app_theme_preferences.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_scroll_view.dart';
 import '../../core/widgets/gradient_text.dart';
@@ -28,12 +29,18 @@ class ConversationSidebar extends StatefulWidget {
     required this.viewModel,
     this.onClose,
     this.onNewChat,
+    this.themeSlot,
+    this.onToggleTheme,
+    this.onOpenSettings,
     this.collapsible = true,
   });
 
   final ChatViewModel viewModel;
   final VoidCallback? onClose;
   final VoidCallback? onNewChat;
+  final AppThemeSlot? themeSlot;
+  final VoidCallback? onToggleTheme;
+  final VoidCallback? onOpenSettings;
   final bool collapsible;
 
   static const double railWidth = 64;
@@ -43,10 +50,12 @@ class ConversationSidebar extends StatefulWidget {
   State<ConversationSidebar> createState() => _ConversationSidebarState();
 }
 
-class _ConversationSidebarState extends State<ConversationSidebar> {
+class _ConversationSidebarState extends State<ConversationSidebar>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final ValueNotifier<bool> _collapsed = ValueNotifier<bool>(false);
+  late final AnimationController _searchAnimation;
 
   bool _searchOpen = false;
   String _searchQuery = '';
@@ -55,7 +64,18 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
   String? _filteredQuery;
 
   @override
+  void initState() {
+    super.initState();
+    _searchAnimation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+      reverseDuration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
   void dispose() {
+    _searchAnimation.dispose();
     _collapsed.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
@@ -92,10 +112,16 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
     widget.onClose?.call();
   }
 
+  void _openSettings() {
+    widget.onClose?.call();
+    widget.onOpenSettings?.call();
+  }
+
   void _toggleSearch() {
     if (!_searchOpen) {
       if (_collapsed.value) _setCollapsed(false);
       setState(() => _searchOpen = true);
+      _searchAnimation.forward();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _searchFocus.requestFocus();
       });
@@ -105,6 +131,7 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
   }
 
   void _closeSearch() {
+    _searchAnimation.reverse();
     _searchOpen = false;
     _searchQuery = '';
     _searchController.clear();
@@ -300,17 +327,26 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
     if (!widget.collapsible) {
       return ColoredBox(
         color: context.appColors.background,
-        child: SafeArea(child: _buildFull(context)),
+        child: SafeArea(
+          maintainBottomViewPadding: true,
+          child: _buildFull(context),
+        ),
       );
     }
 
     return _CollapsibleSidebarFrame(
       collapsed: _collapsed,
       backgroundColor: context.appColors.background,
-      full: SafeArea(child: _buildFull(context)),
+      full: SafeArea(
+        maintainBottomViewPadding: true,
+        child: _buildFull(context),
+      ),
       rail: ColoredBox(
         color: context.appColors.background,
-        child: SafeArea(child: _buildRail(context)),
+        child: SafeArea(
+          maintainBottomViewPadding: true,
+          child: _buildRail(context),
+        ),
       ),
     );
   }
@@ -324,15 +360,6 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
           child: Row(
             children: <Widget>[
               Expanded(child: _SidebarHomeButton(onTap: _newChat)),
-              IconButton(
-                tooltip: _searchOpen ? 'Close search' : 'Search chats',
-                onPressed: _toggleSearch,
-                icon: Icon(
-                  _searchOpen ? Icons.search_off_rounded : Icons.search_rounded,
-                  size: 19,
-                ),
-                visualDensity: VisualDensity.compact,
-              ),
               IconButton(
                 tooltip: widget.onClose != null
                     ? 'Close sidebar'
@@ -351,45 +378,60 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: ListenableBuilder(
-            listenable: widget.viewModel,
-            builder: (BuildContext context, _) => _NewChatButton(
-              onTap: _newChat,
-              selected: widget.viewModel.activeId == null,
+          child: SizedBox(
+            height: 44,
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                const double compactWidth = 44;
+                const double gap = 8;
+                return AnimatedBuilder(
+                  animation: _searchAnimation,
+                  builder: (BuildContext context, _) {
+                    final double progress = Curves.easeOutCubic.transform(
+                      _searchAnimation.value,
+                    );
+                    final double available = constraints.maxWidth - gap;
+                    final double expandedWidth = available - compactWidth;
+                    final double newChatWidth =
+                        expandedWidth -
+                        (expandedWidth - compactWidth) * progress;
+                    final double searchWidth = available - newChatWidth;
+                    return Row(
+                      children: <Widget>[
+                        SizedBox(
+                          key: const ValueKey<String>('sidebar-new-chat'),
+                          width: newChatWidth,
+                          child: ListenableBuilder(
+                            listenable: widget.viewModel,
+                            builder: (BuildContext context, _) =>
+                                _NewChatButton(
+                                  onTap: _newChat,
+                                  selected: widget.viewModel.activeId == null,
+                                  compact: progress > 0.55,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(width: gap),
+                        SizedBox(
+                          key: const ValueKey<String>('sidebar-chat-search'),
+                          width: searchWidth,
+                          child: _SidebarSearchControl(
+                            expanded: _searchOpen,
+                            controller: _searchController,
+                            focusNode: _searchFocus,
+                            onOpen: _toggleSearch,
+                            onClose: _toggleSearch,
+                            onChanged: (String value) =>
+                                setState(() => _searchQuery = value),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
             ),
           ),
-        ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _searchOpen
-              ? Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
-                  child: TextField(
-                    controller: _searchController,
-                    focusNode: _searchFocus,
-                    onChanged: (String value) =>
-                        setState(() => _searchQuery = value),
-                    style: const TextStyle(fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Search chats',
-                      isDense: true,
-                      prefixIcon: const Icon(Icons.search_rounded, size: 17),
-                      suffixIcon: _searchQuery.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear',
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
-                              icon: const Icon(Icons.close_rounded, size: 17),
-                            ),
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
         ),
         Expanded(
           child: ListenableBuilder(
@@ -432,6 +474,38 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
             },
           ),
         ),
+        if (widget.themeSlot != null || widget.onOpenSettings != null) ...[
+          Divider(height: 1, color: context.appColors.divider),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+            child: Row(
+              children: <Widget>[
+                if (widget.onOpenSettings != null)
+                  Expanded(
+                    child: _SidebarUtilityButton(
+                      icon: Icons.settings_outlined,
+                      label: 'Settings',
+                      onTap: _openSettings,
+                    ),
+                  ),
+                if (widget.onOpenSettings != null &&
+                    widget.themeSlot != null &&
+                    widget.onToggleTheme != null)
+                  const SizedBox(width: 4),
+                if (widget.themeSlot != null && widget.onToggleTheme != null)
+                  _SidebarUtilityIconButton(
+                    tooltip: widget.themeSlot == AppThemeSlot.dark
+                        ? 'Use light theme'
+                        : 'Use dark theme',
+                    icon: widget.themeSlot == AppThemeSlot.dark
+                        ? Icons.light_mode_rounded
+                        : Icons.dark_mode_rounded,
+                    onTap: widget.onToggleTheme!,
+                  ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -458,6 +532,22 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
           onTap: _toggleSearch,
         ),
         const Spacer(),
+        if (widget.themeSlot != null && widget.onToggleTheme != null)
+          _RailButton(
+            tooltip: widget.themeSlot == AppThemeSlot.dark
+                ? 'Use light theme'
+                : 'Use dark theme',
+            icon: widget.themeSlot == AppThemeSlot.dark
+                ? Icons.light_mode_rounded
+                : Icons.dark_mode_rounded,
+            onTap: widget.onToggleTheme!,
+          ),
+        if (widget.onOpenSettings != null)
+          _RailButton(
+            tooltip: 'Settings',
+            icon: Icons.settings_outlined,
+            onTap: _openSettings,
+          ),
         const SizedBox(height: 10),
       ],
     );
@@ -568,10 +658,16 @@ class ConversationDrawer extends StatelessWidget {
     super.key,
     required this.viewModel,
     this.onNewChat,
+    this.themeSlot,
+    this.onToggleTheme,
+    this.onOpenSettings,
   });
 
   final ChatViewModel viewModel;
   final VoidCallback? onNewChat;
+  final AppThemeSlot? themeSlot;
+  final VoidCallback? onToggleTheme;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -581,6 +677,9 @@ class ConversationDrawer extends StatelessWidget {
       child: ConversationSidebar(
         viewModel: viewModel,
         onNewChat: onNewChat,
+        themeSlot: themeSlot,
+        onToggleTheme: onToggleTheme,
+        onOpenSettings: onOpenSettings,
         collapsible: false,
         onClose: () => Navigator.of(context).pop(),
       ),
@@ -588,53 +687,222 @@ class ConversationDrawer extends StatelessWidget {
   }
 }
 
-class _NewChatButton extends StatelessWidget {
-  const _NewChatButton({required this.onTap, required this.selected});
+class _SidebarUtilityButton extends StatelessWidget {
+  const _SidebarUtilityButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
+  final IconData icon;
+  final String label;
   final VoidCallback onTap;
-  final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
-        color: context.appColors.brandViolet.withValues(
-          alpha: selected ? 0.16 : 0.07,
-        ),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(
-          color: context.appColors.brandViolet.withValues(
-            alpha: selected ? 0.3 : 0,
-          ),
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(11),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        child: SizedBox(
+          height: 40,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Row(
               children: <Widget>[
-                Icon(
-                  Icons.add_rounded,
-                  size: 18,
-                  color: context.appColors.brandViolet,
-                ),
-                const SizedBox(width: 9),
+                Icon(icon, size: 18, color: context.appColors.textSecondary),
+                const SizedBox(width: 10),
                 Text(
-                  'New chat',
+                  label,
                   style: TextStyle(
-                    color: context.appColors.textPrimary,
+                    color: context.appColors.textSecondary,
                     fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarUtilityIconButton extends StatelessWidget {
+  const _SidebarUtilityIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: onTap,
+          child: SizedBox.square(
+            key: const ValueKey<String>('sidebar-theme-toggle'),
+            dimension: 40,
+            child: Icon(icon, size: 18, color: context.appColors.textSecondary),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarSearchControl extends StatelessWidget {
+  const _SidebarSearchControl({
+    required this.expanded,
+    required this.controller,
+    required this.focusNode,
+    required this.onOpen,
+    required this.onClose,
+    required this.onChanged,
+  });
+
+  final bool expanded;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final VoidCallback onOpen;
+  final VoidCallback onClose;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.appColors.surface,
+      borderRadius: BorderRadius.circular(11),
+      clipBehavior: Clip.antiAlias,
+      child: expanded
+          ? SizedBox(
+              height: 44,
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                onChanged: onChanged,
+                textAlignVertical: TextAlignVertical.center,
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Search chats',
+                  isDense: true,
+                  filled: false,
+                  fillColor: Colors.transparent,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                  prefixIcon: const Icon(Icons.search_rounded, size: 17),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 38,
+                    minHeight: 44,
+                  ),
+                  suffixIcon: IconButton(
+                    tooltip: 'Close search',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                  ),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 38,
+                    minHeight: 44,
+                  ),
+                ),
+              ),
+            )
+          : Tooltip(
+              message: 'Search chats',
+              child: InkWell(
+                onTap: onOpen,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(Icons.search_rounded, size: 19),
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+class _NewChatButton extends StatelessWidget {
+  const _NewChatButton({
+    required this.onTap,
+    required this.selected,
+    this.compact = false,
+  });
+
+  final VoidCallback onTap;
+  final bool selected;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'New chat',
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: context.appColors.brandViolet.withValues(
+            alpha: selected ? 0.16 : 0.07,
+          ),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: context.appColors.brandViolet.withValues(
+              alpha: selected ? 0.3 : 0,
+            ),
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(11),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              height: 44,
+              child: compact
+                  ? Icon(
+                      Icons.add_rounded,
+                      key: const ValueKey<String>('compact-new-chat'),
+                      size: 19,
+                      color: context.appColors.brandViolet,
+                    )
+                  : Padding(
+                      key: const ValueKey<String>('full-new-chat'),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.add_rounded,
+                            size: 18,
+                            color: context.appColors.brandViolet,
+                          ),
+                          const SizedBox(width: 9),
+                          Text(
+                            'New chat',
+                            style: TextStyle(
+                              color: context.appColors.textPrimary,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
           ),
         ),

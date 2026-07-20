@@ -112,11 +112,13 @@ class SettingsViewModel extends ChangeNotifier {
     required DeviceCodeResponse deviceCode,
     void Function()? onPolling,
     Future<bool> Function()? shouldCancel,
+    DeviceAuthPollWaiter? waitForNextPoll,
   }) async {
     final ChatGptAuthResult result = await _chatGptOAuth.completeLogin(
       deviceCode: deviceCode,
       onPolling: onPolling,
       shouldCancel: shouldCancel,
+      waitForNextPoll: waitForNextPoll,
     );
     final String displayName = result.planType != null
         ? 'ChatGPT (${result.planType})'

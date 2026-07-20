@@ -17,6 +17,22 @@ void main() {
     expect(find.text('How can I help you today?'), findsOneWidget);
   });
 
+  testWidgets('opens the sidebar from a center-screen swipe', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const ProviderScope(child: App()));
+
+    await tester.dragFrom(const Offset(195, 320), const Offset(170, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Use light theme'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+  });
+
   testWidgets('typing in the input enables sending a message', (
     WidgetTester tester,
   ) async {

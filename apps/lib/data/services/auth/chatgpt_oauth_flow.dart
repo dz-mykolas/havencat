@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+typedef DeviceAuthPollWaiter = Future<void> Function(Duration interval);
+
 /// The result of a successful device-code login: the tokens + the decoded
 /// account info (plan type, account id) extracted from the JWT.
 ///
@@ -135,10 +137,13 @@ class ChatGptOAuthFlow {
   ///
   /// [shouldCancel] — if it ever returns true, polling stops and a
   /// [ChatGptAuthCancelled] error is thrown.
+  /// [waitForNextPoll] can wake the delay early, such as when the app resumes
+  /// after the user completes sign-in in a browser.
   Future<DeviceAuthCode> pollForAuthorizationCode({
     required DeviceCodeResponse deviceCode,
     void Function()? onPolling,
     Future<bool> Function()? shouldCancel,
+    DeviceAuthPollWaiter? waitForNextPoll,
   }) async {
     final String url =
         '${_trimEndSlash(_issuer)}/api/accounts/deviceauth/token';
@@ -176,7 +181,7 @@ class ChatGptOAuthFlow {
         // 403/404 = the user hasn't completed sign-in yet. Keep polling.
         if (status == 403 || status == 404) {
           onPolling?.call();
-          await Future<void>.delayed(Duration(seconds: deviceCode.interval));
+          await _waitForNextPoll(deviceCode.interval, waitForNextPoll);
           continue;
         }
         // Transient network errors (host lookup, connection reset, timeout)
@@ -187,7 +192,7 @@ class ChatGptOAuthFlow {
         // the whole login — the user is mid-flow in another app.
         if (status == null && _isTransientNetworkError(e)) {
           onPolling?.call();
-          await Future<void>.delayed(Duration(seconds: deviceCode.interval));
+          await _waitForNextPoll(deviceCode.interval, waitForNextPoll);
           continue;
         }
         throw ChatGptAuthError(
@@ -228,13 +233,23 @@ class ChatGptOAuthFlow {
     required DeviceCodeResponse deviceCode,
     void Function()? onPolling,
     Future<bool> Function()? shouldCancel,
+    DeviceAuthPollWaiter? waitForNextPoll,
   }) async {
     final DeviceAuthCode authCode = await pollForAuthorizationCode(
       deviceCode: deviceCode,
       onPolling: onPolling,
       shouldCancel: shouldCancel,
+      waitForNextPoll: waitForNextPoll,
     );
     return exchangeCodeForTokens(authCode);
+  }
+
+  Future<void> _waitForNextPoll(
+    int intervalSeconds,
+    DeviceAuthPollWaiter? waiter,
+  ) {
+    final Duration interval = Duration(seconds: intervalSeconds);
+    return waiter?.call(interval) ?? Future<void>.delayed(interval);
   }
 
   /// Refresh an expired access token using a stored refresh token.

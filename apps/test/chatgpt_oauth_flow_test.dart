@@ -239,6 +239,61 @@ void main() {
       expect(result.authorizationCode, 'auth-code');
     });
 
+    test('allows the polling delay to be interrupted by app resume', () async {
+      int calls = 0;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest:
+              (RequestOptions options, RequestInterceptorHandler handler) {
+                calls++;
+                if (calls == 1) {
+                  handler.reject(
+                    DioException(
+                      requestOptions: options,
+                      response: Response<dynamic>(
+                        requestOptions: options,
+                        statusCode: 403,
+                      ),
+                      type: DioExceptionType.badResponse,
+                    ),
+                  );
+                  return;
+                }
+                handler.resolve(
+                  Response<dynamic>(
+                    requestOptions: options,
+                    statusCode: 200,
+                    data: <String, dynamic>{
+                      'authorization_code': 'auth-code',
+                      'code_verifier': 'v',
+                      'code_challenge': 'c',
+                    },
+                  ),
+                );
+              },
+        ),
+      );
+      Duration? requestedInterval;
+
+      final DeviceAuthCode result = await flow
+          .pollForAuthorizationCode(
+            deviceCode: const DeviceCodeResponse(
+              deviceAuthId: 'dev-auth-123',
+              userCode: 'ABCD-1234',
+              verificationUrl: '',
+              interval: 30,
+            ),
+            waitForNextPoll: (Duration interval) async {
+              requestedInterval = interval;
+            },
+          )
+          .timeout(const Duration(seconds: 1));
+
+      expect(requestedInterval, const Duration(seconds: 30));
+      expect(calls, 2);
+      expect(result.authorizationCode, 'auth-code');
+    });
+
     test(
       'retries on transient network error (app backgrounded during sign-in)',
       () async {

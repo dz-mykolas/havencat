@@ -41,6 +41,7 @@ class MessageBubble extends StatefulWidget {
     this.completionTokens,
     this.totalTokens,
     this.estimatedTokens,
+    this.estimatedCompletionTokens,
     this.contextWindow = 0,
     this.onEditUser,
     this.onRegenerate,
@@ -95,6 +96,7 @@ class MessageBubble extends StatefulWidget {
   final int? completionTokens;
   final int? totalTokens;
   final int? estimatedTokens;
+  final int? estimatedCompletionTokens;
   final int contextWindow;
 
   @override
@@ -391,7 +393,8 @@ class _MessageBubbleState extends State<MessageBubble>
         widget.contextWindow > 0 &&
         (widget.totalTokens != null ||
             widget.actualTokens != null ||
-            widget.estimatedTokens != null);
+            widget.estimatedTokens != null ||
+            widget.estimatedCompletionTokens != null);
     final bool chipVisible = hasUsage && (widget.isLast || _hovered);
 
     if (!canEdit && !canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
@@ -431,6 +434,7 @@ class _MessageBubbleState extends State<MessageBubble>
                 completionTokens: widget.completionTokens,
                 totalTokens: widget.totalTokens,
                 estimatedTokens: widget.estimatedTokens,
+                estimatedCompletionTokens: widget.estimatedCompletionTokens,
                 contextWindow: widget.contextWindow,
                 isGenerating: widget.isGenerating,
               ),
