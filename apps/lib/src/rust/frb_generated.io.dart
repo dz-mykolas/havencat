@@ -31,16 +31,69 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  GenerationCheckpoint dco_decode_box_autoadd_generation_checkpoint(
+    dynamic raw,
+  );
+
+  @protected
+  GenerationClaim dco_decode_box_autoadd_generation_claim(dynamic raw);
+
+  @protected
+  GenerationFinish dco_decode_box_autoadd_generation_finish(dynamic raw);
+
+  @protected
+  GenerationTask dco_decode_box_autoadd_generation_task(dynamic raw);
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
+  NewGenerationCommand dco_decode_box_autoadd_new_generation_command(
+    dynamic raw,
+  );
+
+  @protected
+  NewGenerationLifecycleEvent
+  dco_decode_box_autoadd_new_generation_lifecycle_event(dynamic raw);
+
+  @protected
+  NewGenerationTask dco_decode_box_autoadd_new_generation_task(dynamic raw);
+
+  @protected
+  ProviderCall dco_decode_box_autoadd_provider_call(dynamic raw);
+
+  @protected
   StoredConversation dco_decode_box_autoadd_stored_conversation(dynamic raw);
+
+  @protected
+  ToolExecution dco_decode_box_autoadd_tool_execution(dynamic raw);
 
   @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
   FetchedPage dco_decode_fetched_page(dynamic raw);
+
+  @protected
+  GenerationCheckpoint dco_decode_generation_checkpoint(dynamic raw);
+
+  @protected
+  GenerationClaim dco_decode_generation_claim(dynamic raw);
+
+  @protected
+  GenerationCommand dco_decode_generation_command(dynamic raw);
+
+  @protected
+  GenerationFinish dco_decode_generation_finish(dynamic raw);
+
+  @protected
+  GenerationLifecycleEvent dco_decode_generation_lifecycle_event(dynamic raw);
+
+  @protected
+  GenerationRun dco_decode_generation_run(dynamic raw);
+
+  @protected
+  GenerationTask dco_decode_generation_task(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
@@ -52,7 +105,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FetchedPage> dco_decode_list_fetched_page(dynamic raw);
 
   @protected
+  List<GenerationCommand> dco_decode_list_generation_command(dynamic raw);
+
+  @protected
+  List<GenerationLifecycleEvent> dco_decode_list_generation_lifecycle_event(
+    dynamic raw,
+  );
+
+  @protected
+  List<GenerationRun> dco_decode_list_generation_run(dynamic raw);
+
+  @protected
+  List<GenerationTask> dco_decode_list_generation_task(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<ProviderCall> dco_decode_list_provider_call(dynamic raw);
 
   @protected
   List<ProviderConfig> dco_decode_list_provider_config(dynamic raw);
@@ -70,13 +140,36 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<StoredMessage> dco_decode_list_stored_message(dynamic raw);
 
   @protected
+  List<ToolExecution> dco_decode_list_tool_execution(dynamic raw);
+
+  @protected
+  NewGenerationCommand dco_decode_new_generation_command(dynamic raw);
+
+  @protected
+  NewGenerationLifecycleEvent dco_decode_new_generation_lifecycle_event(
+    dynamic raw,
+  );
+
+  @protected
+  NewGenerationTask dco_decode_new_generation_task(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  GenerationClaim? dco_decode_opt_box_autoadd_generation_claim(dynamic raw);
+
+  @protected
+  GenerationTask? dco_decode_opt_box_autoadd_generation_task(dynamic raw);
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  ProviderCall dco_decode_provider_call(dynamic raw);
 
   @protected
   ProviderConfig dco_decode_provider_config(dynamic raw);
@@ -95,6 +188,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredMessage dco_decode_stored_message(dynamic raw);
+
+  @protected
+  ToolExecution dco_decode_tool_execution(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -118,10 +214,56 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  GenerationCheckpoint sse_decode_box_autoadd_generation_checkpoint(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationClaim sse_decode_box_autoadd_generation_claim(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationFinish sse_decode_box_autoadd_generation_finish(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationTask sse_decode_box_autoadd_generation_task(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  NewGenerationCommand sse_decode_box_autoadd_new_generation_command(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NewGenerationLifecycleEvent
+  sse_decode_box_autoadd_new_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NewGenerationTask sse_decode_box_autoadd_new_generation_task(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ProviderCall sse_decode_box_autoadd_provider_call(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   StoredConversation sse_decode_box_autoadd_stored_conversation(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ToolExecution sse_decode_box_autoadd_tool_execution(
     SseDeserializer deserializer,
   );
 
@@ -130,6 +272,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FetchedPage sse_decode_fetched_page(SseDeserializer deserializer);
+
+  @protected
+  GenerationCheckpoint sse_decode_generation_checkpoint(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationClaim sse_decode_generation_claim(SseDeserializer deserializer);
+
+  @protected
+  GenerationCommand sse_decode_generation_command(SseDeserializer deserializer);
+
+  @protected
+  GenerationFinish sse_decode_generation_finish(SseDeserializer deserializer);
+
+  @protected
+  GenerationLifecycleEvent sse_decode_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationRun sse_decode_generation_run(SseDeserializer deserializer);
+
+  @protected
+  GenerationTask sse_decode_generation_task(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
@@ -141,7 +308,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FetchedPage> sse_decode_list_fetched_page(SseDeserializer deserializer);
 
   @protected
+  List<GenerationCommand> sse_decode_list_generation_command(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GenerationLifecycleEvent> sse_decode_list_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GenerationRun> sse_decode_list_generation_run(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<GenerationTask> sse_decode_list_generation_task(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<ProviderCall> sse_decode_list_provider_call(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ProviderConfig> sse_decode_list_provider_config(
@@ -169,13 +361,46 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<ToolExecution> sse_decode_list_tool_execution(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NewGenerationCommand sse_decode_new_generation_command(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NewGenerationLifecycleEvent sse_decode_new_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NewGenerationTask sse_decode_new_generation_task(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  GenerationClaim? sse_decode_opt_box_autoadd_generation_claim(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  GenerationTask? sse_decode_opt_box_autoadd_generation_task(
+    SseDeserializer deserializer,
+  );
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  ProviderCall sse_decode_provider_call(SseDeserializer deserializer);
 
   @protected
   ProviderConfig sse_decode_provider_config(SseDeserializer deserializer);
@@ -196,6 +421,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredMessage sse_decode_stored_message(SseDeserializer deserializer);
+
+  @protected
+  ToolExecution sse_decode_tool_execution(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -225,8 +453,56 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_generation_checkpoint(
+    GenerationCheckpoint self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_generation_claim(
+    GenerationClaim self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_generation_finish(
+    GenerationFinish self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_generation_task(
+    GenerationTask self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_new_generation_command(
+    NewGenerationCommand self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_new_generation_lifecycle_event(
+    NewGenerationLifecycleEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_new_generation_task(
+    NewGenerationTask self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_provider_call(
+    ProviderCall self,
     SseSerializer serializer,
   );
 
@@ -237,10 +513,55 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_tool_execution(
+    ToolExecution self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_fetched_page(FetchedPage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_generation_checkpoint(
+    GenerationCheckpoint self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_generation_claim(
+    GenerationClaim self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_generation_command(
+    GenerationCommand self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_generation_finish(
+    GenerationFinish self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_generation_lifecycle_event(
+    GenerationLifecycleEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_generation_run(GenerationRun self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_generation_task(
+    GenerationTask self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
@@ -255,8 +576,38 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_generation_command(
+    List<GenerationCommand> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_generation_lifecycle_event(
+    List<GenerationLifecycleEvent> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_generation_run(
+    List<GenerationRun> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_generation_task(
+    List<GenerationTask> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_provider_call(
+    List<ProviderCall> self,
     SseSerializer serializer,
   );
 
@@ -291,7 +642,43 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_tool_execution(
+    List<ToolExecution> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_new_generation_command(
+    NewGenerationCommand self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_new_generation_lifecycle_event(
+    NewGenerationLifecycleEvent self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_new_generation_task(
+    NewGenerationTask self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_generation_claim(
+    GenerationClaim? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_generation_task(
+    GenerationTask? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(
@@ -301,6 +688,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_provider_call(ProviderCall self, SseSerializer serializer);
 
   @protected
   void sse_encode_provider_config(
@@ -325,6 +715,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_stored_message(StoredMessage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_tool_execution(ToolExecution self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

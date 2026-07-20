@@ -69,8 +69,12 @@ class Conversation {
   List<ChatMessage> get activePath {
     final String? leaf = currentLeafId;
     if (leaf == null) return const <ChatMessage>[];
+    return pathTo(leaf);
+  }
+
+  List<ChatMessage> pathTo(String leafId) {
     final List<ChatMessage> path = <ChatMessage>[];
-    String? id = leaf;
+    String? id = leafId;
     while (id != null) {
       final ChatMessage? m = _byId[id];
       if (m == null) break;
@@ -112,19 +116,24 @@ class Conversation {
   /// explicitly (via [parentId]) to create a root-level message — to
   /// distinguish "not provided" from "explicitly null", [parentId] is a
   /// nullable wrapper.
-  void add(ChatMessage m, {String? parentId, bool isRoot = false}) {
+  void add(
+    ChatMessage m, {
+    String? parentId,
+    bool isRoot = false,
+    bool activate = true,
+  }) {
     final String? p = isRoot ? null : (parentId ?? currentLeafId);
     m.parentId = p;
     if (p != null) {
       final ChatMessage? parent = _byId[p];
       if (parent != null && !parent.childrenIds.contains(m.id)) {
         parent.childrenIds.add(m.id);
-        parent.activeChildId = m.id;
+        if (activate) parent.activeChildId = m.id;
       }
     }
     messages.add(m);
     _byId[m.id] = m;
-    currentLeafId = m.id;
+    if (activate) currentLeafId = m.id;
   }
 
   /// Rebuilds the id index and derives [currentLeafId] when unset. Called on

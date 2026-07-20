@@ -4,4 +4,7 @@
 /// UI, server logs, or tests.
 ///
 /// Override at build time via `--dart-define=APP_NAME=...`.
-const String appName = String.fromEnvironment('APP_NAME', defaultValue: 'HavenCat');
+const String appName = String.fromEnvironment(
+  'APP_NAME',
+  defaultValue: 'HavenCat',
+);

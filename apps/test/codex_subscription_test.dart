@@ -7,7 +7,8 @@ import 'package:http_mock_adapter/src/handlers/request_handler.dart';
 
 import 'package:app/data/services/llm/subscription/chatgpt_subscription_adapter.dart';
 import 'package:app/data/services/llm/subscription/codex_protocol.dart';
-import 'package:app/domain/errors/app_failure.dart';
+import 'package:app/data/services/llm/llm_event.dart';
+import 'package:app/data/services/llm/sse/sse_client.dart';
 import 'package:app/domain/models/adapter_kind.dart';
 import 'package:app/domain/models/llm_model.dart';
 import 'package:app/domain/models/message.dart';
@@ -151,4 +152,74 @@ void main() {
       );
     });
   });
+
+  test('does not replay a dropped response stream', () async {
+    final _FlakySseClient sse = _FlakySseClient();
+    final ChatGptSubscriptionAdapter adapter = ChatGptSubscriptionAdapter(
+      sseClient: sse,
+    );
+    final ProviderAccount account = ProviderAccount(
+      id: 'a',
+      kind: AdapterKind.subscription,
+      displayName: 'ChatGPT',
+      config: const <String, Object?>{'model': 'gpt-5.5'},
+    );
+
+    final List<LlmEvent> events = await adapter
+        .stream(
+          request: LlmRequest(
+            messages: <ChatMessage>[
+              ChatMessage(id: '1', role: MessageRole.user, text: 'hello'),
+            ],
+            model: 'gpt-5.5',
+          ),
+          account: account,
+          secret: 'token',
+        )
+        .toList();
+
+    expect(sse.calls, 1);
+    expect(events, hasLength(1));
+    expect(events.single, isA<ErrorEvent>());
+  });
+}
+
+class _FlakySseClient extends SseClient {
+  _FlakySseClient() : super(Dio());
+
+  int calls = 0;
+
+  @override
+  Stream<SseEvent> stream({
+    required String url,
+    required String method,
+    Map<String, dynamic>? headers,
+    Object? body,
+    CancelToken? cancelToken,
+  }) {
+    calls++;
+    if (calls == 1) {
+      return Stream<SseEvent>.error(
+        DioException(
+          requestOptions: RequestOptions(path: url),
+          type: DioExceptionType.connectionError,
+          message: 'Connection closed while receiving data',
+        ),
+      );
+    }
+    return Stream<SseEvent>.fromIterable(<SseEvent>[
+      SseEvent(
+        jsonEncode(<String, Object?>{
+          'type': 'response.output_text.delta',
+          'delta': 'recovered',
+        }),
+      ),
+      SseEvent(
+        jsonEncode(<String, Object?>{
+          'type': 'response.completed',
+          'response': <String, Object?>{},
+        }),
+      ),
+    ]);
+  }
 }

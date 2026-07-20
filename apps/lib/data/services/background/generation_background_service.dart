@@ -26,14 +26,51 @@ abstract class GenerationBackgroundController {
   void Function(String conversationId)? onConversationSelected;
 }
 
-class GenerationBackgroundService implements GenerationBackgroundController {
+abstract interface class GenerationProgressReporter {
+  Future<void> reportProgress();
+}
+
+class InlineGenerationBackgroundController
+    implements GenerationBackgroundController {
+  @override
+  Future<void> Function()? onBackgroundTimeExpired;
+
+  @override
+  void Function(String conversationId)? onConversationSelected;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> begin({
+    required String conversationId,
+    required String conversationTitle,
+  }) async {}
+
+  @override
+  Future<void> complete() async {}
+
+  @override
+  Future<void> interrupt() async {}
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  void setAppVisible(bool visible) {}
+
+  @override
+  String? takeSelectedConversation() => null;
+}
+
+class GenerationBackgroundService
+    implements GenerationBackgroundController, GenerationProgressReporter {
   GenerationBackgroundService({FlutterLocalNotificationsPlugin? notifications})
     : _notifications = notifications ?? FlutterLocalNotificationsPlugin();
 
   static const MethodChannel _backgroundChannel = MethodChannel(
     'com.example.havencat/generation_background',
   );
-  static const int _foregroundNotificationId = 8101;
   static const int _resultNotificationId = 8102;
   static const String _payloadPrefix = 'conversation:';
 
@@ -46,11 +83,13 @@ class GenerationBackgroundService implements GenerationBackgroundController {
   void Function(String conversationId)? onConversationSelected;
 
   bool _initialized = false;
+  Future<void>? _initialization;
   bool _permissionRequested = false;
   bool _appVisible = true;
   bool _wasBackgrounded = false;
   String? _conversationId;
   String? _selectedConversationId;
+  DateTime? _lastProgressReport;
 
   bool get _isMobile =>
       !kIsWeb &&
@@ -60,21 +99,37 @@ class GenerationBackgroundService implements GenerationBackgroundController {
   @override
   Future<void> initialize() async {
     if (_initialized) return;
-    _initialized = true;
+    final Future<void>? pending = _initialization;
+    if (pending != null) return pending;
+
+    final Future<void> initialization = _initialize();
+    _initialization = initialization;
+    try {
+      await initialization;
+      _initialized = true;
+    } finally {
+      _initialization = null;
+    }
+  }
+
+  Future<void> _initialize() async {
     if (!_isMobile) return;
 
     const InitializationSettings settings = InitializationSettings(
-      android: AndroidInitializationSettings('ic_launcher'),
+      android: AndroidInitializationSettings('ic_notification'),
       iOS: DarwinInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
         requestSoundPermission: false,
       ),
     );
-    await _notifications.initialize(
+    final bool? initialized = await _notifications.initialize(
       settings: settings,
       onDidReceiveNotificationResponse: _handleNotificationResponse,
     );
+    if (initialized != true) {
+      throw StateError('Local notifications could not be initialized.');
+    }
     final NotificationAppLaunchDetails? launchDetails = await _notifications
         .getNotificationAppLaunchDetails();
     if (launchDetails?.didNotificationLaunchApp ?? false) {
@@ -95,75 +150,77 @@ class GenerationBackgroundService implements GenerationBackgroundController {
     await initialize();
     _conversationId = conversationId;
     _wasBackgrounded = !_appVisible;
+    _lastProgressReport = null;
     if (!_isMobile) return;
 
     await _requestPermission();
     await _beginIosBackgroundTime();
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      const AndroidNotificationDetails details = AndroidNotificationDetails(
-        'active_generation',
-        'Active generation',
-        channelDescription: 'Shown while HavenCat is generating a response.',
-        importance: Importance.low,
-        priority: Priority.low,
-        ongoing: true,
-        autoCancel: false,
-        category: AndroidNotificationCategory.progress,
-        showProgress: true,
-        indeterminate: true,
-      );
-      await _notifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.startForegroundService(
-            id: _foregroundNotificationId,
-            title: 'HavenCat is generating',
-            body: 'Generating a response',
-            notificationDetails: details,
-            payload: '$_payloadPrefix$conversationId',
-            startType: AndroidServiceStartType.startNotSticky,
-            foregroundServiceTypes: const <AndroidServiceForegroundType>{
-              AndroidServiceForegroundType.foregroundServiceTypeDataSync,
-            },
-          );
+  }
+
+  @override
+  Future<void> reportProgress() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS || !_initialized) return;
+    final DateTime now = DateTime.now();
+    final DateTime? last = _lastProgressReport;
+    if (last != null && now.difference(last) < const Duration(seconds: 1)) {
+      return;
     }
+    _lastProgressReport = now;
+    await _backgroundChannel.invokeMethod<void>('progress');
   }
 
   @override
   Future<void> complete() async {
     final String? conversationId = _conversationId;
     final bool notify = _wasBackgrounded && conversationId != null;
-    if (notify) {
-      await _showResultNotification(
-        title: 'Your response is ready',
-        body: 'Tap to open the conversation.',
-        conversationId: conversationId,
-      );
+    try {
+      if (notify) {
+        await _showResultNotification(
+          title: 'Your response is ready',
+          body: 'Tap to open the conversation.',
+          conversationId: conversationId,
+        );
+      }
+    } finally {
+      try {
+        await _endPlatformWork();
+      } finally {
+        _clearActive();
+      }
     }
-    await _endPlatformWork();
-    _clearActive();
   }
 
   @override
   Future<void> interrupt() async {
     final String? conversationId = _conversationId;
     final bool notify = _wasBackgrounded && conversationId != null;
-    if (notify) {
-      await _showResultNotification(
-        title: 'Generation was interrupted',
-        body: 'Your partial response was saved.',
-        conversationId: conversationId,
-      );
+    try {
+      if (notify) {
+        final bool iosFinite = defaultTargetPlatform == TargetPlatform.iOS;
+        await _showResultNotification(
+          title: 'Generation was interrupted',
+          body: iosFinite
+              ? 'iOS ended background time. Your partial response was saved — open the app to continue.'
+              : 'Your partial response was saved.',
+          conversationId: conversationId,
+        );
+      }
+    } finally {
+      try {
+        await _endPlatformWork();
+      } finally {
+        _clearActive();
+      }
     }
-    await _endPlatformWork();
-    _clearActive();
   }
 
   @override
   Future<void> cancel() async {
-    await _endPlatformWork();
-    _clearActive();
+    try {
+      await _endPlatformWork();
+    } finally {
+      _clearActive();
+    }
   }
 
   @override
@@ -181,7 +238,6 @@ class GenerationBackgroundService implements GenerationBackgroundController {
 
   Future<void> _requestPermission() async {
     if (_permissionRequested) return;
-    _permissionRequested = true;
     if (defaultTargetPlatform == TargetPlatform.android) {
       await _notifications
           .resolvePlatformSpecificImplementation<
@@ -195,6 +251,7 @@ class GenerationBackgroundService implements GenerationBackgroundController {
           >()
           ?.requestPermissions(alert: true, badge: false, sound: true);
     }
+    _permissionRequested = true;
   }
 
   Future<void> _showResultNotification({
@@ -224,27 +281,13 @@ class GenerationBackgroundService implements GenerationBackgroundController {
 
   Future<void> _beginIosBackgroundTime() async {
     if (defaultTargetPlatform != TargetPlatform.iOS) return;
-    try {
-      await _backgroundChannel.invokeMethod<void>('begin');
-    } on MissingPluginException {
-      // Platform support is best-effort; generation still works in foreground.
-    }
+    await _backgroundChannel.invokeMethod<void>('begin');
   }
 
   Future<void> _endPlatformWork() async {
     if (!_isMobile || !_initialized) return;
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      await _notifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.stopForegroundService();
-    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      try {
-        await _backgroundChannel.invokeMethod<void>('end');
-      } on MissingPluginException {
-        // The expiration path still persists the partial response in Dart.
-      }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await _backgroundChannel.invokeMethod<void>('end');
     }
   }
 

@@ -7,7 +7,9 @@ import '../conversations/db.dart';
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `db`
+// These functions are ignored because they are not marked as `pub`: `canonical_db_path`, `db`, `label`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConfiguredDb`, `DbIdentity`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
 
 /// Initialize the conversations database: open the DB at `db_path`, run
 /// migrations. `db_path` of empty string opens an in-memory database.
@@ -20,10 +22,141 @@ Future<void> configureConversations({required String dbPath}) => RustLib
 Future<List<StoredConversation>> loadConversations() =>
     RustLib.instance.api.crateApiConversationsLoadConversations();
 
-/// Upsert (insert or replace) a conversation and all its messages.
+/// Atomically upsert a conversation and the supplied messages.
+///
+/// Existing messages omitted from the snapshot are preserved.
 Future<void> upsertConversation({required StoredConversation conv}) =>
     RustLib.instance.api.crateApiConversationsUpsertConversation(conv: conv);
 
 /// Delete a conversation and all its messages.
 Future<void> deleteConversation({required String id}) =>
     RustLib.instance.api.crateApiConversationsDeleteConversation(id: id);
+
+/// Atomically persist a conversation snapshot and enqueue generation work.
+Future<void> upsertConversationAndEnqueueGeneration({
+  required StoredConversation conv,
+  required NewGenerationTask task,
+}) => RustLib.instance.api
+    .crateApiConversationsUpsertConversationAndEnqueueGeneration(
+      conv: conv,
+      task: task,
+    );
+
+Future<void> enqueueGenerationTask({required NewGenerationTask task}) =>
+    RustLib.instance.api.crateApiConversationsEnqueueGenerationTask(task: task);
+
+Future<GenerationTask?> getGenerationTask({required String id}) =>
+    RustLib.instance.api.crateApiConversationsGetGenerationTask(id: id);
+
+Future<List<GenerationTask>> loadGenerationTasks() =>
+    RustLib.instance.api.crateApiConversationsLoadGenerationTasks();
+
+Future<bool> removeQueuedGenerationTask({required String id}) => RustLib
+    .instance
+    .api
+    .crateApiConversationsRemoveQueuedGenerationTask(id: id);
+
+Future<void> reorderQueuedGenerationTasks({
+  required List<String> ids,
+  required PlatformInt64 nowMs,
+}) => RustLib.instance.api.crateApiConversationsReorderQueuedGenerationTasks(
+  ids: ids,
+  nowMs: nowMs,
+);
+
+Future<List<GenerationRun>> loadGenerationRuns({required String taskId}) =>
+    RustLib.instance.api.crateApiConversationsLoadGenerationRuns(
+      taskId: taskId,
+    );
+
+Future<GenerationClaim?> claimGenerationTask({
+  required String workerId,
+  required PlatformInt64 nowMs,
+  required PlatformInt64 leaseDurationMs,
+}) => RustLib.instance.api.crateApiConversationsClaimGenerationTask(
+  workerId: workerId,
+  nowMs: nowMs,
+  leaseDurationMs: leaseDurationMs,
+);
+
+Future<bool> checkpointGeneration({required GenerationCheckpoint checkpoint}) =>
+    RustLib.instance.api.crateApiConversationsCheckpointGeneration(
+      checkpoint: checkpoint,
+    );
+
+Future<bool> finishGeneration({required GenerationFinish finish}) =>
+    RustLib.instance.api.crateApiConversationsFinishGeneration(finish: finish);
+
+Future<List<String>> recoverExpiredGenerationTasks({
+  required PlatformInt64 nowMs,
+}) => RustLib.instance.api.crateApiConversationsRecoverExpiredGenerationTasks(
+  nowMs: nowMs,
+);
+
+Future<void> enqueueGenerationCommand({
+  required NewGenerationCommand command,
+}) => RustLib.instance.api.crateApiConversationsEnqueueGenerationCommand(
+  command: command,
+);
+
+Future<List<GenerationCommand>> loadPendingGenerationCommands({
+  required String taskId,
+}) => RustLib.instance.api.crateApiConversationsLoadPendingGenerationCommands(
+  taskId: taskId,
+);
+
+Future<bool> acknowledgeGenerationCommand({
+  required String commandId,
+  required PlatformInt64 acknowledgedAt,
+}) => RustLib.instance.api.crateApiConversationsAcknowledgeGenerationCommand(
+  commandId: commandId,
+  acknowledgedAt: acknowledgedAt,
+);
+
+Future<void> upsertProviderCall({required ProviderCall call}) =>
+    RustLib.instance.api.crateApiConversationsUpsertProviderCall(call: call);
+
+Future<List<ProviderCall>> loadProviderCalls({required String runId}) =>
+    RustLib.instance.api.crateApiConversationsLoadProviderCalls(runId: runId);
+
+Future<void> upsertToolExecution({required ToolExecution execution}) => RustLib
+    .instance
+    .api
+    .crateApiConversationsUpsertToolExecution(execution: execution);
+
+Future<List<ToolExecution>> loadToolExecutions({required String runId}) =>
+    RustLib.instance.api.crateApiConversationsLoadToolExecutions(runId: runId);
+
+Future<PlatformInt64> appendGenerationLifecycleEvent({
+  required NewGenerationLifecycleEvent event,
+}) => RustLib.instance.api.crateApiConversationsAppendGenerationLifecycleEvent(
+  event: event,
+);
+
+Future<List<GenerationLifecycleEvent>> loadGenerationLifecycleEvents({
+  required String taskId,
+  PlatformInt64? afterEventId,
+}) => RustLib.instance.api.crateApiConversationsLoadGenerationLifecycleEvents(
+  taskId: taskId,
+  afterEventId: afterEventId,
+);
+
+Future<bool> acquireOauthRefreshLease({
+  required String accountId,
+  required String ownerId,
+  required PlatformInt64 nowMs,
+  required PlatformInt64 leaseDurationMs,
+}) => RustLib.instance.api.crateApiConversationsAcquireOauthRefreshLease(
+  accountId: accountId,
+  ownerId: ownerId,
+  nowMs: nowMs,
+  leaseDurationMs: leaseDurationMs,
+);
+
+Future<void> releaseOauthRefreshLease({
+  required String accountId,
+  required String ownerId,
+}) => RustLib.instance.api.crateApiConversationsReleaseOauthRefreshLease(
+  accountId: accountId,
+  ownerId: ownerId,
+);

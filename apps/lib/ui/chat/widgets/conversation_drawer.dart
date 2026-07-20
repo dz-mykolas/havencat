@@ -148,36 +148,39 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        builder: (BuildContext overlayContext) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            8,
-            20,
-            MediaQuery.viewInsetsOf(overlayContext).bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Text(
-                'Rename chat',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                initialValue: currentTitle,
-                autofocus: true,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(labelText: 'Title'),
-                onChanged: (String value) => draft = value,
-                onFieldSubmitted: (_) => save(overlayContext),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => save(overlayContext),
-                child: const Text('Save'),
-              ),
-            ],
+        builder: (BuildContext overlayContext) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              8,
+              20,
+              MediaQuery.viewInsetsOf(overlayContext).bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  'Rename chat',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  initialValue: currentTitle,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                  onChanged: (String value) => draft = value,
+                  onFieldSubmitted: (_) => save(overlayContext),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => save(overlayContext),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -217,24 +220,30 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
-      builder: (BuildContext overlayContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text('Delete chat?', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text('“$title” will be permanently deleted.'),
-            const SizedBox(height: 20),
-            FilledButton.tonal(
-              style: FilledButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.error,
+      builder: (BuildContext overlayContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                'Delete chat?',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              onPressed: () => remove(overlayContext),
-              child: const Text('Delete'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text('“$title” will be permanently deleted.'),
+              const SizedBox(height: 20),
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                onPressed: () => remove(overlayContext),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -245,9 +254,12 @@ class _ConversationSidebarState extends State<ConversationSidebar> {
         await showModalBottomSheet<_ConversationAction>(
           context: context,
           useSafeArea: true,
-          builder: (BuildContext context) => _MobileConversationActions(
-            title: conversation.title,
-            isPinned: conversation.isPinned,
+          builder: (BuildContext context) => SafeArea(
+            top: false,
+            child: _MobileConversationActions(
+              title: conversation.title,
+              isPinned: conversation.isPinned,
+            ),
           ),
         );
     if (!mounted || action == null) return;

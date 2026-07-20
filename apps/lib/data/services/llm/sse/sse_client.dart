@@ -38,8 +38,9 @@ class SseClient {
     final StreamController<List<int>> byteSink = StreamController<List<int>>();
 
     // Kick off the fetch in the background, feeding chunks into byteSink.
-    final Future<void> fetcher = fetch
-        .fetchStream(
+    final Future<void> fetcher = (() async {
+      try {
+        await fetch.fetchStream(
           dio: _dio,
           url: url,
           method: method,
@@ -47,10 +48,13 @@ class SseClient {
           body: body,
           cancelToken: cancelToken,
           sink: byteSink,
-        )
-        .catchError((Object e, StackTrace s) {
-          if (!byteSink.isClosed) byteSink.addError(e, s);
-        });
+        );
+      } on Object catch (error, stack) {
+        if (!byteSink.isClosed) byteSink.addError(error, stack);
+      } finally {
+        if (!byteSink.isClosed) await byteSink.close();
+      }
+    })();
 
     final StringBuffer lineBuffer = StringBuffer();
     final List<String> dataLines = <String>[];
@@ -93,8 +97,10 @@ class SseClient {
         }
       }
     } finally {
+      if (cancelToken != null && !cancelToken.isCancelled) {
+        cancelToken.cancel('SSE consumer stopped.');
+      }
       await fetcher;
-      await byteSink.close();
     }
   }
 

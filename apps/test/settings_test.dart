@@ -69,6 +69,29 @@ void main() {
     expect(find.text('Mock'), findsOneWidget);
   });
 
+  test('credential cleanup failure aborts account removal', () async {
+    final AccountStore store = AccountStore();
+    final SecretStore secrets = _FailingDeleteSecretStore();
+    final ProviderAccountRepository initial = ProviderAccountRepository(
+      accountStore: store,
+      secretStore: secrets,
+    );
+    await initial.load();
+    await expectLater(
+      initial.remove(initial.accounts.single.id),
+      throwsStateError,
+    );
+
+    final ProviderAccountRepository reloaded = ProviderAccountRepository(
+      accountStore: store,
+      secretStore: secrets,
+    );
+    await reloaded.load();
+
+    expect(reloaded.accounts, hasLength(1));
+    expect(reloaded.activeAccountId, reloaded.accounts.single.id);
+  });
+
   group('addApiKeyAccount enabledModels', () {
     late SettingsViewModel vm;
     late ProviderAccountRepository providers;
@@ -143,4 +166,11 @@ void main() {
       },
     );
   });
+}
+
+class _FailingDeleteSecretStore extends SecretStore {
+  @override
+  Future<void> delete(String id) async {
+    throw StateError('Secure storage is unavailable');
+  }
 }

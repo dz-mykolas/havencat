@@ -104,23 +104,24 @@ class _ChatGptLoginDialogState extends State<ChatGptLoginDialog> {
   }
 
   Future<void> _copyCode(String code) async {
+    bool copied = false;
     try {
       await Clipboard.setData(ClipboardData(text: code));
-      Feedback.forTap(context);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Code copied'), duration: Duration(seconds: 2)),
-      );
-    } catch (_) {
-      Feedback.forTap(context);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Copy failed — select the text manually'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      copied = true;
+    } on Object {
+      copied = false;
     }
+    if (!mounted) return;
+    await Feedback.forTap(context);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          copied ? 'Code copied' : 'Copy failed — select the text manually',
+        ),
+        duration: Duration(seconds: copied ? 2 : 3),
+      ),
+    );
   }
 
   Future<void> _cancel() async {

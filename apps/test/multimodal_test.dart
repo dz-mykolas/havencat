@@ -112,8 +112,10 @@ void main() {
 
     final Map<String, Object?> item =
         (body['input'] as List<dynamic>).single as Map<String, Object?>;
-    final List<dynamic> content = item['content'] as List<dynamic>;
-    expect(content.map((dynamic part) => part['type']), <String>[
+    final List<Map<String, Object?>> content = (item['content']! as List)
+        .map((Object? part) => Map<String, Object?>.from(part! as Map))
+        .toList(growable: false);
+    expect(content.map((Map<String, Object?> part) => part['type']), <String>[
       'input_text',
       'input_image',
     ]);
@@ -157,10 +159,15 @@ void main() {
         jsonDecode(sse.body!) as Map<String, dynamic>;
     final Map<String, dynamic> message =
         (body['messages'] as List<dynamic>).single as Map<String, dynamic>;
-    final List<dynamic> content = message['content'] as List<dynamic>;
+    final List<Map<String, Object?>> content = (message['content']! as List)
+        .map((Object? part) => Map<String, Object?>.from(part! as Map))
+        .toList(growable: false);
     expect(content.first['type'], 'text');
     expect(content.last['type'], 'image_url');
-    expect(content.last['image_url']['url'], 'data:image/png;base64,AQID');
+    final Map<String, Object?> imageUrl = Map<String, Object?>.from(
+      content.last['image_url']! as Map,
+    );
+    expect(imageUrl['url'], 'data:image/png;base64,AQID');
   });
 
   test('OpenAI image models use the image API and emit attachments', () async {

@@ -17,7 +17,11 @@ class ChatInput extends StatefulWidget {
     super.key,
     required this.textController,
     required this.isGenerating,
+    required this.queuedCount,
     required this.onSend,
+    required this.onCancel,
+    required this.onSteer,
+    required this.onShowQueue,
     required this.toolsEnabled,
     required this.onToggleTools,
     required this.webRetrievalAdapter,
@@ -26,7 +30,11 @@ class ChatInput extends StatefulWidget {
 
   final TextEditingController textController;
   final bool isGenerating;
+  final int queuedCount;
   final void Function(String text, List<MessageAttachment> attachments) onSend;
+  final VoidCallback onCancel;
+  final ValueChanged<String> onSteer;
+  final VoidCallback onShowQueue;
   final bool toolsEnabled;
 
   /// Called with the new desired enabled value on every toggle.
@@ -106,9 +114,7 @@ class _ChatInputState extends State<ChatInput>
     final String text = widget.textController.text;
     final bool canSendAttachments =
         _attachments.isEmpty || widget.imageUploadEnabled;
-    if ((text.trim().isEmpty && _attachments.isEmpty) ||
-        widget.isGenerating ||
-        !canSendAttachments) {
+    if ((text.trim().isEmpty && _attachments.isEmpty) || !canSendAttachments) {
       return;
     }
     widget.onSend(text, List<MessageAttachment>.unmodifiable(_attachments));
@@ -116,8 +122,15 @@ class _ChatInputState extends State<ChatInput>
     setState(_attachments.clear);
   }
 
+  void _steer() {
+    final String text = widget.textController.text.trim();
+    if (text.isEmpty || _attachments.isNotEmpty) return;
+    widget.onSteer(text);
+    widget.textController.clear();
+  }
+
   Future<void> _pickImages() async {
-    if (!widget.imageUploadEnabled || widget.isGenerating) return;
+    if (!widget.imageUploadEnabled) return;
     final FilePickerResult? result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: const <String>['png', 'jpg', 'jpeg', 'webp', 'gif'],
@@ -232,6 +245,39 @@ class _ChatInputState extends State<ChatInput>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            if (widget.isGenerating)
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: widget.queuedCount == 0
+                            ? null
+                            : widget.onShowQueue,
+                        child: Text(
+                          widget.queuedCount == 0
+                              ? 'Generating'
+                              : 'Generating · ${widget.queuedCount} queued',
+                          style: TextStyle(
+                            color: context.appColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _hasText && _attachments.isEmpty ? _steer : null,
+                    child: Text('Steer'),
+                  ),
+                  IconButton(
+                    tooltip: 'Cancel generation',
+                    onPressed: widget.onCancel,
+                    icon: Icon(Icons.stop_rounded, size: 18),
+                  ),
+                ],
+              ),
             if (_attachments.isNotEmpty) ...<Widget>[
               SizedBox(
                 height: 70,
@@ -314,8 +360,8 @@ class _ChatInputState extends State<ChatInput>
                 _SendButton(
                   enabled:
                       (_hasText || _attachments.isNotEmpty) &&
-                      !widget.isGenerating &&
                       (_attachments.isEmpty || widget.imageUploadEnabled),
+                  queued: widget.isGenerating,
                   onTap: _submit,
                 ),
               ],
@@ -415,9 +461,14 @@ class _PlusButton extends StatelessWidget {
 }
 
 class _SendButton extends StatelessWidget {
-  const _SendButton({required this.enabled, required this.onTap});
+  const _SendButton({
+    required this.enabled,
+    required this.queued,
+    required this.onTap,
+  });
 
   final bool enabled;
+  final bool queued;
   final VoidCallback onTap;
 
   @override
@@ -441,7 +492,7 @@ class _SendButton extends StatelessWidget {
                   : context.appColors.surfaceHigh,
             ),
             child: Icon(
-              Icons.arrow_upward_rounded,
+              queued ? Icons.playlist_add_rounded : Icons.arrow_upward_rounded,
               size: 20,
               color: enabled
                   ? context.appColors.background

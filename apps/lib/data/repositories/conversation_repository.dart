@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
+
+// ignore_for_file: prefer_initializing_formals
 
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
@@ -10,41 +11,23 @@ import '../../../domain/models/llm_model.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/message_attachment.dart';
 import '../../../domain/models/content_modality.dart';
+import '../../../domain/models/generation_task.dart';
 import '../../../domain/models/provider_account.dart';
+import '../../../domain/errors/app_failure.dart';
 import '../services/auth/credential_resolver.dart';
 import '../services/background/generation_background_service.dart';
 import '../services/errors/provider_failure_mapper.dart';
+import '../services/generation/generation_engine.dart';
+import '../services/generation/generation_host.dart';
+import '../services/generation/generation_task_store.dart';
+import '../services/generation/in_memory_generation_task_store.dart';
 import '../services/llm/account_models_service.dart';
 import '../services/llm/adapter_registry.dart';
 import '../services/llm/context_compaction.dart';
-import '../services/llm/llm_adapter.dart';
-import '../services/llm/llm_event.dart';
-import '../services/llm/request_messages.dart';
-import '../services/llm/system_prompts.dart';
-import '../services/llm/token_estimator.dart';
 import '../services/storage/app_settings.dart';
 import '../services/storage/conversation_store.dart';
 import '../services/web_retrieval/web_retrieval.dart';
-import '../services/web_retrieval/web_search_tools.dart';
 import 'provider_account_repository.dart';
-
-enum _RequestedGenerationStop { cancelled, interrupted }
-
-/// Token overhead the provider counts against `input_tokens`/`prompt_tokens`
-/// but which isn't in [estimateMessagesTokens] for the messages array: the
-/// system prompt and tool definitions. Included in `lastEstimatedTokens` so
-/// the estimate matches what the provider actually bills against.
-int _estimateRequestOverhead(String? systemPrompt, List<ToolDefinition> tools) {
-  int n = 0;
-  if (systemPrompt != null && systemPrompt.isNotEmpty) {
-    n += estimateTokens(systemPrompt) + 4;
-  }
-  for (final ToolDefinition t in tools) {
-    n += estimateTokens(t.name) + estimateTokens(t.description) + 8;
-    n += estimateTokens(jsonEncode(t.parameters));
-  }
-  return n;
-}
 
 /// Source of truth for conversations and the streaming reply flow.
 ///
@@ -62,51 +45,57 @@ class ConversationRepository extends ChangeNotifier {
     required CredentialResolver credentialResolver,
     ConversationStore? conversationStore,
     WebRetrievalAdapter? webRetrieval,
-    bool toolsEnabled = false,
+    this.toolsEnabled = false,
     AppSettings? appSettings,
     AccountModelsService? accountModels,
     GenerationBackgroundController? backgroundController,
+    GenerationTaskStore? generationTaskStore,
+    GenerationHost? generationHost,
   }) : _providers = providerRepository,
        adapterRegistry = adapterRegistry,
-       _credentials = credentialResolver,
        _store = conversationStore ?? InMemoryConversationStore(),
-       _webRetrieval = webRetrieval,
-       _toolsEnabled = toolsEnabled,
        _appSettings = appSettings,
        _accountModels = accountModels,
-       _backgroundController = backgroundController {
+       _backgroundController = backgroundController,
+       _generationHost = generationHost ?? InlineGenerationHost() {
+    _taskStore =
+        generationTaskStore ??
+        InMemoryGenerationTaskStore(conversations: _store);
+    _generationEngine = GenerationEngine(
+      adapters: adapterRegistry,
+      credentials: credentialResolver,
+      taskStore: _taskStore,
+      newId: _newId,
+      webRetrieval: webRetrieval,
+    );
     _initFuture = _init();
     _backgroundController?.onBackgroundTimeExpired = interruptGeneration;
     _providers.addListener(_onProvidersChanged);
   }
 
   final ConversationStore _store;
+  late final GenerationTaskStore _taskStore;
+  late final GenerationEngine _generationEngine;
   final GenerationBackgroundController? _backgroundController;
+  final GenerationHost _generationHost;
   late final Future<void> _initFuture;
   Future<void> get ready => _initFuture;
 
   Future<void> _init() async {
-    try {
-      final List<Conversation> loaded = await _store.load();
-      for (final Conversation c in loaded) {
-        bool changed = false;
-        for (final ChatMessage m in c.messages) {
-          if (m.isStreaming) {
-            m.generationStatus = MessageGenerationStatus.interrupted;
-            changed = true;
-          }
+    final List<Conversation> loaded = await _store.load();
+    for (final Conversation c in loaded) {
+      bool changed = false;
+      for (final ChatMessage m in c.messages) {
+        if (m.isStreaming) {
+          m.generationStatus = MessageGenerationStatus.interrupted;
+          changed = true;
         }
-        if (changed) await _store.upsert(c);
       }
-      _conversations.addAll(loaded);
-    } on Object catch (error, stack) {
-      _recordStorageFailure(
-        error,
-        stack,
-        operation: 'load_conversations',
-        message: 'Saved conversations could not be loaded.',
-        notify: false,
-      );
+      if (changed) await _store.upsert(c);
+    }
+    _conversations.addAll(loaded);
+    for (final GenerationTask task in await _taskStore.listTasks()) {
+      _knownTasks[task.id] = task;
     }
     // Don't auto-select the latest chat — start on the welcome/empty state.
     // The user picks a conversation from the sidebar or starts a new one.
@@ -119,6 +108,19 @@ class ConversationRepository extends ChangeNotifier {
   /// Whether the initial load from the store has completed.
   bool get isLoaded => _loaded;
   String? _activeId;
+
+  Future<void> resumeQueuedTasks({bool reconcile = true}) async {
+    await ready;
+    if (reconcile) await _taskStore.reconcileInterrupted();
+    for (final GenerationTask task in await _taskStore.listTasks()) {
+      _knownTasks[task.id] = task;
+    }
+    final bool hasPending = _knownTasks.values.any(
+      (GenerationTask task) => !task.isTerminal,
+    );
+    if (!hasPending) return;
+    await _drainGenerationTasks();
+  }
 
   Future<void> _persistTail = Future<void>.value();
   Timer? _partialPersistTimer;
@@ -140,6 +142,7 @@ class ConversationRepository extends ChangeNotifier {
           operation: 'save_conversation',
           message: 'This conversation could not be saved.',
         );
+        rethrow;
       }
     });
     _persistTail = operation;
@@ -202,38 +205,26 @@ class ConversationRepository extends ChangeNotifier {
 
   final ProviderAccountRepository _providers;
   final AdapterRegistry adapterRegistry;
-  final CredentialResolver _credentials;
-  final WebRetrievalAdapter? _webRetrieval;
-  bool _toolsEnabled;
-  final WebSearchTools _webSearchTools = const WebSearchTools();
+  bool toolsEnabled;
   final AppSettings? _appSettings;
   final AccountModelsService? _accountModels;
   static const ProviderFailureMapper _failureMapper = ProviderFailureMapper();
 
-  /// Resolves the context window for the active account's selected model.
-  /// Falls back to [kFallbackContextWindow] when the model isn't found in
-  /// the cache or its context window is unknown.
   int _resolveContextWindow(ProviderAccount account, String modelId) {
-    if (_accountModels == null) return kFallbackContextWindow;
+    if (account.kind == AdapterKind.mock) return kFallbackContextWindow;
+    if (_accountModels == null) {
+      throw StateError('Model metadata service is unavailable.');
+    }
     final List<LlmModel>? models = _accountModels.modelsFor(account.id);
-    if (models == null) return kFallbackContextWindow;
+    if (models == null) {
+      throw StateError('Model metadata is not loaded for ${account.id}.');
+    }
     for (final LlmModel m in models) {
       if (m.id == modelId && m.contextWindow != null) {
         return m.contextWindow!;
       }
     }
-    return kFallbackContextWindow;
-  }
-
-  /// Computes a calibration ratio for the char/4 estimator from the last
-  /// provider-reported prompt-token count vs. our estimate for that same
-  /// request. Returns null when no calibration data is available (first turn,
-  /// or provider doesn't report usage like Ollama).
-  double? _calibrationRatio(Conversation c) {
-    final int? actual = c.lastPromptTokens;
-    final int? estimated = c.lastEstimatedTokens;
-    if (actual == null || estimated == null || estimated == 0) return null;
-    return actual / estimated;
+    throw StateError('Context window is unknown for model $modelId.');
   }
 
   /// Builds [CompactionSettings] from the user's [AppSettings], or defaults
@@ -253,12 +244,14 @@ class ConversationRepository extends ChangeNotifier {
 
   final List<Conversation> _conversations = <Conversation>[];
   bool _isGenerating = false;
-  StreamSubscription<LlmEvent>? _replySub;
-  Completer<void>? _requestCancellation;
-  Completer<void>? _roundDone;
   Completer<void>? _generationFinished;
-  _RequestedGenerationStop? _requestedStop;
   bool _backgroundWorkActive = false;
+  bool _isDrainingTasks = false;
+  bool _drainRequested = false;
+  String? _activeGenerationTaskId;
+  bool _drainWasCancelled = false;
+  bool _drainWasInterrupted = false;
+  final Map<String, GenerationTask> _knownTasks = <String, GenerationTask>{};
   int _counter = 0;
 
   AppFailure? _lastFailure;
@@ -268,22 +261,29 @@ class ConversationRepository extends ChangeNotifier {
   }
 
   Future<void> retryLastFailure() async {
-    if (_isGenerating || active.isEmpty) return;
+    if (active.isEmpty) return;
     _lastFailure = null;
-    await _streamReply();
+    await _enqueueReply(active);
   }
 
   List<Conversation> get conversations => List.unmodifiable(_conversations);
   bool get isGenerating => _isGenerating;
-  bool get toolsEnabled => _toolsEnabled;
+  List<GenerationTask> get generationTasks {
+    final List<GenerationTask> tasks = _knownTasks.values.toList()
+      ..sort(
+        (GenerationTask a, GenerationTask b) =>
+            a.enqueueSequence.compareTo(b.enqueueSequence),
+      );
+    return List<GenerationTask>.unmodifiable(tasks);
+  }
 
-  /// Toggle whether tools are attached to outgoing messages.
-  // No notifyListeners() — the UI state lives in toolsEnabledProvider
-  // (Riverpod), and notifying here would rebuild the whole ChatScreen because
-  // build() watches this provider. The repository just reads the flag at send
-  // time.
-  set toolsEnabled(bool value) {
-    _toolsEnabled = value;
+  String queuedGenerationText(GenerationTask task) {
+    final Conversation? conversation = _conversations
+        .where((Conversation value) => value.id == task.conversationId)
+        .firstOrNull;
+    return conversation?.byId(task.inputMessageId)?.text ??
+        task.snapshot.messages.lastOrNull?.text ??
+        'Queued response';
   }
 
   Conversation get active {
@@ -371,7 +371,7 @@ class ConversationRepository extends ChangeNotifier {
     List<MessageAttachment> attachments = const <MessageAttachment>[],
   }) async {
     final String trimmed = text.trim();
-    if ((trimmed.isEmpty && attachments.isEmpty) || _isGenerating) return;
+    if (trimmed.isEmpty && attachments.isEmpty) return;
     if (attachments.any(
           (MessageAttachment value) => value.modality == ContentModality.image,
         ) &&
@@ -413,9 +413,7 @@ class ConversationRepository extends ChangeNotifier {
           ? _titleFrom(trimmed)
           : attachments.first.name ?? 'Image';
     }
-    await _persistConversation(conversation);
-
-    await _streamReply();
+    await _enqueueReply(conversation);
   }
 
   /// Edits a message. When [resend] is true, creates a new sibling user
@@ -428,7 +426,6 @@ class ConversationRepository extends ChangeNotifier {
     String newText, {
     required bool resend,
   }) async {
-    if (_isGenerating) return;
     final String trimmed = newText.trim();
     if (trimmed.isEmpty) return;
 
@@ -455,7 +452,7 @@ class ConversationRepository extends ChangeNotifier {
       );
       notifyListeners();
       if (edited.isUser) {
-        await _streamReply();
+        await _enqueueReply(conversation);
       }
     } else {
       original.originalContent ??= original.text;
@@ -485,7 +482,6 @@ class ConversationRepository extends ChangeNotifier {
     String assistantId, {
     String? suggestionPrompt,
   }) async {
-    if (_isGenerating) return;
     final Conversation conversation = active;
     final ChatMessage? assistant = conversation.byId(assistantId);
     if (assistant == null) return;
@@ -496,7 +492,7 @@ class ConversationRepository extends ChangeNotifier {
     // assistant sibling under it.
     conversation.currentLeafId = userId;
     notifyListeners();
-    await _streamReply(extraPrompt: suggestionPrompt);
+    await _enqueueReply(conversation, extraPrompt: suggestionPrompt);
   }
 
   /// Switches the active branch to a sibling of [currentId]. [direction] is
@@ -541,526 +537,494 @@ class ConversationRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Streams an assistant reply for the active conversation, appending to the
-  /// current leaf. Called by [sendMessage], [editMessage] (resend), and
-  /// [regenerate]. [extraPrompt] is appended to the trailing user message
-  /// for this request only (not persisted). [fromLeafId] overrides the
-  /// starting leaf (used when the caller has already set currentLeafId).
-  Future<void> _streamReply({String? extraPrompt}) async {
-    final Conversation conversation = active;
-    final String? previousLeaf = conversation.currentLeafId;
-    await _beginBackgroundWork(conversation);
-    final Completer<void> generationFinished = Completer<void>();
-    _generationFinished = generationFinished;
-    _requestedStop = null;
-    try {
-      await _streamReplyInternal(extraPrompt: extraPrompt);
-    } on Object catch (error, stack) {
-      final ProviderAccount? account = activeAccount;
-      final AppFailure failure = _failureMapper.fromException(
-        error,
-        source: FailureSource(
-          subsystem: AppSubsystem.llm,
-          operation: 'generate',
-          providerId: account?.displayName,
-          accountId: account?.id,
-          modelId: account?.config['model'] as String?,
-        ),
-        flavor: account?.kind == AdapterKind.subscription
-            ? ProviderErrorFlavor.codex
-            : ProviderErrorFlavor.generic,
-      );
-      _log.severe('LLM request failed before completion', failure, stack);
-      final ChatMessage? assistant = conversation.messages
-          .where((ChatMessage message) => message.isStreaming)
-          .lastOrNull;
-      if (assistant != null) {
-        if (assistant.text.isEmpty) assistant.text = failure.message;
-        assistant
-          ..generationStatus = MessageGenerationStatus.failed
-          ..hasError = true;
-      }
-      if (previousLeaf != null) conversation.currentLeafId = previousLeaf;
-      if (!failure.isCancellation) _lastFailure = failure;
-      await _finishBackgroundWork(interrupted: true);
-    } finally {
-      _replySub = null;
-      _requestCancellation = null;
-      _roundDone = null;
-      if (_isGenerating) _isGenerating = false;
-      await flushPartialGeneration();
-      await _persistConversation(conversation);
-      notifyListeners();
-      if (!generationFinished.isCompleted) generationFinished.complete();
-      if (identical(_generationFinished, generationFinished)) {
-        _generationFinished = null;
-      }
-    }
-  }
-
-  Future<void> _streamReplyInternal({String? extraPrompt}) async {
-    final Conversation conversation = active;
-
-    // Remember the leaf before we start streaming so we can roll back on
-    // error (optimistic rollback — the failed branch stays as a sibling).
-    final String? previousLeaf = conversation.currentLeafId;
-
-    _isGenerating = true;
-    notifyListeners();
-
-    final ProviderAccount? account = activeAccount;
-    if (account == null) {
+  Future<void> _enqueueReply(
+    Conversation conversation, {
+    String? extraPrompt,
+    String? parentMessageId,
+  }) async {
+    final ProviderAccount? account = _accountForConversation(conversation);
+    final String? requestedParentId =
+        parentMessageId ?? conversation.currentLeafId;
+    if (account == null || requestedParentId == null) {
       _lastFailure = const AppFailure(
         kind: FailureKind.unavailable,
         source: FailureSource(
           subsystem: AppSubsystem.llm,
-          operation: 'generate',
+          operation: 'enqueue_generation',
         ),
         message: 'No provider is configured. Add one in Settings.',
       );
-      conversation.add(
-        ChatMessage(
-          id: _newId(),
-          role: MessageRole.assistant,
-          text: _lastFailure!.message,
-          createdAt: DateTime.now(),
-        ),
-      );
-      _isGenerating = false;
-      await _persistConversation(conversation);
-      await _finishBackgroundWork(interrupted: true);
       notifyListeners();
       return;
     }
 
-    final LlmAdapter adapter = adapterRegistry.resolve(account.kind);
-    final String? secret = await _credentials.resolve(account);
+    if (conversation.byId(requestedParentId) == null) {
+      throw StateError('Generation parent $requestedParentId does not exist.');
+    }
+    final String inputMessageId = requestedParentId;
+    final String outputMessageId = _newId();
     final String model = (account.config['model'] as String?) ?? '';
-
-    _log.info(
-      'sendMessage: account=${account.id} kind=${account.kind.name} '
-      'model=$model tools=${_toolsEnabled && _webRetrieval != null ? 'on' : 'off'}',
+    final LlmModel? selectedModel = _modelFor(account.id, model);
+    final int contextWindow = _resolveContextWindow(account, model);
+    final List<ChatMessage> requestMessages = conversation
+        .pathTo(inputMessageId)
+        .where((ChatMessage message) => !message.isStreaming)
+        .map((ChatMessage message) => ChatMessage.fromJson(message.toJson()))
+        .toList(growable: false);
+    final ChatMessage assistant = ChatMessage(
+      id: outputMessageId,
+      role: MessageRole.assistant,
+      generationStatus: MessageGenerationStatus.pending,
+      createdAt: DateTime.now(),
+    );
+    conversation.add(
+      assistant,
+      parentId: inputMessageId,
+      activate: conversation.currentLeafId == inputMessageId,
     );
 
-    // Build the request messages from the active path. If an extraPrompt is
-    // given (regenerate suggestion), append it to the last user message for
-    // this request only — the stored message is untouched.
-    List<ChatMessage> requestMessages = conversation.activePath
-        .where((m) => !m.isStreaming)
-        .toList();
-    if (extraPrompt != null && extraPrompt.isNotEmpty) {
-      requestMessages = List<ChatMessage>.from(requestMessages);
-      for (int i = requestMessages.length - 1; i >= 0; i--) {
-        if (requestMessages[i].isUser) {
-          final ChatMessage orig = requestMessages[i];
-          requestMessages[i] = ChatMessage(
-            id: orig.id,
-            role: orig.role,
-            text: '${orig.text}\n\n$extraPrompt',
-            createdAt: orig.createdAt,
-            toolCalls: orig.toolCalls,
-            toolCallId: orig.toolCallId,
-            parentId: orig.parentId,
-            children: orig.childrenIds,
-            attachments: List<MessageAttachment>.from(orig.attachments),
-          );
-          break;
-        }
-      }
+    final DateTime now = DateTime.now();
+    final GenerationTask task = GenerationTask(
+      id: _newId(),
+      conversationId: conversation.id,
+      inputMessageId: inputMessageId,
+      outputMessageId: outputMessageId,
+      enqueueSequence: now.microsecondsSinceEpoch * 100 + (_counter % 100),
+      snapshot: GenerationRequestSnapshot(
+        account: ProviderAccount.fromJson(account.toJson()),
+        model: model,
+        messages: requestMessages,
+        toolsEnabled: toolsEnabled,
+        contextWindow: contextWindow,
+        modelCapabilities: selectedModel?.capabilities,
+        extraPrompt: extraPrompt,
+      ),
+      state: GenerationTaskState.queued,
+      phase: GenerationTaskPhase.waiting,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _knownTasks[task.id] = task;
+    _isGenerating = true;
+    await _taskStore.enqueue(conversation: conversation, task: task);
+    notifyListeners();
+    await _beginBackgroundWork(conversation);
+    await _drainGenerationTasks();
+  }
+
+  ProviderAccount? _accountForConversation(Conversation conversation) {
+    final String? accountId = conversation.providerAccountId;
+    if (accountId == null) return _providers.activeAccount;
+    for (final ProviderAccount account in _providers.accounts) {
+      if (account.id == accountId) return account;
     }
+    return null;
+  }
 
-    // Tool-call loop: stream → if the model emitted tool calls, execute them,
-    // append tool-result messages, and re-stream. Caps at a few rounds so a
-    // misbehaving model can't loop forever.
-    const int maxRounds = 5;
-    // IDs of messages added during this sendMessage call (assistant replies
-    // and tool results from the tool loop). Their tool results are never
-    // cleared by the request builder — the model is actively using them.
-    final Set<String> currentTurnMessageIds = <String>{};
-    // Compactor for context compaction. Built once per reply; reuses the
-    // active adapter/account/secret.
-    final ContextCompactor compactor = LlmContextCompactor(
-      adapter: adapter,
-      account: account,
-      secret: secret,
-      model: model,
-      settings: _compactionSettings(),
-    );
-
-    for (int round = 0; round < maxRounds; round++) {
-      _log.fine(
-        'tool-call loop: round=$round messages=${conversation.messages.length}',
-      );
-
-      final ChatMessage assistant = ChatMessage(
-        id: _newId(),
-        role: MessageRole.assistant,
-        generationStatus: MessageGenerationStatus.pending,
-        createdAt: DateTime.now(),
-      );
-      conversation.add(assistant);
-      currentTurnMessageIds.add(assistant.id);
-      notifyListeners();
-
-      final List<ToolCall> pendingCalls = <ToolCall>[];
-      // Accumulate tool-call fragments by index (OpenAI streams id/name first,
-      // then argument tokens across multiple ToolCallEvents).
-      final Map<int, ToolCall> accumulating = <int, ToolCall>{};
-
-      final Completer<void> done = Completer<void>();
-      final Completer<void> requestCancellation = Completer<void>();
-      _roundDone = done;
-      _requestCancellation = requestCancellation;
-      bool hadError = false;
-
-      // Build the request messages with context management (clearing +
-      // compaction). On round 0 with an extraPrompt, the extraPrompt variant
-      // of requestMessages is used as the base.
-      final List<ChatMessage> baseMessages = (round == 0 && extraPrompt != null)
-          ? requestMessages
-          : conversation.activePath.where((m) => !m.isStreaming).toList();
-      _log.fine(
-        'building request: round=$round baseMsgs=${baseMessages.length} '
-        'currentTurnProtected=${currentTurnMessageIds.length}',
-      );
-      final List<ChatMessage> builtMessages = await buildRequestMessagesAsync(
-        activePath: baseMessages,
-        contextWindow: _resolveContextWindow(account, model),
-        compactor: compactor,
-        currentTurnMessageIds: currentTurnMessageIds,
-        calibrationRatio: _calibrationRatio(conversation),
-      );
-      final List<ToolDefinition> tools = _toolsEnabled && _webRetrieval != null
-          ? _webSearchTools.definitions
-          : const <ToolDefinition>[];
-      // Record the estimate so the next round can calibrate against the
-      // provider's reported prompt_tokens. Include the system prompt and tool
-      // definitions — the provider counts them against input_tokens too, so
-      // the estimate must too or it'll jump when the actual arrives.
-      conversation.lastEstimatedTokens =
-          estimateMessagesTokens(builtMessages) +
-          _estimateRequestOverhead(SystemPrompts.base, tools);
-      notifyListeners();
-
-      _replySub = adapter
-          .stream(
-            request: LlmRequest(
-              messages: builtMessages,
-              model: model,
-              systemPrompt: SystemPrompts.base,
-              tools: tools,
-              modelCapabilities: activeModel?.capabilities,
-              signal: () => requestCancellation.future,
-            ),
-            account: account,
-            secret: secret,
-          )
-          .listen(
-            (LlmEvent event) {
-              switch (event) {
-                case TokenEvent(:final String delta):
-                  assistant.generationStatus =
-                      MessageGenerationStatus.streaming;
-                  assistant.text += delta;
-                  _schedulePartialPersist(conversation);
-                  notifyListeners();
-                case ReasoningEvent(:final String delta):
-                  assistant.generationStatus =
-                      MessageGenerationStatus.streaming;
-                  assistant.reasoning += delta;
-                  _schedulePartialPersist(conversation);
-                  notifyListeners();
-                case AttachmentEvent(:final MessageAttachment attachment):
-                  final int existing = assistant.attachments.indexWhere(
-                    (MessageAttachment value) => value.id == attachment.id,
-                  );
-                  if (existing < 0) {
-                    assistant.attachments.add(attachment);
-                  } else {
-                    assistant.attachments[existing] = attachment;
-                  }
-                  assistant.generationStatus =
-                      MessageGenerationStatus.streaming;
-                  _schedulePartialPersist(conversation);
-                  notifyListeners();
-                case ToolCallEvent(
-                  :final String id,
-                  :final String name,
-                  :final String args,
-                ):
-                  // OpenAI streams tool_calls with an index; we don't get it
-                  // from the event directly, so accumulate by id+name. The
-                  // first fragment carries id+name, later fragments carry
-                  // argument tokens only (empty id/name).
-                  if (id.isNotEmpty || name.isNotEmpty) {
-                    _log.fine('tool-call fragment: id=$id name=$name');
-                    final ToolCall tc = ToolCall(
-                      id: id,
-                      name: name,
-                      args: args,
-                    );
-                    accumulating[accumulating.length] = tc;
-                    assistant.toolCalls = List<ToolCall>.from(
-                      accumulating.values,
-                    );
-                  } else {
-                    // Argument fragment — append to the last call.
-                    if (accumulating.isNotEmpty) {
-                      final int lastKey = accumulating.keys.last;
-                      accumulating[lastKey]!.args += args;
-                    }
-                  }
-                  assistant.generationStatus =
-                      MessageGenerationStatus.streaming;
-                  _schedulePartialPersist(conversation);
-                  notifyListeners();
-                case DoneEvent():
-                  assistant.text = assistant.text.trimRight();
-                  assistant.generationStatus =
-                      MessageGenerationStatus.completed;
-                  pendingCalls.addAll(accumulating.values);
-                  if (event.usage case final LlmUsage usage) {
-                    if (usage.promptTokens case final int prompt) {
-                      conversation.lastPromptTokens = prompt;
-                      assistant.promptTokens = prompt;
-                    }
-                    if (usage.completionTokens case final int completion) {
-                      conversation.lastCompletionTokens = completion;
-                      assistant.completionTokens = completion;
-                    }
-                    if (usage.totalTokens case final int total) {
-                      conversation.lastTotalTokens = total;
-                      assistant.totalTokens = total;
-                    }
-                    _log.fine(
-                      'captured usage: prompt=${usage.promptTokens} '
-                      'completion=${usage.completionTokens} '
-                      'total=${usage.totalTokens}',
-                    );
-                  }
-                  notifyListeners();
-                  if (!done.isCompleted) done.complete();
-                case ErrorEvent(:final AppFailure error):
-                  _log.severe(
-                    'LLM stream error: ${error.runtimeType}: ${error.message}',
-                  );
-                  if (assistant.text.isEmpty && !error.isCancellation) {
-                    assistant.text = error.message;
-                  }
-                  assistant.generationStatus = error.isCancellation
-                      ? MessageGenerationStatus.cancelled
-                      : MessageGenerationStatus.failed;
-                  if (!error.isCancellation) _lastFailure = error;
-                  hadError = true;
-                  notifyListeners();
-                  if (!done.isCompleted) done.complete();
-              }
-            },
-            onError: (Object error, StackTrace stack) {
-              _log.severe('LLM stream onError', error, stack);
-              final AppFailure failure = AppFailure(
-                kind: FailureKind.unknown,
-                source: FailureSource(
-                  subsystem: AppSubsystem.llm,
-                  operation: 'generate',
-                  providerId: account.displayName,
-                  accountId: account.id,
-                  modelId: model,
-                ),
-                message: 'The provider could not complete the request.',
-              );
-              if (assistant.text.isEmpty) assistant.text = failure.message;
-              assistant.generationStatus = MessageGenerationStatus.failed;
-              _lastFailure = failure;
-              hadError = true;
-              notifyListeners();
-              if (!done.isCompleted) done.complete();
-            },
-            onDone: () {
-              if (!done.isCompleted) done.complete();
-            },
-            cancelOnError: true,
+  Future<void> _drainGenerationTasks() async {
+    if (_isDrainingTasks) {
+      _drainRequested = true;
+      return;
+    }
+    _isDrainingTasks = true;
+    _drainRequested = false;
+    _drainWasCancelled = false;
+    _drainWasInterrupted = false;
+    bool hostStarted = false;
+    final Completer<void> generationFinished = Completer<void>();
+    _generationFinished = generationFinished;
+    try {
+      do {
+        _drainRequested = false;
+        while (true) {
+          final GenerationTask? claimed = await _taskStore.claimNext(
+            runnerId: 'ui',
+            leaseDuration: const Duration(minutes: 10),
           );
-
-      await done.future;
-      _replySub = null;
-      _roundDone = null;
-      _requestCancellation = null;
-
-      final _RequestedGenerationStop? requestedStop = _requestedStop;
-      if (requestedStop != null) {
-        assistant.generationStatus =
-            requestedStop == _RequestedGenerationStop.cancelled
-            ? MessageGenerationStatus.cancelled
-            : MessageGenerationStatus.interrupted;
-        assistant.hasError =
-            requestedStop == _RequestedGenerationStop.interrupted;
-        _isGenerating = false;
-        await flushPartialGeneration();
-        await _persistConversation(conversation);
-        await _finishBackgroundWork(
-          interrupted: requestedStop == _RequestedGenerationStop.interrupted,
-          cancelled: requestedStop == _RequestedGenerationStop.cancelled,
-        );
-        notifyListeners();
-        return;
-      }
-
-      if (assistant.isStreaming) {
-        assistant.generationStatus = MessageGenerationStatus.interrupted;
-        assistant.hasError = true;
-        hadError = true;
-        _lastFailure = const AppFailure(
-          kind: FailureKind.network,
-          source: FailureSource(
-            subsystem: AppSubsystem.llm,
-            operation: 'generate',
-          ),
-          message: 'The response stream ended before it completed.',
-          isRetryable: true,
-        );
-      }
-
-      // If the model didn't call any tools (or errored), the reply is done.
-      if (hadError || pendingCalls.isEmpty) {
-        if (hadError) {
-          _log.warning('tool-call loop ended with error at round=$round');
-          // Optimistic rollback: mark the failed assistant message and
-          // restore the active leaf to where it was before streaming.
-          assistant.hasError = true;
-          if (previousLeaf != null) {
-            conversation.currentLeafId = previousLeaf;
-          }
-        } else {
-          _log.info('reply complete: round=$round toolCalls=0');
-        }
-        _isGenerating = false;
-        await flushPartialGeneration();
-        await _persistConversation(conversation);
-        await _finishBackgroundWork(interrupted: hadError);
-        notifyListeners();
-        return;
-      }
-
-      _log.info(
-        'executing ${pendingCalls.length} tool call(s): '
-        '${pendingCalls.map((tc) => '${tc.name}(${tc.args.length} chars)').join(', ')}',
-      );
-
-      // Execute each tool call and append a tool-result message.
-      if (_webRetrieval == null) {
-        // No adapter configured — surface the calls but skip execution.
-        _log.warning('web retrieval adapter is null — skipping tool execution');
-        for (final ToolCall tc in pendingCalls) {
-          final ChatMessage noTool = ChatMessage(
-            id: _newId(),
-            role: MessageRole.tool,
-            text: 'Web search not configured.',
-            toolCallId: tc.id,
-            createdAt: DateTime.now(),
-          );
-          conversation.add(noTool);
-          currentTurnMessageIds.add(noTool.id);
-        }
-      } else {
-        final WebRetrievalAdapter retrieval = _webRetrieval;
-        for (final ToolCall tc in pendingCalls) {
-          _log.fine('executing tool: name=${tc.name} id=${tc.id}');
-          WebToolResult result;
-          try {
-            result = await _webSearchTools.execute(
-              name: tc.name,
-              args: tc.args,
-              adapter: retrieval,
+          if (claimed == null) break;
+          _knownTasks[claimed.id] = claimed;
+          final Conversation? conversation = _conversations
+              .where((Conversation value) => value.id == claimed.conversationId)
+              .firstOrNull;
+          if (conversation == null) {
+            final bool failed = await _taskStore.transition(
+              taskId: claimed.id,
+              from: GenerationTaskState.claimed,
+              to: GenerationTaskState.failed,
+              phase: GenerationTaskPhase.finalizing,
+              error: 'Conversation not found.',
             );
-            _log.fine(
-              'tool result: name=${tc.name} len=${result.content.length} '
-              'preview=${result.content.substring(0, result.content.length.clamp(0, 120))}',
-            );
-            if (result.warnings.isNotEmpty) {
-              _lastFailure = result.warnings.first;
-              notifyListeners();
+            if (!failed) {
+              throw StateError('Could not fail generation task ${claimed.id}.');
             }
-          } catch (e, stack) {
-            _log.severe('tool execution failed: name=${tc.name}', e, stack);
-            final AppFailure failure = _failureMapper.fromException(
-              e,
-              source: FailureSource(
-                subsystem: tc.name == 'fetch_page'
-                    ? AppSubsystem.webFetch
-                    : AppSubsystem.webSearch,
-                operation: tc.name == 'fetch_page' ? 'fetch' : 'search',
-              ),
-            );
-            _lastFailure = failure;
-            result = WebToolResult(
-              content: 'The web tool could not complete: ${failure.message}',
-            );
+            continue;
           }
-          final ChatMessage toolResult = ChatMessage(
-            id: _newId(),
-            role: MessageRole.tool,
-            text: result.content,
-            toolCallId: tc.id,
-            createdAt: DateTime.now(),
-          );
-          conversation.add(toolResult);
-          currentTurnMessageIds.add(toolResult.id);
-          notifyListeners();
+          try {
+            if (!hostStarted) {
+              await _generationHost.ensureRunning();
+              hostStarted = true;
+            }
+            await _runGenerationTask(claimed, conversation);
+          } on Object catch (error, stack) {
+            await _handleTaskFailure(claimed, conversation, error, stack);
+          }
         }
-      }
-      await _persistConversation(conversation);
-      if (_requestedStop case final _RequestedGenerationStop stop) {
-        assistant.generationStatus = stop == _RequestedGenerationStop.cancelled
-            ? MessageGenerationStatus.cancelled
-            : MessageGenerationStatus.interrupted;
-        assistant.hasError = stop == _RequestedGenerationStop.interrupted;
-        _isGenerating = false;
-        await _persistConversation(conversation);
+        await Future<void>.delayed(Duration.zero);
+      } while (_drainRequested);
+    } finally {
+      _activeGenerationTaskId = null;
+      try {
+        await flushPartialGeneration();
         await _finishBackgroundWork(
-          interrupted: stop == _RequestedGenerationStop.interrupted,
-          cancelled: stop == _RequestedGenerationStop.cancelled,
+          cancelled: _drainWasCancelled,
+          interrupted: !_drainWasCancelled && _drainWasInterrupted,
         );
+        if (hostStarted) await _generationHost.stop();
+      } finally {
+        _isDrainingTasks = false;
+        final bool restart = _drainRequested;
+        _isGenerating = restart;
+        if (!generationFinished.isCompleted) generationFinished.complete();
+        if (identical(_generationFinished, generationFinished)) {
+          _generationFinished = null;
+        }
         notifyListeners();
-        return;
+        if (restart) unawaited(_drainGenerationTasks());
       }
-      // Loop: re-stream so the model can use the tool results.
     }
+  }
 
-    // Exhausted the round cap — stop gracefully.
-    _log.warning('tool-call loop exhausted maxRounds=$maxRounds');
-    _isGenerating = false;
+  Future<void> _runGenerationTask(
+    GenerationTask claimed,
+    Conversation conversation,
+  ) async {
+    _isGenerating = true;
+    _activeGenerationTaskId = claimed.id;
+    await _beginBackgroundWork(conversation);
+    final bool dispatching = await _taskStore.transition(
+      taskId: claimed.id,
+      from: GenerationTaskState.claimed,
+      to: GenerationTaskState.dispatching,
+      phase: GenerationTaskPhase.connecting,
+    );
+    if (!dispatching) return;
+    final bool streaming = await _taskStore.transition(
+      taskId: claimed.id,
+      from: GenerationTaskState.dispatching,
+      to: GenerationTaskState.streaming,
+      phase: GenerationTaskPhase.streaming,
+    );
+    if (!streaming) {
+      throw StateError('Could not start generation task ${claimed.id}.');
+    }
+    GenerationTask running = claimed.copyWith(
+      state: GenerationTaskState.streaming,
+      phase: GenerationTaskPhase.streaming,
+      updatedAt: DateTime.now(),
+    );
+    _knownTasks[running.id] = running;
+    notifyListeners();
+
+    final GenerationRunResult result = await _generationEngine.run(
+      task: running,
+      conversation: conversation,
+      contextWindow: running.snapshot.contextWindow,
+      modelCapabilities: running.snapshot.modelCapabilities,
+      compactionSettings: _compactionSettings(),
+      checkpoint: (Conversation updated, GenerationTask task) async {
+        _schedulePartialPersist(updated);
+        await _taskStore.checkpoint(conversation: updated, task: task);
+        final GenerationBackgroundController? background =
+            _backgroundController;
+        if (background case final GenerationProgressReporter reporter) {
+          await reporter.reportProgress();
+        }
+      },
+      onChanged: notifyListeners,
+    );
+    final bool transitioned = await _taskStore.transition(
+      taskId: running.id,
+      from: GenerationTaskState.streaming,
+      to: result.state,
+      phase: GenerationTaskPhase.finalizing,
+      error: result.failure?.message,
+    );
+    if (!transitioned) {
+      throw StateError('Could not finish generation task ${running.id}.');
+    }
+    running = running.copyWith(
+      state: result.state,
+      phase: GenerationTaskPhase.finalizing,
+      updatedAt: DateTime.now(),
+      error: result.failure?.message,
+    );
+    _knownTasks[running.id] = running;
+    if (result.failure != null) _lastFailure = result.failure;
     await flushPartialGeneration();
     await _persistConversation(conversation);
-    await _finishBackgroundWork();
+    _drainWasCancelled =
+        _drainWasCancelled || result.state == GenerationTaskState.cancelled;
+    _drainWasInterrupted =
+        _drainWasInterrupted ||
+        result.state == GenerationTaskState.interruptedPartial ||
+        result.state == GenerationTaskState.outcomeUnknown ||
+        result.state == GenerationTaskState.failed;
+    if (result.steeringText case final String steering
+        when steering.trim().isNotEmpty) {
+      final String parentId = result.finalLeafId ?? running.outputMessageId;
+      final ChatMessage steeringMessage = ChatMessage(
+        id: _newId(),
+        role: MessageRole.user,
+        text: steering.trim(),
+        createdAt: DateTime.now(),
+      );
+      conversation.add(
+        steeringMessage,
+        parentId: parentId,
+        activate: conversation.currentLeafId == parentId,
+      );
+      await _enqueueReply(conversation, parentMessageId: steeringMessage.id);
+    }
     notifyListeners();
   }
 
-  /// Cancels an in-flight generation, if any.
-  Future<void> cancelGeneration() =>
-      _requestGenerationStop(_RequestedGenerationStop.cancelled);
-
-  Future<void> interruptGeneration() =>
-      _requestGenerationStop(_RequestedGenerationStop.interrupted);
-
-  Future<void> _requestGenerationStop(_RequestedGenerationStop stop) async {
-    if (!_isGenerating) return;
-    _requestedStop = stop;
-    final Completer<void>? cancellation = _requestCancellation;
-    if (cancellation != null && !cancellation.isCompleted) {
-      cancellation.complete();
-    }
-    final Completer<void>? roundDone = _roundDone;
-    if (roundDone != null && !roundDone.isCompleted) roundDone.complete();
-    final StreamSubscription<LlmEvent>? subscription = _replySub;
-    if (subscription != null) {
-      try {
-        await subscription.cancel().timeout(const Duration(seconds: 3));
-      } on TimeoutException {
-        _log.warning('Timed out while closing the provider stream');
+  Future<void> _handleTaskFailure(
+    GenerationTask claimed,
+    Conversation conversation,
+    Object error,
+    StackTrace stack,
+  ) async {
+    final AppFailure failure = _failureMapper.fromException(
+      error,
+      source: FailureSource(
+        subsystem: AppSubsystem.llm,
+        operation: 'run_generation_task',
+        accountId: claimed.snapshot.account.id,
+        modelId: claimed.snapshot.model,
+      ),
+      fallbackMessage: 'Generation failed before it could complete.',
+    );
+    final GenerationTask current = (await _taskStore.listTasks()).firstWhere(
+      (GenerationTask task) => task.id == claimed.id,
+    );
+    if (!current.isTerminal) {
+      final GenerationTaskState terminal =
+          current.state == GenerationTaskState.claimed
+          ? GenerationTaskState.failed
+          : GenerationTaskState.outcomeUnknown;
+      final bool transitioned = await _taskStore.transition(
+        taskId: current.id,
+        from: current.state,
+        to: terminal,
+        phase: GenerationTaskPhase.finalizing,
+        error: failure.message,
+      );
+      if (!transitioned) {
+        throw StateError('Could not fail generation task ${current.id}.');
       }
+      _knownTasks[current.id] = current.copyWith(
+        state: terminal,
+        phase: GenerationTaskPhase.finalizing,
+        updatedAt: DateTime.now(),
+        error: failure.message,
+      );
+      final ChatMessage? assistant = conversation.byId(current.outputMessageId);
+      if (assistant != null) {
+        assistant
+          ..generationStatus = terminal == GenerationTaskState.failed
+              ? MessageGenerationStatus.failed
+              : MessageGenerationStatus.interrupted
+          ..hasError = true;
+        if (assistant.text.isEmpty) assistant.text = failure.message;
+      }
+      await _persistConversation(conversation);
     }
+    _lastFailure = failure;
+    _drainWasInterrupted = true;
+    _log.severe('Generation task ${claimed.id} failed', error, stack);
+    notifyListeners();
+  }
+
+  LlmModel? _modelFor(String accountId, String modelId) {
+    for (final LlmModel model
+        in _accountModels?.modelsFor(accountId) ?? const <LlmModel>[]) {
+      if (model.id == modelId) return model;
+    }
+    return null;
+  }
+
+  /// Cancels an in-flight generation, if any.
+  Future<void> cancelGeneration() async {
+    final GenerationTask? task = _activeGenerationTaskId == null
+        ? generationTasks
+              .where((GenerationTask value) => !value.isTerminal)
+              .firstOrNull
+        : _knownTasks[_activeGenerationTaskId];
+    if (task == null || task.isTerminal) return;
+    final String taskId = task.id;
+    final DateTime now = DateTime.now();
+    await _taskStore.addCommand(
+      GenerationCommand(
+        id: _newId(),
+        taskId: taskId,
+        sequence: now.microsecondsSinceEpoch,
+        kind: GenerationCommandKind.cancel,
+        state: GenerationCommandState.pending,
+        createdAt: now,
+      ),
+    );
+    await _generationEngine.cancel(taskId);
+    if (!_isDrainingTasks) unawaited(_drainGenerationTasks());
     await _generationFinished?.future;
+  }
+
+  Future<void> interruptGeneration() async {
+    final String? taskId = _activeGenerationTaskId;
+    if (taskId == null) return;
+    await _generationEngine.interrupt(taskId);
+    await _generationFinished?.future;
+  }
+
+  Future<void> steerGeneration(String text) async {
+    final String trimmed = text.trim();
+    final String? taskId = _activeGenerationTaskId;
+    if (trimmed.isEmpty || taskId == null) return;
+    final DateTime now = DateTime.now();
+    await _taskStore.addCommand(
+      GenerationCommand(
+        id: _newId(),
+        taskId: taskId,
+        sequence: now.microsecondsSinceEpoch,
+        kind: GenerationCommandKind.steer,
+        state: GenerationCommandState.pending,
+        createdAt: now,
+        payload: trimmed,
+      ),
+    );
+    await _generationEngine.wake(taskId);
+  }
+
+  Future<void> removeQueuedGeneration(String taskId) async {
+    final GenerationTask? task = _knownTasks[taskId];
+    if (task == null || task.state != GenerationTaskState.queued) return;
+    if (!canRemoveQueuedGeneration(taskId)) {
+      throw StateError(
+        'Remove later queued messages from this conversation first.',
+      );
+    }
+    if (!await _taskStore.removeQueued(taskId)) {
+      throw StateError('Generation task $taskId is no longer queued.');
+    }
+    _knownTasks.remove(taskId);
+    final Conversation? conversation = _conversations
+        .where((Conversation value) => value.id == task.conversationId)
+        .firstOrNull;
+    final ChatMessage? assistant = conversation?.byId(task.outputMessageId);
+    if (assistant != null) {
+      assistant.generationStatus = MessageGenerationStatus.cancelled;
+    }
+    if (conversation != null) await _persistConversation(conversation);
+    notifyListeners();
+  }
+
+  Future<void> moveQueuedGeneration(String taskId, int direction) async {
+    final List<GenerationTask> queued = generationTasks
+        .where(
+          (GenerationTask task) => task.state == GenerationTaskState.queued,
+        )
+        .toList();
+    final int index = queued.indexWhere(
+      (GenerationTask task) => task.id == taskId,
+    );
+    if (index < 0) return;
+    final int next = (index + direction).clamp(0, queued.length - 1);
+    if (next == index) return;
+    if (!canMoveQueuedGeneration(taskId, direction)) {
+      throw StateError(
+        'Queued messages in the same conversation must stay in order.',
+      );
+    }
+    final GenerationTask moved = queued.removeAt(index);
+    queued.insert(next, moved);
+    await _taskStore.reorderQueued(
+      queued.map((GenerationTask task) => task.id).toList(growable: false),
+    );
+    final int base = DateTime.now().microsecondsSinceEpoch * 100;
+    for (int position = 0; position < queued.length; position++) {
+      final GenerationTask task = queued[position];
+      _knownTasks[task.id] = task.copyWith(
+        enqueueSequence: base + position,
+        updatedAt: DateTime.now(),
+      );
+    }
+    notifyListeners();
+  }
+
+  bool canMoveQueuedGeneration(String taskId, int direction) {
+    final List<GenerationTask> queued = generationTasks
+        .where(
+          (GenerationTask task) => task.state == GenerationTaskState.queued,
+        )
+        .toList(growable: false);
+    final int index = queued.indexWhere(
+      (GenerationTask task) => task.id == taskId,
+    );
+    if (index < 0) return false;
+    final int next = index + direction;
+    if (next < 0 || next >= queued.length) return false;
+    return queued[index].conversationId != queued[next].conversationId;
+  }
+
+  bool canRemoveQueuedGeneration(String taskId) {
+    final GenerationTask? task = _knownTasks[taskId];
+    if (task == null || task.state != GenerationTaskState.queued) return false;
+    return !_knownTasks.values.any(
+      (GenerationTask candidate) =>
+          candidate.conversationId == task.conversationId &&
+          !candidate.isTerminal &&
+          candidate.enqueueSequence > task.enqueueSequence,
+    );
+  }
+
+  Future<void> editQueuedGeneration(String taskId, String text) async {
+    final String trimmed = text.trim();
+    final GenerationTask? task = _knownTasks[taskId];
+    if (trimmed.isEmpty ||
+        task == null ||
+        task.state != GenerationTaskState.queued) {
+      return;
+    }
+    final Conversation? conversation = _conversations
+        .where((Conversation value) => value.id == task.conversationId)
+        .firstOrNull;
+    final ChatMessage? input = conversation?.byId(task.inputMessageId);
+    if (conversation == null || input == null || !input.isUser) return;
+    input.text = trimmed;
+    final List<ChatMessage> updatedMessages = task.snapshot.messages
+        .map((ChatMessage message) {
+          if (message.id != task.inputMessageId) return message;
+          return ChatMessage.fromJson(message.toJson()..['text'] = trimmed);
+        })
+        .toList(growable: false);
+    final GenerationTask updated = task.copyWith(
+      snapshot: GenerationRequestSnapshot(
+        account: task.snapshot.account,
+        model: task.snapshot.model,
+        messages: updatedMessages,
+        toolsEnabled: task.snapshot.toolsEnabled,
+        contextWindow: task.snapshot.contextWindow,
+        modelCapabilities: task.snapshot.modelCapabilities,
+        extraPrompt: task.snapshot.extraPrompt,
+      ),
+      updatedAt: DateTime.now(),
+    );
+    _knownTasks[taskId] = updated;
+    if (!await _taskStore.removeQueued(taskId)) {
+      throw StateError('Generation task $taskId is no longer queued.');
+    }
+    await _taskStore.enqueue(conversation: conversation, task: updated);
+    await _persistConversation(conversation);
+    notifyListeners();
   }
 
   Future<void> handleAppVisibility(bool visible) async {
@@ -1074,7 +1038,6 @@ class ConversationRepository extends ChangeNotifier {
   }
 
   Future<void> continueInterrupted(String messageId) async {
-    if (_isGenerating) return;
     Conversation? conversation;
     ChatMessage? interrupted;
     for (final Conversation candidate in _conversations) {
@@ -1104,25 +1067,16 @@ class ConversationRepository extends ChangeNotifier {
         createdAt: DateTime.now(),
       ),
     );
-    await _persistConversation(conversation);
-    await _streamReply();
+    await _enqueueReply(conversation);
   }
 
   Future<void> _beginBackgroundWork(Conversation conversation) async {
     if (_backgroundWorkActive || _backgroundController == null) return;
-    try {
-      await _backgroundController.begin(
-        conversationId: conversation.id,
-        conversationTitle: conversation.title,
-      );
-      _backgroundWorkActive = true;
-    } on Object catch (error, stack) {
-      _log.warning(
-        'Background generation support could not start',
-        error,
-        stack,
-      );
-    }
+    await _backgroundController.begin(
+      conversationId: conversation.id,
+      conversationTitle: conversation.title,
+    );
+    _backgroundWorkActive = true;
   }
 
   Future<void> _finishBackgroundWork({
@@ -1130,18 +1084,14 @@ class ConversationRepository extends ChangeNotifier {
     bool cancelled = false,
   }) async {
     if (!_backgroundWorkActive) return;
-    _backgroundWorkActive = false;
-    try {
-      if (cancelled) {
-        await _backgroundController?.cancel();
-      } else if (interrupted) {
-        await _backgroundController?.interrupt();
-      } else {
-        await _backgroundController?.complete();
-      }
-    } on Object catch (error, stack) {
-      _log.warning('Background generation cleanup failed', error, stack);
+    if (cancelled) {
+      await _backgroundController?.cancel();
+    } else if (interrupted) {
+      await _backgroundController?.interrupt();
+    } else {
+      await _backgroundController?.complete();
     }
+    _backgroundWorkActive = false;
   }
 
   void _onProvidersChanged() {
@@ -1174,6 +1124,19 @@ class ConversationRepository extends ChangeNotifier {
   /// Deletes a conversation by [id]. If it's the active one, returns to
   /// the welcome/empty state.
   void deleteConversation(String id) {
+    for (final GenerationTask task
+        in _knownTasks.values
+            .where(
+              (GenerationTask task) =>
+                  task.conversationId == id && !task.isTerminal,
+            )
+            .toList()) {
+      if (task.id == _activeGenerationTaskId) {
+        unawaited(cancelGeneration());
+      } else {
+        unawaited(removeQueuedGeneration(task.id));
+      }
+    }
     _conversations.removeWhere((c) => c.id == id);
     if (_activeId == id) {
       _activeId = null;
@@ -1221,11 +1184,9 @@ class ConversationRepository extends ChangeNotifier {
     _providers.removeListener(_onProvidersChanged);
     _partialPersistTimer?.cancel();
     _backgroundController?.onBackgroundTimeExpired = null;
-    final Completer<void>? cancellation = _requestCancellation;
-    if (cancellation != null && !cancellation.isCompleted) {
-      cancellation.complete();
+    if (_activeGenerationTaskId case final String taskId) {
+      unawaited(_generationEngine.cancel(taskId));
     }
-    _replySub?.cancel();
     if (_backgroundWorkActive) {
       unawaited(_backgroundController?.cancel() ?? Future<void>.value());
     }

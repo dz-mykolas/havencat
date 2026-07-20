@@ -49,6 +49,10 @@ class EmptyState extends StatelessWidget {
   /// Mobile: "Hello there" greeting centered in the middle of the screen,
   /// input bar pinned to the bottom. No suggestion chips.
   Widget _buildMobile(BuildContext context) {
+    final MediaQueryData mediaQuery = MediaQuery.of(context);
+    final double bottomSafeInset = mediaQuery.viewInsets.bottom > 0
+        ? 0
+        : mediaQuery.viewPadding.bottom;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
@@ -63,7 +67,7 @@ class EmptyState extends StatelessWidget {
           right: 0,
           bottom: 0,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(12, 0, 12, 27),
+            padding: EdgeInsets.fromLTRB(12, 0, 12, 27 + bottomSafeInset),
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),

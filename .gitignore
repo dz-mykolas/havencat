@@ -6,3 +6,6 @@
 *.db
 *.db-shm
 *.db-wal
+
+# Packaged release files copied here by the Makefile.
+/dist/

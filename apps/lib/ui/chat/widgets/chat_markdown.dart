@@ -422,38 +422,42 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Tooltip(
-      message: _copied ? 'Copied!' : 'Tap to copy',
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: _copy,
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                widget.text,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: (widget.style.fontSize ?? 15) * 0.88,
+    return SelectionContainer.disabled(
+      child: Tooltip(
+        message: _copied ? 'Copied!' : 'Tap to copy',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: _copy,
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  widget.text,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: (widget.style.fontSize ?? 15) * 0.88,
+                    color: _copied
+                        ? Colors.green
+                        : (widget.style.color ?? context.appColors.textPrimary),
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(width: 3),
+                Icon(
+                  _copied ? Icons.check_rounded : Icons.copy_rounded,
+                  size: 11,
                   color: _copied
                       ? Colors.green
-                      : (widget.style.color ?? context.appColors.textPrimary),
-                  height: 1.4,
+                      : context.appColors.textSecondary,
                 ),
-              ),
-              SizedBox(width: 3),
-              Icon(
-                _copied ? Icons.check_rounded : Icons.copy_rounded,
-                size: 11,
-                color: _copied ? Colors.green : context.appColors.textSecondary,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -485,29 +489,33 @@ class _CopyButtonState extends State<_CopyButton> {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(6),
-      onTap: _copy,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(
-              _copied ? Icons.check_rounded : Icons.copy_rounded,
-              size: 13,
-              color: _copied ? Colors.green : context.appColors.textSecondary,
-            ),
-            SizedBox(width: 4),
-            Text(
-              _copied ? 'Copied' : 'Copy',
-              style: TextStyle(
-                fontSize: 11,
+    return SelectionContainer.disabled(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: _copy,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                _copied ? Icons.check_rounded : Icons.copy_rounded,
+                size: 13,
                 color: _copied ? Colors.green : context.appColors.textSecondary,
-                fontWeight: FontWeight.w500,
               ),
-            ),
-          ],
+              SizedBox(width: 4),
+              Text(
+                _copied ? 'Copied' : 'Copy',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _copied
+                      ? Colors.green
+                      : context.appColors.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -8,6 +8,15 @@ pub enum ConversationsError {
     Database(String),
     #[error("not configured: call configure_conversations first")]
     NotConfigured,
+    #[error("conversation database is already configured at {configured}; requested {requested}")]
+    AlreadyConfigured {
+        configured: String,
+        requested: String,
+    },
+    #[error("invalid database path: {0}")]
+    InvalidPath(String),
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
     #[error("serialization error: {0}")]
     Serialization(String),
 }

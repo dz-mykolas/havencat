@@ -38,6 +38,9 @@ Future<void> main() async {
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final AccountStore accountStore = AccountStore(prefs: prefs);
   final SecretStore secretStore = SecretStore.secure();
+  if (!accountStore.hasStoredAccounts) {
+    await secretStore.deleteAll();
+  }
 
   final ProviderContainer container = ProviderContainer(
     overrides: <Override>[
@@ -45,6 +48,7 @@ Future<void> main() async {
       secretStoreProvider.overrideWithValue(secretStore),
       appSettingsProvider.overrideWith((_) => AppSettings(prefs: prefs)),
       sharedPreferencesProvider.overrideWithValue(prefs),
+      nativePersistenceEnabledProvider.overrideWithValue(true),
       modelsDevServiceProvider.overrideWithValue(ModelsDevService()),
     ],
   );
@@ -58,20 +62,6 @@ Future<void> main() async {
     final String convDbPath =
         '${(await getApplicationSupportDirectory()).path}/conversations.db';
     await rust_conversations.configureConversations(dbPath: convDbPath);
-  }
-
-  final backgroundController = container.read(
-    generationBackgroundServiceProvider,
-  );
-  await backgroundController.initialize();
-  final conversationRepository = container.read(conversationRepositoryProvider);
-  await conversationRepository.ready;
-  backgroundController.onConversationSelected =
-      conversationRepository.selectConversation;
-  final String? notificationConversation = backgroundController
-      .takeSelectedConversation();
-  if (notificationConversation != null) {
-    conversationRepository.selectConversation(notificationConversation);
   }
 
   // Provider choices and credentials come from in-app settings. On native
@@ -90,7 +80,36 @@ Future<void> main() async {
   // loads any cached results from disk first so they're available offline.
   unawaited(_warmAccountModels(container));
 
+  await _initializeGenerationBackground(container);
   runApp(UncontrolledProviderScope(container: container, child: const App()));
+}
+
+Future<void> _initializeGenerationBackground(
+  ProviderContainer container,
+) async {
+  final backgroundController = container.read(
+    generationBackgroundServiceProvider,
+  );
+  final conversationRepository = container.read(conversationRepositoryProvider);
+  final Future<void> notificationSetup = (() async {
+    await backgroundController.initialize();
+    await conversationRepository.ready;
+    backgroundController.onConversationSelected =
+        conversationRepository.selectConversation;
+    final String? notificationConversation = backgroundController
+        .takeSelectedConversation();
+    if (notificationConversation != null) {
+      conversationRepository.selectConversation(notificationConversation);
+    }
+  })();
+  final Future<void> queueRecovery = (() async {
+    await conversationRepository.ready;
+    await conversationRepository.resumeQueuedTasks();
+  })();
+  await Future.wait(<Future<void>>[
+    notificationSetup,
+    queueRecovery,
+  ], eagerError: false);
 }
 
 /// Loads cached per-account model lists from disk, then kicks off a network

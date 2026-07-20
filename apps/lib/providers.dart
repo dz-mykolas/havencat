@@ -9,6 +9,10 @@ import 'data/services/auth/chatgpt_token_service.dart';
 import 'data/services/auth/credential_resolver.dart';
 import 'data/services/auth/secret_store.dart';
 import 'data/services/background/generation_background_service.dart';
+import 'data/services/generation/generation_host.dart';
+import 'data/services/generation/generation_task_store.dart';
+import 'data/services/generation/in_memory_generation_task_store.dart';
+import 'data/services/generation/rust_generation_task_store.dart';
 import 'data/services/llm/account_models_service.dart';
 import 'data/services/llm/adapter_registry.dart';
 import 'data/services/llm/model_service.dart';
@@ -59,6 +63,8 @@ final sharedPreferencesProvider = Provider<SharedPreferences?>((ref) {
   return null;
 });
 
+final nativePersistenceEnabledProvider = Provider<bool>((ref) => false);
+
 /// Single shared [AdapterRegistry]. Adapters are stateless so one instance
 /// per kind is fine.
 final adapterRegistryProvider = Provider<AdapterRegistry>((ref) {
@@ -83,6 +89,7 @@ final chatGptTokenServiceProvider = Provider<ChatGptTokenService>((ref) {
   return ChatGptTokenService(
     secretStore: ref.watch(secretStoreProvider),
     oauthFlow: ref.watch(chatGptOAuthFlowProvider),
+    crossProcessLeases: ref.watch(nativePersistenceEnabledProvider),
   );
 });
 
@@ -138,17 +145,39 @@ final modelServiceProvider = Provider<ModelService>((ref) {
   );
 });
 
+final conversationStoreProvider = Provider<ConversationStore>((ref) {
+  if (!ref.watch(nativePersistenceEnabledProvider)) {
+    return InMemoryConversationStore();
+  }
+  String? httpBaseUrl;
+  if (kIsWeb) {
+    final String proxy = AppConfig.load().llmProxy;
+    httpBaseUrl = proxy.endsWith('/proxy')
+        ? proxy.substring(0, proxy.length - '/proxy'.length)
+        : proxy;
+  }
+  return createConversationStore(httpBaseUrl: httpBaseUrl);
+});
+
+final generationTaskStoreProvider = Provider<GenerationTaskStore>((ref) {
+  final ConversationStore conversations = ref.watch(conversationStoreProvider);
+  if (kIsWeb || !ref.watch(nativePersistenceEnabledProvider)) {
+    return InMemoryGenerationTaskStore(conversations: conversations);
+  }
+  return RustGenerationTaskStore(conversations: conversations);
+});
+
+final generationHostProvider = Provider<GenerationHost>((ref) {
+  if (!ref.watch(nativePersistenceEnabledProvider)) {
+    return InlineGenerationHost();
+  }
+  return createGenerationHost();
+});
+
 /// Source of truth for conversations + the streaming reply flow.
 final conversationRepositoryProvider =
     ChangeNotifierProvider<ConversationRepository>((ref) {
       final WebRetrievalAdapter? webRetrieval = ref.watch(webRetrievalProvider);
-      String? httpBaseUrl;
-      if (kIsWeb) {
-        final String proxy = AppConfig.load().llmProxy;
-        httpBaseUrl = proxy.endsWith('/proxy')
-            ? proxy.substring(0, proxy.length - '/proxy'.length)
-            : proxy;
-      }
       // ref.read (not ref.watch) for providerRepository: ConversationRepository
       // listens to it via addListener. ref.watch would recreate the repository
       // on every notifyListeners(), wiping in-memory conversations.
@@ -156,7 +185,7 @@ final conversationRepositoryProvider =
         providerRepository: ref.read(providerAccountRepositoryProvider),
         adapterRegistry: ref.read(adapterRegistryProvider),
         credentialResolver: ref.read(credentialResolverProvider),
-        conversationStore: createConversationStore(httpBaseUrl: httpBaseUrl),
+        conversationStore: ref.read(conversationStoreProvider),
         webRetrieval: webRetrieval,
         // ref.read (not ref.watch) so toggling doesn't recreate the repository
         // and wipe conversations. The chat screen syncs the flag at runtime
@@ -165,11 +194,16 @@ final conversationRepositoryProvider =
         appSettings: ref.read(appSettingsProvider),
         accountModels: ref.read(accountModelsServiceProvider),
         backgroundController: ref.read(generationBackgroundServiceProvider),
+        generationTaskStore: ref.read(generationTaskStoreProvider),
+        generationHost: ref.read(generationHostProvider),
       );
     });
 
 final generationBackgroundServiceProvider =
     Provider<GenerationBackgroundController>((ref) {
+      if (!ref.watch(nativePersistenceEnabledProvider)) {
+        return InlineGenerationBackgroundController();
+      }
       return GenerationBackgroundService();
     });
 

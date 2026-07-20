@@ -144,6 +144,9 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
       _log.severe('stream: unexpected error', e, stack);
       yield ErrorEvent(UnknownError(e.toString(), source: failureSource));
     } finally {
+      if (!cancelToken.isCancelled) {
+        cancelToken.cancel('LLM stream consumer stopped.');
+      }
       await signalSub?.cancel();
     }
   }

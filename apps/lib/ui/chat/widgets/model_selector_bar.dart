@@ -114,39 +114,42 @@ class ModelSelectorBar extends ConsumerWidget {
         context: context,
         isScrollControlled: true,
         builder: (BuildContext context) {
-          return SizedBox(
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              children: <Widget>[
-                Padding(
-                  padding: EdgeInsets.fromLTRB(20, 16, 12, 12),
-                  child: Row(
-                    children: <Widget>[
-                      Text(
-                        'Select model',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+          return SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                children: <Widget>[
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20, 16, 12, 12),
+                    child: Row(
+                      children: <Widget>[
+                        Text(
+                          'Select model',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      Spacer(),
-                      IconButton(
-                        icon: Icon(Icons.close, size: 20),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
+                        Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Divider(height: 1),
-                Expanded(
-                  child: ListenableBuilder(
-                    listenable: vm,
-                    builder: (BuildContext context, _) {
-                      return ModelSelectorPanel(vm: vm);
-                    },
+                  Divider(height: 1),
+                  Expanded(
+                    child: ListenableBuilder(
+                      listenable: vm,
+                      builder: (BuildContext context, _) {
+                        return ModelSelectorPanel(vm: vm);
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },

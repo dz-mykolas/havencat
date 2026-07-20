@@ -827,7 +827,7 @@ class _AnimatedRefreshSlot extends StatelessWidget {
 }
 
 class _Overview extends StatelessWidget {
-  const _Overview({required this.vm, required this.onOpenGroup, super.key});
+  const _Overview({required this.vm, required this.onOpenGroup});
 
   final PricingViewModel vm;
   final ValueChanged<String> onOpenGroup;
@@ -878,7 +878,7 @@ class _Overview extends StatelessWidget {
 }
 
 class _ModelList extends StatefulWidget {
-  const _ModelList({required this.vm, required this.onOpenModel, super.key});
+  const _ModelList({required this.vm, required this.onOpenModel});
 
   final PricingViewModel vm;
   final ValueChanged<PricedModel> onOpenModel;
@@ -1414,7 +1414,7 @@ class _ErrorState extends StatelessWidget {
 /// section, now consolidated into Discover so all account management lives
 /// in one place.
 class _AccountsView extends StatelessWidget {
-  const _AccountsView({super.key});
+  const _AccountsView();
 
   @override
   Widget build(BuildContext context) {

@@ -33,12 +33,12 @@ class RustConversationStore implements ConversationStore {
   Future<List<Conversation>> load() async {
     final List<rust_types.StoredConversation> stored = await rust
         .loadConversations();
-    return stored.map(_toDomain).toList();
+    return stored.map(toDomain).toList();
   }
 
   @override
   Future<void> upsert(Conversation conversation) async {
-    await rust.upsertConversation(conv: _toStored(conversation));
+    await rust.upsertConversation(conv: toStored(conversation));
   }
 
   @override
@@ -46,7 +46,7 @@ class RustConversationStore implements ConversationStore {
     await rust.deleteConversation(id: id);
   }
 
-  static Conversation _toDomain(rust_types.StoredConversation s) {
+  static Conversation toDomain(rust_types.StoredConversation s) {
     final List<ChatMessage> messages = s.messages
         .map(_messageToDomain)
         .toList();
@@ -121,7 +121,7 @@ class RustConversationStore implements ConversationStore {
     return (platform.isWeb ? BigInt.from(v) : v) as PlatformInt64;
   }
 
-  static rust_types.StoredConversation _toStored(Conversation c) {
+  static rust_types.StoredConversation toStored(Conversation c) {
     return rust_types.StoredConversation(
       id: c.id,
       title: c.title,

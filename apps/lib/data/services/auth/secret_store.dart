@@ -57,5 +57,13 @@ class SecretStore {
     _fallback!.remove(_key(id));
   }
 
+  Future<void> deleteAll() async {
+    if (_storage != null) {
+      await _storage.deleteAll();
+      return;
+    }
+    _fallback!.clear();
+  }
+
   static String _key(String id) => 'llm_secret::$id';
 }

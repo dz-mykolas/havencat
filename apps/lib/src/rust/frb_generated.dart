@@ -69,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0-beta.4';
 
   @override
-  int get rustContentHash => -1493713572;
+  int get rustContentHash => -1518374662;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -81,6 +81,32 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<bool> crateApiConversationsAcknowledgeGenerationCommand({
+    required String commandId,
+    required PlatformInt64 acknowledgedAt,
+  });
+
+  Future<bool> crateApiConversationsAcquireOauthRefreshLease({
+    required String accountId,
+    required String ownerId,
+    required PlatformInt64 nowMs,
+    required PlatformInt64 leaseDurationMs,
+  });
+
+  Future<PlatformInt64> crateApiConversationsAppendGenerationLifecycleEvent({
+    required NewGenerationLifecycleEvent event,
+  });
+
+  Future<bool> crateApiConversationsCheckpointGeneration({
+    required GenerationCheckpoint checkpoint,
+  });
+
+  Future<GenerationClaim?> crateApiConversationsClaimGenerationTask({
+    required String workerId,
+    required PlatformInt64 nowMs,
+    required PlatformInt64 leaseDurationMs,
+  });
+
   Future<void> crateApiConversationsConfigureConversations({
     required String dbPath,
   });
@@ -93,12 +119,82 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiConversationsDeleteConversation({required String id});
 
+  Future<void> crateApiConversationsEnqueueGenerationCommand({
+    required NewGenerationCommand command,
+  });
+
+  Future<void> crateApiConversationsEnqueueGenerationTask({
+    required NewGenerationTask task,
+  });
+
+  Future<bool> crateApiConversationsFinishGeneration({
+    required GenerationFinish finish,
+  });
+
+  Future<GenerationTask?> crateApiConversationsGetGenerationTask({
+    required String id,
+  });
+
   Future<void> crateApiSimpleInitApp();
 
   Future<List<StoredConversation>> crateApiConversationsLoadConversations();
 
+  Future<List<GenerationLifecycleEvent>>
+  crateApiConversationsLoadGenerationLifecycleEvents({
+    required String taskId,
+    PlatformInt64? afterEventId,
+  });
+
+  Future<List<GenerationRun>> crateApiConversationsLoadGenerationRuns({
+    required String taskId,
+  });
+
+  Future<List<GenerationTask>> crateApiConversationsLoadGenerationTasks();
+
+  Future<List<GenerationCommand>>
+  crateApiConversationsLoadPendingGenerationCommands({required String taskId});
+
+  Future<List<ProviderCall>> crateApiConversationsLoadProviderCalls({
+    required String runId,
+  });
+
+  Future<List<ToolExecution>> crateApiConversationsLoadToolExecutions({
+    required String runId,
+  });
+
+  Future<List<String>> crateApiConversationsRecoverExpiredGenerationTasks({
+    required PlatformInt64 nowMs,
+  });
+
+  Future<void> crateApiConversationsReleaseOauthRefreshLease({
+    required String accountId,
+    required String ownerId,
+  });
+
+  Future<bool> crateApiConversationsRemoveQueuedGenerationTask({
+    required String id,
+  });
+
+  Future<void> crateApiConversationsReorderQueuedGenerationTasks({
+    required List<String> ids,
+    required PlatformInt64 nowMs,
+  });
+
   Future<void> crateApiConversationsUpsertConversation({
     required StoredConversation conv,
+  });
+
+  Future<void> crateApiConversationsUpsertConversationAndEnqueueGeneration({
+    required StoredConversation conv,
+    required NewGenerationTask task,
+  });
+
+  Future<void> crateApiConversationsUpsertProviderCall({
+    required ProviderCall call,
+  });
+
+  Future<void> crateApiConversationsUpsertToolExecution({
+    required ToolExecution execution,
   });
 
   Future<FetchedPage> crateApiWebRetrievalUrlFetch({
@@ -128,6 +224,189 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<bool> crateApiConversationsAcknowledgeGenerationCommand({
+    required String commandId,
+    required PlatformInt64 acknowledgedAt,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(commandId, serializer);
+          sse_encode_i_64(acknowledgedAt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsAcknowledgeGenerationCommandConstMeta,
+        argValues: [commandId, acknowledgedAt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsAcknowledgeGenerationCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: "acknowledge_generation_command",
+        argNames: ["commandId", "acknowledgedAt"],
+      );
+
+  @override
+  Future<bool> crateApiConversationsAcquireOauthRefreshLease({
+    required String accountId,
+    required String ownerId,
+    required PlatformInt64 nowMs,
+    required PlatformInt64 leaseDurationMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(accountId, serializer);
+          sse_encode_String(ownerId, serializer);
+          sse_encode_i_64(nowMs, serializer);
+          sse_encode_i_64(leaseDurationMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsAcquireOauthRefreshLeaseConstMeta,
+        argValues: [accountId, ownerId, nowMs, leaseDurationMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsAcquireOauthRefreshLeaseConstMeta =>
+      const TaskConstMeta(
+        debugName: "acquire_oauth_refresh_lease",
+        argNames: ["accountId", "ownerId", "nowMs", "leaseDurationMs"],
+      );
+
+  @override
+  Future<PlatformInt64> crateApiConversationsAppendGenerationLifecycleEvent({
+    required NewGenerationLifecycleEvent event,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_new_generation_lifecycle_event(
+            event,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_i_64,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta:
+            kCrateApiConversationsAppendGenerationLifecycleEventConstMeta,
+        argValues: [event],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsAppendGenerationLifecycleEventConstMeta =>
+      const TaskConstMeta(
+        debugName: "append_generation_lifecycle_event",
+        argNames: ["event"],
+      );
+
+  @override
+  Future<bool> crateApiConversationsCheckpointGeneration({
+    required GenerationCheckpoint checkpoint,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_generation_checkpoint(checkpoint, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsCheckpointGenerationConstMeta,
+        argValues: [checkpoint],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsCheckpointGenerationConstMeta =>
+      const TaskConstMeta(
+        debugName: "checkpoint_generation",
+        argNames: ["checkpoint"],
+      );
+
+  @override
+  Future<GenerationClaim?> crateApiConversationsClaimGenerationTask({
+    required String workerId,
+    required PlatformInt64 nowMs,
+    required PlatformInt64 leaseDurationMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(workerId, serializer);
+          sse_encode_i_64(nowMs, serializer);
+          sse_encode_i_64(leaseDurationMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_generation_claim,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsClaimGenerationTaskConstMeta,
+        argValues: [workerId, nowMs, leaseDurationMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsClaimGenerationTaskConstMeta =>
+      const TaskConstMeta(
+        debugName: "claim_generation_task",
+        argNames: ["workerId", "nowMs", "leaseDurationMs"],
+      );
+
+  @override
   Future<void> crateApiConversationsConfigureConversations({
     required String dbPath,
   }) {
@@ -139,7 +418,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 6,
             port: port_,
           );
         },
@@ -176,7 +455,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 7,
             port: port_,
           );
         },
@@ -207,7 +486,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 8,
             port: port_,
           );
         },
@@ -226,6 +505,132 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "delete_conversation", argNames: ["id"]);
 
   @override
+  Future<void> crateApiConversationsEnqueueGenerationCommand({
+    required NewGenerationCommand command,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_new_generation_command(command, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsEnqueueGenerationCommandConstMeta,
+        argValues: [command],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsEnqueueGenerationCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: "enqueue_generation_command",
+        argNames: ["command"],
+      );
+
+  @override
+  Future<void> crateApiConversationsEnqueueGenerationTask({
+    required NewGenerationTask task,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_new_generation_task(task, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsEnqueueGenerationTaskConstMeta,
+        argValues: [task],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsEnqueueGenerationTaskConstMeta =>
+      const TaskConstMeta(
+        debugName: "enqueue_generation_task",
+        argNames: ["task"],
+      );
+
+  @override
+  Future<bool> crateApiConversationsFinishGeneration({
+    required GenerationFinish finish,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_generation_finish(finish, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 11,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsFinishGenerationConstMeta,
+        argValues: [finish],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsFinishGenerationConstMeta =>
+      const TaskConstMeta(debugName: "finish_generation", argNames: ["finish"]);
+
+  @override
+  Future<GenerationTask?> crateApiConversationsGetGenerationTask({
+    required String id,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_box_autoadd_generation_task,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsGetGenerationTaskConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsGetGenerationTaskConstMeta =>
+      const TaskConstMeta(debugName: "get_generation_task", argNames: ["id"]);
+
+  @override
   Future<void> crateApiSimpleInitApp() {
     return handler.executeNormal(
       NormalTask(
@@ -234,7 +639,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 13,
             port: port_,
           );
         },
@@ -261,7 +666,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 14,
             port: port_,
           );
         },
@@ -280,6 +685,340 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "load_conversations", argNames: []);
 
   @override
+  Future<List<GenerationLifecycleEvent>>
+  crateApiConversationsLoadGenerationLifecycleEvents({
+    required String taskId,
+    PlatformInt64? afterEventId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          sse_encode_opt_box_autoadd_i_64(afterEventId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_generation_lifecycle_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadGenerationLifecycleEventsConstMeta,
+        argValues: [taskId, afterEventId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsLoadGenerationLifecycleEventsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_generation_lifecycle_events",
+        argNames: ["taskId", "afterEventId"],
+      );
+
+  @override
+  Future<List<GenerationRun>> crateApiConversationsLoadGenerationRuns({
+    required String taskId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_generation_run,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadGenerationRunsConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsLoadGenerationRunsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_generation_runs",
+        argNames: ["taskId"],
+      );
+
+  @override
+  Future<List<GenerationTask>> crateApiConversationsLoadGenerationTasks() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 17,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_generation_task,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadGenerationTasksConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsLoadGenerationTasksConstMeta =>
+      const TaskConstMeta(debugName: "load_generation_tasks", argNames: []);
+
+  @override
+  Future<List<GenerationCommand>>
+  crateApiConversationsLoadPendingGenerationCommands({required String taskId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_generation_command,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadPendingGenerationCommandsConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsLoadPendingGenerationCommandsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_pending_generation_commands",
+        argNames: ["taskId"],
+      );
+
+  @override
+  Future<List<ProviderCall>> crateApiConversationsLoadProviderCalls({
+    required String runId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(runId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_provider_call,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadProviderCallsConstMeta,
+        argValues: [runId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsLoadProviderCallsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_provider_calls",
+        argNames: ["runId"],
+      );
+
+  @override
+  Future<List<ToolExecution>> crateApiConversationsLoadToolExecutions({
+    required String runId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(runId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_tool_execution,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsLoadToolExecutionsConstMeta,
+        argValues: [runId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsLoadToolExecutionsConstMeta =>
+      const TaskConstMeta(
+        debugName: "load_tool_executions",
+        argNames: ["runId"],
+      );
+
+  @override
+  Future<List<String>> crateApiConversationsRecoverExpiredGenerationTasks({
+    required PlatformInt64 nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsRecoverExpiredGenerationTasksConstMeta,
+        argValues: [nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsRecoverExpiredGenerationTasksConstMeta =>
+      const TaskConstMeta(
+        debugName: "recover_expired_generation_tasks",
+        argNames: ["nowMs"],
+      );
+
+  @override
+  Future<void> crateApiConversationsReleaseOauthRefreshLease({
+    required String accountId,
+    required String ownerId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(accountId, serializer);
+          sse_encode_String(ownerId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsReleaseOauthRefreshLeaseConstMeta,
+        argValues: [accountId, ownerId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsReleaseOauthRefreshLeaseConstMeta =>
+      const TaskConstMeta(
+        debugName: "release_oauth_refresh_lease",
+        argNames: ["accountId", "ownerId"],
+      );
+
+  @override
+  Future<bool> crateApiConversationsRemoveQueuedGenerationTask({
+    required String id,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(id, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsRemoveQueuedGenerationTaskConstMeta,
+        argValues: [id],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsRemoveQueuedGenerationTaskConstMeta =>
+      const TaskConstMeta(
+        debugName: "remove_queued_generation_task",
+        argNames: ["id"],
+      );
+
+  @override
+  Future<void> crateApiConversationsReorderQueuedGenerationTasks({
+    required List<String> ids,
+    required PlatformInt64 nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_String(ids, serializer);
+          sse_encode_i_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsReorderQueuedGenerationTasksConstMeta,
+        argValues: [ids, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsReorderQueuedGenerationTasksConstMeta =>
+      const TaskConstMeta(
+        debugName: "reorder_queued_generation_tasks",
+        argNames: ["ids", "nowMs"],
+      );
+
+  @override
   Future<void> crateApiConversationsUpsertConversation({
     required StoredConversation conv,
   }) {
@@ -291,7 +1030,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 25,
             port: port_,
           );
         },
@@ -310,6 +1049,109 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "upsert_conversation", argNames: ["conv"]);
 
   @override
+  Future<void> crateApiConversationsUpsertConversationAndEnqueueGeneration({
+    required StoredConversation conv,
+    required NewGenerationTask task,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_stored_conversation(conv, serializer);
+          sse_encode_box_autoadd_new_generation_task(task, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 26,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta:
+            kCrateApiConversationsUpsertConversationAndEnqueueGenerationConstMeta,
+        argValues: [conv, task],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiConversationsUpsertConversationAndEnqueueGenerationConstMeta =>
+      const TaskConstMeta(
+        debugName: "upsert_conversation_and_enqueue_generation",
+        argNames: ["conv", "task"],
+      );
+
+  @override
+  Future<void> crateApiConversationsUpsertProviderCall({
+    required ProviderCall call,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_provider_call(call, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 27,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsUpsertProviderCallConstMeta,
+        argValues: [call],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsUpsertProviderCallConstMeta =>
+      const TaskConstMeta(
+        debugName: "upsert_provider_call",
+        argNames: ["call"],
+      );
+
+  @override
+  Future<void> crateApiConversationsUpsertToolExecution({
+    required ToolExecution execution,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_tool_execution(execution, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 28,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiConversationsUpsertToolExecutionConstMeta,
+        argValues: [execution],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiConversationsUpsertToolExecutionConstMeta =>
+      const TaskConstMeta(
+        debugName: "upsert_tool_execution",
+        argNames: ["execution"],
+      );
+
+  @override
   Future<FetchedPage> crateApiWebRetrievalUrlFetch({
     required String url,
     required String format,
@@ -323,7 +1165,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 29,
             port: port_,
           );
         },
@@ -350,7 +1192,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 30,
             port: port_,
           );
         },
@@ -382,7 +1224,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 31,
             port: port_,
           );
         },
@@ -417,7 +1259,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 32,
             port: port_,
           );
         },
@@ -457,15 +1299,74 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GenerationCheckpoint dco_decode_box_autoadd_generation_checkpoint(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_generation_checkpoint(raw);
+  }
+
+  @protected
+  GenerationClaim dco_decode_box_autoadd_generation_claim(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_generation_claim(raw);
+  }
+
+  @protected
+  GenerationFinish dco_decode_box_autoadd_generation_finish(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_generation_finish(raw);
+  }
+
+  @protected
+  GenerationTask dco_decode_box_autoadd_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_generation_task(raw);
+  }
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
   }
 
   @protected
+  NewGenerationCommand dco_decode_box_autoadd_new_generation_command(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_new_generation_command(raw);
+  }
+
+  @protected
+  NewGenerationLifecycleEvent
+  dco_decode_box_autoadd_new_generation_lifecycle_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_new_generation_lifecycle_event(raw);
+  }
+
+  @protected
+  NewGenerationTask dco_decode_box_autoadd_new_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_new_generation_task(raw);
+  }
+
+  @protected
+  ProviderCall dco_decode_box_autoadd_provider_call(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_provider_call(raw);
+  }
+
+  @protected
   StoredConversation dco_decode_box_autoadd_stored_conversation(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_stored_conversation(raw);
+  }
+
+  @protected
+  ToolExecution dco_decode_box_autoadd_tool_execution(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_tool_execution(raw);
   }
 
   @protected
@@ -489,6 +1390,130 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GenerationCheckpoint dco_decode_generation_checkpoint(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return GenerationCheckpoint(
+      taskId: dco_decode_String(arr[0]),
+      runId: dco_decode_String(arr[1]),
+      workerId: dco_decode_String(arr[2]),
+      checkpointJson: dco_decode_String(arr[3]),
+      nowMs: dco_decode_i_64(arr[4]),
+      leaseDurationMs: dco_decode_i_64(arr[5]),
+    );
+  }
+
+  @protected
+  GenerationClaim dco_decode_generation_claim(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return GenerationClaim(
+      task: dco_decode_generation_task(arr[0]),
+      run: dco_decode_generation_run(arr[1]),
+    );
+  }
+
+  @protected
+  GenerationCommand dco_decode_generation_command(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return GenerationCommand(
+      id: dco_decode_String(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      kind: dco_decode_String(arr[2]),
+      payloadJson: dco_decode_opt_String(arr[3]),
+      status: dco_decode_String(arr[4]),
+      createdAt: dco_decode_i_64(arr[5]),
+      acknowledgedAt: dco_decode_opt_box_autoadd_i_64(arr[6]),
+    );
+  }
+
+  @protected
+  GenerationFinish dco_decode_generation_finish(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return GenerationFinish(
+      taskId: dco_decode_String(arr[0]),
+      runId: dco_decode_String(arr[1]),
+      workerId: dco_decode_String(arr[2]),
+      status: dco_decode_String(arr[3]),
+      checkpointJson: dco_decode_opt_String(arr[4]),
+      error: dco_decode_opt_String(arr[5]),
+      finishedAt: dco_decode_i_64(arr[6]),
+    );
+  }
+
+  @protected
+  GenerationLifecycleEvent dco_decode_generation_lifecycle_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return GenerationLifecycleEvent(
+      id: dco_decode_i_64(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      runId: dco_decode_opt_String(arr[2]),
+      eventType: dco_decode_String(arr[3]),
+      payloadJson: dco_decode_opt_String(arr[4]),
+      createdAt: dco_decode_i_64(arr[5]),
+    );
+  }
+
+  @protected
+  GenerationRun dco_decode_generation_run(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    return GenerationRun(
+      id: dco_decode_String(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      attempt: dco_decode_i_64(arr[2]),
+      status: dco_decode_String(arr[3]),
+      workerId: dco_decode_String(arr[4]),
+      checkpointJson: dco_decode_opt_String(arr[5]),
+      error: dco_decode_opt_String(arr[6]),
+      startedAt: dco_decode_i_64(arr[7]),
+      updatedAt: dco_decode_i_64(arr[8]),
+      finishedAt: dco_decode_opt_box_autoadd_i_64(arr[9]),
+    );
+  }
+
+  @protected
+  GenerationTask dco_decode_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    return GenerationTask(
+      id: dco_decode_String(arr[0]),
+      conversationId: dco_decode_String(arr[1]),
+      assistantMessageId: dco_decode_opt_String(arr[2]),
+      status: dco_decode_String(arr[3]),
+      requestJson: dco_decode_String(arr[4]),
+      priority: dco_decode_i_64(arr[5]),
+      attemptCount: dco_decode_i_64(arr[6]),
+      maxAttempts: dco_decode_i_64(arr[7]),
+      leaseOwner: dco_decode_opt_String(arr[8]),
+      leaseExpiresAt: dco_decode_opt_box_autoadd_i_64(arr[9]),
+      checkpointJson: dco_decode_opt_String(arr[10]),
+      lastError: dco_decode_opt_String(arr[11]),
+      createdAt: dco_decode_i_64(arr[12]),
+      updatedAt: dco_decode_i_64(arr[13]),
+      startedAt: dco_decode_opt_box_autoadd_i_64(arr[14]),
+      finishedAt: dco_decode_opt_box_autoadd_i_64(arr[15]),
+    );
+  }
+
+  @protected
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
@@ -507,9 +1532,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<GenerationCommand> dco_decode_list_generation_command(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_generation_command).toList();
+  }
+
+  @protected
+  List<GenerationLifecycleEvent> dco_decode_list_generation_lifecycle_event(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_generation_lifecycle_event)
+        .toList();
+  }
+
+  @protected
+  List<GenerationRun> dco_decode_list_generation_run(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_generation_run).toList();
+  }
+
+  @protected
+  List<GenerationTask> dco_decode_list_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_generation_task).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  List<ProviderCall> dco_decode_list_provider_call(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_provider_call).toList();
   }
 
   @protected
@@ -543,9 +1602,76 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ToolExecution> dco_decode_list_tool_execution(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_tool_execution).toList();
+  }
+
+  @protected
+  NewGenerationCommand dco_decode_new_generation_command(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NewGenerationCommand(
+      id: dco_decode_String(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      kind: dco_decode_String(arr[2]),
+      payloadJson: dco_decode_opt_String(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+    );
+  }
+
+  @protected
+  NewGenerationLifecycleEvent dco_decode_new_generation_lifecycle_event(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NewGenerationLifecycleEvent(
+      taskId: dco_decode_String(arr[0]),
+      runId: dco_decode_opt_String(arr[1]),
+      eventType: dco_decode_String(arr[2]),
+      payloadJson: dco_decode_opt_String(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+    );
+  }
+
+  @protected
+  NewGenerationTask dco_decode_new_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return NewGenerationTask(
+      id: dco_decode_String(arr[0]),
+      conversationId: dco_decode_String(arr[1]),
+      assistantMessageId: dco_decode_opt_String(arr[2]),
+      requestJson: dco_decode_String(arr[3]),
+      priority: dco_decode_i_64(arr[4]),
+      maxAttempts: dco_decode_i_64(arr[5]),
+      createdAt: dco_decode_i_64(arr[6]),
+    );
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  GenerationClaim? dco_decode_opt_box_autoadd_generation_claim(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_generation_claim(raw);
+  }
+
+  @protected
+  GenerationTask? dco_decode_opt_box_autoadd_generation_task(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_generation_task(raw);
   }
 
   @protected
@@ -558,6 +1684,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  ProviderCall dco_decode_provider_call(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    return ProviderCall(
+      id: dco_decode_String(arr[0]),
+      runId: dco_decode_String(arr[1]),
+      provider: dco_decode_String(arr[2]),
+      model: dco_decode_opt_String(arr[3]),
+      status: dco_decode_String(arr[4]),
+      requestJson: dco_decode_String(arr[5]),
+      responseJson: dco_decode_opt_String(arr[6]),
+      error: dco_decode_opt_String(arr[7]),
+      createdAt: dco_decode_i_64(arr[8]),
+      updatedAt: dco_decode_i_64(arr[9]),
+      finishedAt: dco_decode_opt_box_autoadd_i_64(arr[10]),
+    );
   }
 
   @protected
@@ -664,6 +1811,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ToolExecution dco_decode_tool_execution(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    return ToolExecution(
+      id: dco_decode_String(arr[0]),
+      runId: dco_decode_String(arr[1]),
+      toolCallId: dco_decode_opt_String(arr[2]),
+      toolName: dco_decode_String(arr[3]),
+      status: dco_decode_String(arr[4]),
+      inputJson: dco_decode_String(arr[5]),
+      outputJson: dco_decode_opt_String(arr[6]),
+      error: dco_decode_opt_String(arr[7]),
+      createdAt: dco_decode_i_64(arr[8]),
+      updatedAt: dco_decode_i_64(arr[9]),
+      finishedAt: dco_decode_opt_box_autoadd_i_64(arr[10]),
+    );
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -708,9 +1876,74 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GenerationCheckpoint sse_decode_box_autoadd_generation_checkpoint(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_generation_checkpoint(deserializer));
+  }
+
+  @protected
+  GenerationClaim sse_decode_box_autoadd_generation_claim(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_generation_claim(deserializer));
+  }
+
+  @protected
+  GenerationFinish sse_decode_box_autoadd_generation_finish(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_generation_finish(deserializer));
+  }
+
+  @protected
+  GenerationTask sse_decode_box_autoadd_generation_task(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_generation_task(deserializer));
+  }
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  NewGenerationCommand sse_decode_box_autoadd_new_generation_command(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_new_generation_command(deserializer));
+  }
+
+  @protected
+  NewGenerationLifecycleEvent
+  sse_decode_box_autoadd_new_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_new_generation_lifecycle_event(deserializer));
+  }
+
+  @protected
+  NewGenerationTask sse_decode_box_autoadd_new_generation_task(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_new_generation_task(deserializer));
+  }
+
+  @protected
+  ProviderCall sse_decode_box_autoadd_provider_call(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_provider_call(deserializer));
   }
 
   @protected
@@ -719,6 +1952,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_stored_conversation(deserializer));
+  }
+
+  @protected
+  ToolExecution sse_decode_box_autoadd_tool_execution(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_tool_execution(deserializer));
   }
 
   @protected
@@ -739,6 +1980,166 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       title: var_title,
       content: var_content,
       contentType: var_contentType,
+    );
+  }
+
+  @protected
+  GenerationCheckpoint sse_decode_generation_checkpoint(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_taskId = sse_decode_String(deserializer);
+    var var_runId = sse_decode_String(deserializer);
+    var var_workerId = sse_decode_String(deserializer);
+    var var_checkpointJson = sse_decode_String(deserializer);
+    var var_nowMs = sse_decode_i_64(deserializer);
+    var var_leaseDurationMs = sse_decode_i_64(deserializer);
+    return GenerationCheckpoint(
+      taskId: var_taskId,
+      runId: var_runId,
+      workerId: var_workerId,
+      checkpointJson: var_checkpointJson,
+      nowMs: var_nowMs,
+      leaseDurationMs: var_leaseDurationMs,
+    );
+  }
+
+  @protected
+  GenerationClaim sse_decode_generation_claim(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_task = sse_decode_generation_task(deserializer);
+    var var_run = sse_decode_generation_run(deserializer);
+    return GenerationClaim(task: var_task, run: var_run);
+  }
+
+  @protected
+  GenerationCommand sse_decode_generation_command(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_kind = sse_decode_String(deserializer);
+    var var_payloadJson = sse_decode_opt_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    var var_acknowledgedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return GenerationCommand(
+      id: var_id,
+      taskId: var_taskId,
+      kind: var_kind,
+      payloadJson: var_payloadJson,
+      status: var_status,
+      createdAt: var_createdAt,
+      acknowledgedAt: var_acknowledgedAt,
+    );
+  }
+
+  @protected
+  GenerationFinish sse_decode_generation_finish(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_taskId = sse_decode_String(deserializer);
+    var var_runId = sse_decode_String(deserializer);
+    var var_workerId = sse_decode_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_checkpointJson = sse_decode_opt_String(deserializer);
+    var var_error = sse_decode_opt_String(deserializer);
+    var var_finishedAt = sse_decode_i_64(deserializer);
+    return GenerationFinish(
+      taskId: var_taskId,
+      runId: var_runId,
+      workerId: var_workerId,
+      status: var_status,
+      checkpointJson: var_checkpointJson,
+      error: var_error,
+      finishedAt: var_finishedAt,
+    );
+  }
+
+  @protected
+  GenerationLifecycleEvent sse_decode_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_i_64(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_runId = sse_decode_opt_String(deserializer);
+    var var_eventType = sse_decode_String(deserializer);
+    var var_payloadJson = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return GenerationLifecycleEvent(
+      id: var_id,
+      taskId: var_taskId,
+      runId: var_runId,
+      eventType: var_eventType,
+      payloadJson: var_payloadJson,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  GenerationRun sse_decode_generation_run(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_attempt = sse_decode_i_64(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_workerId = sse_decode_String(deserializer);
+    var var_checkpointJson = sse_decode_opt_String(deserializer);
+    var var_error = sse_decode_opt_String(deserializer);
+    var var_startedAt = sse_decode_i_64(deserializer);
+    var var_updatedAt = sse_decode_i_64(deserializer);
+    var var_finishedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return GenerationRun(
+      id: var_id,
+      taskId: var_taskId,
+      attempt: var_attempt,
+      status: var_status,
+      workerId: var_workerId,
+      checkpointJson: var_checkpointJson,
+      error: var_error,
+      startedAt: var_startedAt,
+      updatedAt: var_updatedAt,
+      finishedAt: var_finishedAt,
+    );
+  }
+
+  @protected
+  GenerationTask sse_decode_generation_task(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_conversationId = sse_decode_String(deserializer);
+    var var_assistantMessageId = sse_decode_opt_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_requestJson = sse_decode_String(deserializer);
+    var var_priority = sse_decode_i_64(deserializer);
+    var var_attemptCount = sse_decode_i_64(deserializer);
+    var var_maxAttempts = sse_decode_i_64(deserializer);
+    var var_leaseOwner = sse_decode_opt_String(deserializer);
+    var var_leaseExpiresAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_checkpointJson = sse_decode_opt_String(deserializer);
+    var var_lastError = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    var var_updatedAt = sse_decode_i_64(deserializer);
+    var var_startedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_finishedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return GenerationTask(
+      id: var_id,
+      conversationId: var_conversationId,
+      assistantMessageId: var_assistantMessageId,
+      status: var_status,
+      requestJson: var_requestJson,
+      priority: var_priority,
+      attemptCount: var_attemptCount,
+      maxAttempts: var_maxAttempts,
+      leaseOwner: var_leaseOwner,
+      leaseExpiresAt: var_leaseExpiresAt,
+      checkpointJson: var_checkpointJson,
+      lastError: var_lastError,
+      createdAt: var_createdAt,
+      updatedAt: var_updatedAt,
+      startedAt: var_startedAt,
+      finishedAt: var_finishedAt,
     );
   }
 
@@ -773,10 +2174,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<GenerationCommand> sse_decode_list_generation_command(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GenerationCommand>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_generation_command(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GenerationLifecycleEvent> sse_decode_list_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GenerationLifecycleEvent>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_generation_lifecycle_event(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GenerationRun> sse_decode_list_generation_run(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GenerationRun>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_generation_run(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GenerationTask> sse_decode_list_generation_task(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GenerationTask>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_generation_task(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  List<ProviderCall> sse_decode_list_provider_call(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ProviderCall>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_provider_call(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -850,11 +2321,112 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ToolExecution> sse_decode_list_tool_execution(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ToolExecution>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_tool_execution(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  NewGenerationCommand sse_decode_new_generation_command(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_kind = sse_decode_String(deserializer);
+    var var_payloadJson = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return NewGenerationCommand(
+      id: var_id,
+      taskId: var_taskId,
+      kind: var_kind,
+      payloadJson: var_payloadJson,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  NewGenerationLifecycleEvent sse_decode_new_generation_lifecycle_event(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_taskId = sse_decode_String(deserializer);
+    var var_runId = sse_decode_opt_String(deserializer);
+    var var_eventType = sse_decode_String(deserializer);
+    var var_payloadJson = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return NewGenerationLifecycleEvent(
+      taskId: var_taskId,
+      runId: var_runId,
+      eventType: var_eventType,
+      payloadJson: var_payloadJson,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
+  NewGenerationTask sse_decode_new_generation_task(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_conversationId = sse_decode_String(deserializer);
+    var var_assistantMessageId = sse_decode_opt_String(deserializer);
+    var var_requestJson = sse_decode_String(deserializer);
+    var var_priority = sse_decode_i_64(deserializer);
+    var var_maxAttempts = sse_decode_i_64(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return NewGenerationTask(
+      id: var_id,
+      conversationId: var_conversationId,
+      assistantMessageId: var_assistantMessageId,
+      requestJson: var_requestJson,
+      priority: var_priority,
+      maxAttempts: var_maxAttempts,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  GenerationClaim? sse_decode_opt_box_autoadd_generation_claim(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_generation_claim(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  GenerationTask? sse_decode_opt_box_autoadd_generation_task(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_generation_task(deserializer));
     } else {
       return null;
     }
@@ -880,6 +2452,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  ProviderCall sse_decode_provider_call(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_runId = sse_decode_String(deserializer);
+    var var_provider = sse_decode_String(deserializer);
+    var var_model = sse_decode_opt_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_requestJson = sse_decode_String(deserializer);
+    var var_responseJson = sse_decode_opt_String(deserializer);
+    var var_error = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    var var_updatedAt = sse_decode_i_64(deserializer);
+    var var_finishedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return ProviderCall(
+      id: var_id,
+      runId: var_runId,
+      provider: var_provider,
+      model: var_model,
+      status: var_status,
+      requestJson: var_requestJson,
+      responseJson: var_responseJson,
+      error: var_error,
+      createdAt: var_createdAt,
+      updatedAt: var_updatedAt,
+      finishedAt: var_finishedAt,
+    );
   }
 
   @protected
@@ -1010,6 +2611,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ToolExecution sse_decode_tool_execution(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_runId = sse_decode_String(deserializer);
+    var var_toolCallId = sse_decode_opt_String(deserializer);
+    var var_toolName = sse_decode_String(deserializer);
+    var var_status = sse_decode_String(deserializer);
+    var var_inputJson = sse_decode_String(deserializer);
+    var var_outputJson = sse_decode_opt_String(deserializer);
+    var var_error = sse_decode_opt_String(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    var var_updatedAt = sse_decode_i_64(deserializer);
+    var var_finishedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return ToolExecution(
+      id: var_id,
+      runId: var_runId,
+      toolCallId: var_toolCallId,
+      toolName: var_toolName,
+      status: var_status,
+      inputJson: var_inputJson,
+      outputJson: var_outputJson,
+      error: var_error,
+      createdAt: var_createdAt,
+      updatedAt: var_updatedAt,
+      finishedAt: var_finishedAt,
+    );
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -1060,6 +2690,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_generation_checkpoint(
+    GenerationCheckpoint self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_generation_checkpoint(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_generation_claim(
+    GenerationClaim self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_generation_claim(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_generation_finish(
+    GenerationFinish self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_generation_finish(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_generation_task(
+    GenerationTask self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_generation_task(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
     SseSerializer serializer,
@@ -1069,12 +2735,57 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_new_generation_command(
+    NewGenerationCommand self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_new_generation_command(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_new_generation_lifecycle_event(
+    NewGenerationLifecycleEvent self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_new_generation_lifecycle_event(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_new_generation_task(
+    NewGenerationTask self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_new_generation_task(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_provider_call(
+    ProviderCall self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_provider_call(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_stored_conversation(
     StoredConversation self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_stored_conversation(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_tool_execution(
+    ToolExecution self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_tool_execution(self, serializer);
   }
 
   @protected
@@ -1090,6 +2801,113 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.title, serializer);
     sse_encode_String(self.content, serializer);
     sse_encode_String(self.contentType, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_checkpoint(
+    GenerationCheckpoint self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_String(self.runId, serializer);
+    sse_encode_String(self.workerId, serializer);
+    sse_encode_String(self.checkpointJson, serializer);
+    sse_encode_i_64(self.nowMs, serializer);
+    sse_encode_i_64(self.leaseDurationMs, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_claim(
+    GenerationClaim self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_generation_task(self.task, serializer);
+    sse_encode_generation_run(self.run, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_command(
+    GenerationCommand self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_String(self.kind, serializer);
+    sse_encode_opt_String(self.payloadJson, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.acknowledgedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_finish(
+    GenerationFinish self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_String(self.runId, serializer);
+    sse_encode_String(self.workerId, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_opt_String(self.checkpointJson, serializer);
+    sse_encode_opt_String(self.error, serializer);
+    sse_encode_i_64(self.finishedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_lifecycle_event(
+    GenerationLifecycleEvent self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_opt_String(self.runId, serializer);
+    sse_encode_String(self.eventType, serializer);
+    sse_encode_opt_String(self.payloadJson, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_run(GenerationRun self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_i_64(self.attempt, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_String(self.workerId, serializer);
+    sse_encode_opt_String(self.checkpointJson, serializer);
+    sse_encode_opt_String(self.error, serializer);
+    sse_encode_i_64(self.startedAt, serializer);
+    sse_encode_i_64(self.updatedAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.finishedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_generation_task(
+    GenerationTask self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.conversationId, serializer);
+    sse_encode_opt_String(self.assistantMessageId, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_String(self.requestJson, serializer);
+    sse_encode_i_64(self.priority, serializer);
+    sse_encode_i_64(self.attemptCount, serializer);
+    sse_encode_i_64(self.maxAttempts, serializer);
+    sse_encode_opt_String(self.leaseOwner, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.leaseExpiresAt, serializer);
+    sse_encode_opt_String(self.checkpointJson, serializer);
+    sse_encode_opt_String(self.lastError, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+    sse_encode_i_64(self.updatedAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.startedAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.finishedAt, serializer);
   }
 
   @protected
@@ -1120,6 +2938,54 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_generation_command(
+    List<GenerationCommand> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_generation_command(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_generation_lifecycle_event(
+    List<GenerationLifecycleEvent> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_generation_lifecycle_event(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_generation_run(
+    List<GenerationRun> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_generation_run(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_generation_task(
+    List<GenerationTask> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_generation_task(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -1127,6 +2993,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_list_provider_call(
+    List<ProviderCall> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_provider_call(item, serializer);
+    }
   }
 
   @protected
@@ -1190,12 +3068,91 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_tool_execution(
+    List<ToolExecution> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_tool_execution(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_new_generation_command(
+    NewGenerationCommand self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_String(self.kind, serializer);
+    sse_encode_opt_String(self.payloadJson, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_new_generation_lifecycle_event(
+    NewGenerationLifecycleEvent self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_opt_String(self.runId, serializer);
+    sse_encode_String(self.eventType, serializer);
+    sse_encode_opt_String(self.payloadJson, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_new_generation_task(
+    NewGenerationTask self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.conversationId, serializer);
+    sse_encode_opt_String(self.assistantMessageId, serializer);
+    sse_encode_String(self.requestJson, serializer);
+    sse_encode_i_64(self.priority, serializer);
+    sse_encode_i_64(self.maxAttempts, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_generation_claim(
+    GenerationClaim? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_generation_claim(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_generation_task(
+    GenerationTask? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_generation_task(self, serializer);
     }
   }
 
@@ -1220,6 +3177,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_box_autoadd_u_64(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_provider_call(ProviderCall self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.runId, serializer);
+    sse_encode_String(self.provider, serializer);
+    sse_encode_opt_String(self.model, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_String(self.requestJson, serializer);
+    sse_encode_opt_String(self.responseJson, serializer);
+    sse_encode_opt_String(self.error, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+    sse_encode_i_64(self.updatedAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.finishedAt, serializer);
   }
 
   @protected
@@ -1299,6 +3272,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.reasoning, serializer);
     sse_encode_opt_String(self.attachmentsJson, serializer);
     sse_encode_String(self.generationStatus, serializer);
+  }
+
+  @protected
+  void sse_encode_tool_execution(ToolExecution self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.runId, serializer);
+    sse_encode_opt_String(self.toolCallId, serializer);
+    sse_encode_String(self.toolName, serializer);
+    sse_encode_String(self.status, serializer);
+    sse_encode_String(self.inputJson, serializer);
+    sse_encode_opt_String(self.outputJson, serializer);
+    sse_encode_opt_String(self.error, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
+    sse_encode_i_64(self.updatedAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.finishedAt, serializer);
   }
 
   @protected

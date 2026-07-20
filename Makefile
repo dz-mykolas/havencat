@@ -4,6 +4,8 @@ DEVICE ?= web-server
 WEB_HOST ?= 0.0.0.0
 WEB_PORT ?= 8080
 SERVE_PORT ?= 8088
+DIST_DIR ?= dist
+ANDROID_DIST := $(DIST_DIR)/android
 
 FLUTTER := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/flutter
 DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
@@ -36,7 +38,7 @@ RUN_ARGS += --dart-define=CODEX_CLIENT_VERSION=$(CODEX_CLIENT_VERSION)
 endif
 endif
 
-.PHONY: install run run-profile run-release server rust check format build-play build-apk build-ios build-desktop clean
+.PHONY: install run run-profile run-release server rust check format build-play build-apk build-apk-arm64 build-apk-all build-ios build-desktop clean
 
 # Install the pinned Flutter SDK and project dependencies.
 install:
@@ -65,19 +67,31 @@ check:
 format:
 	$(DART) format .
 
-# Build Android App Bundle for Play Store.
+# Build an Android App Bundle for Google Play.
 build-play:
-	cd $(APP) && $(FLUTTER) build appbundle
+	cd $(APP) && $(FLUTTER) build appbundle --release
+	mkdir -p $(ANDROID_DIST)
+	cp $(APP)/build/app/outputs/bundle/release/app-release.aab $(ANDROID_DIST)/
 
-# Build Android APK for sideload/manual testing.
+# Build one universal APK that supports every Flutter Android architecture.
 build-apk:
 	cd $(APP) && $(FLUTTER) build apk --release
+	mkdir -p $(ANDROID_DIST)
+	cp $(APP)/build/app/outputs/flutter-apk/app-release.apk $(ANDROID_DIST)/
 
-# Build per-ABI APKs (smaller per-device downloads) plus the fat APK (one
-# install file for any device). Gradle caches compiled artifacts, so the
-# second invocation is much faster than the first.
-build-apk-all: build-apk
+# Build one smaller ARM64 APK for modern physical Android phones.
+build-apk-arm64:
+	cd $(APP) && $(FLUTTER) build apk --release --target-platform android-arm64 --split-per-abi
+	mkdir -p $(ANDROID_DIST)
+	cp $(APP)/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk $(ANDROID_DIST)/
+
+# Build smaller APKs for every supported Android architecture in one pass.
+build-apk-all:
 	cd $(APP) && $(FLUTTER) build apk --release --split-per-abi
+	mkdir -p $(ANDROID_DIST)
+	cp $(APP)/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk $(ANDROID_DIST)/
+	cp $(APP)/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk $(ANDROID_DIST)/
+	cp $(APP)/build/app/outputs/flutter-apk/app-x86_64-release.apk $(ANDROID_DIST)/
 
 # Build iOS IPA. Run on macOS only.
 build-ios:
@@ -105,3 +119,4 @@ build-desktop:
 # Remove Flutter build outputs.
 clean:
 	cd $(APP) && $(FLUTTER) clean
+	rm -rf $(DIST_DIR)

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/conversation_repository.dart';
 import '../../data/repositories/provider_account_repository.dart';
 import '../../domain/models/conversation.dart';
+import '../../domain/models/generation_task.dart';
 import '../../domain/models/message_attachment.dart';
 import '../../domain/errors/app_failure.dart';
 import '../../providers.dart';
@@ -33,6 +34,18 @@ class ChatViewModel extends ChangeNotifier {
     List<MessageAttachment> attachments = const <MessageAttachment>[],
   }) => _conversations.sendMessage(text, attachments: attachments);
   Future<void> cancelGeneration() => _conversations.cancelGeneration();
+  Future<void> steerGeneration(String text) =>
+      _conversations.steerGeneration(text);
+  Future<void> removeQueuedGeneration(String taskId) =>
+      _conversations.removeQueuedGeneration(taskId);
+  Future<void> moveQueuedGeneration(String taskId, int direction) =>
+      _conversations.moveQueuedGeneration(taskId, direction);
+  bool canMoveQueuedGeneration(String taskId, int direction) =>
+      _conversations.canMoveQueuedGeneration(taskId, direction);
+  bool canRemoveQueuedGeneration(String taskId) =>
+      _conversations.canRemoveQueuedGeneration(taskId);
+  Future<void> editQueuedGeneration(String taskId, String text) =>
+      _conversations.editQueuedGeneration(taskId, text);
   Future<void> continueInterrupted(String messageId) =>
       _conversations.continueInterrupted(messageId);
 
@@ -89,6 +102,21 @@ class ChatViewModel extends ChangeNotifier {
   String? get activeId => _conversations.activeId;
 
   bool get isGenerating => _conversations.isGenerating;
+
+  int get queuedGenerationCount => _conversations.generationTasks
+      .where(
+        (GenerationTask task) =>
+            task.state == GenerationTaskState.queued ||
+            task.state == GenerationTaskState.claimed,
+      )
+      .length;
+
+  List<GenerationTask> get queuedGenerations => _conversations.generationTasks
+      .where((GenerationTask task) => task.state == GenerationTaskState.queued)
+      .toList(growable: false);
+
+  String queuedGenerationText(GenerationTask task) =>
+      _conversations.queuedGenerationText(task);
 
   /// Context window (in tokens) for the active conversation's model.
   int get activeContextWindow => _conversations.activeContextWindow;

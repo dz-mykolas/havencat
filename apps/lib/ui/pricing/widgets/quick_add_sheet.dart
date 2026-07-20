@@ -72,31 +72,34 @@ Future<void> showQuickAdd(
       final double viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
       return Padding(
         padding: EdgeInsets.only(bottom: viewInsets),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: 560),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: _QuickAddContent(
-              group: group,
-              definition: definition,
-              onSubmit:
-                  ({
-                    required String displayName,
-                    required String apiKey,
-                    required String? baseUrl,
-                    required List<String> enabledModels,
-                  }) async {
-                    await vm.addApiKeyAccount(
-                      definitionId: definition.id,
-                      displayName: displayName,
-                      apiKey: apiKey,
-                      config: baseUrl == null
-                          ? null
-                          : <String, Object?>{'baseUrl': baseUrl},
-                      enabledModels: enabledModels,
-                    );
-                  },
-              onDone: () => Navigator.of(ctx).maybePop(),
+        child: SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: _QuickAddContent(
+                group: group,
+                definition: definition,
+                onSubmit:
+                    ({
+                      required String displayName,
+                      required String apiKey,
+                      required String? baseUrl,
+                      required List<String> enabledModels,
+                    }) async {
+                      await vm.addApiKeyAccount(
+                        definitionId: definition.id,
+                        displayName: displayName,
+                        apiKey: apiKey,
+                        config: baseUrl == null
+                            ? null
+                            : <String, Object?>{'baseUrl': baseUrl},
+                        enabledModels: enabledModels,
+                      );
+                    },
+                onDone: () => Navigator.of(ctx).maybePop(),
+              ),
             ),
           ),
         ),

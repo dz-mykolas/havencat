@@ -93,7 +93,6 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
 
     final String model = _resolveModel(account);
     final String baseUrl = ChatGptOAuthConfig.chatgptApiBaseUrl;
-    final CancelToken cancelToken = CancelToken();
 
     _log.info(
       'stream: model=$model messages=${request.messages.length} '
@@ -102,9 +101,13 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
 
     final Future<void> Function()? signal = request.signal;
     StreamSubscription<void>? signalSub;
+    CancelToken? activeCancelToken;
+    bool cancelled = false;
     if (signal != null) {
       signalSub = signal().asStream().listen((_) {
-        if (!cancelToken.isCancelled) cancelToken.cancel();
+        cancelled = true;
+        final CancelToken? token = activeCancelToken;
+        if (token != null && !token.isCancelled) token.cancel();
       });
     }
 
@@ -113,49 +116,60 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
         '$baseUrl${CodexProtocol.responsesPath}',
         _codexHeaders(secret),
       );
-      final Stream<SseEvent> events = _sse.stream(
-        url: resolved.url,
-        method: 'POST',
-        headers: resolved.headers,
-        body: jsonEncode(
-          CodexProtocol.buildBody(
-            model: model,
-            messages: request.messages,
-            instructions: request.systemPrompt ?? '',
-            tools: request.tools,
-          ),
+      final String body = jsonEncode(
+        CodexProtocol.buildBody(
+          model: model,
+          messages: request.messages,
+          instructions: request.systemPrompt ?? '',
+          tools: request.tools,
         ),
-        cancelToken: cancelToken,
       );
-
-      await for (final SseEvent event in events) {
-        final List<LlmEvent> parsed = _parseEvents(event.data, failureSource);
-        _log.fine(
-          'sse raw: ${event.data.substring(0, event.data.length.clamp(0, 500))}'
-          ' → parsed=${parsed.map((LlmEvent value) => value.runtimeType).join(',')}',
+      final CancelToken cancelToken = CancelToken();
+      activeCancelToken = cancelToken;
+      try {
+        final Stream<SseEvent> events = _sse.stream(
+          url: resolved.url,
+          method: 'POST',
+          headers: resolved.headers,
+          body: body,
+          cancelToken: cancelToken,
         );
-        for (final LlmEvent value in parsed) {
-          yield value;
-          if (value is DoneEvent) return;
+        await for (final SseEvent event in events) {
+          final List<LlmEvent> parsed = _parseEvents(event.data, failureSource);
+          _log.fine(
+            'sse raw: ${event.data.substring(0, event.data.length.clamp(0, 500))}'
+            ' → parsed=${parsed.map((LlmEvent value) => value.runtimeType).join(',')}',
+          );
+          for (final LlmEvent value in parsed) {
+            yield value;
+            if (value is DoneEvent) return;
+          }
         }
-      }
-      _log.fine('stream: ended without explicit done');
-      yield const DoneEvent();
-    } on DioException catch (e) {
-      _log.warning(
-        'stream: DioException ${e.type.name} status=${e.response?.statusCode}',
-      );
-      yield ErrorEvent(
-        _failureMapper.fromDio(
-          e,
+        if (cancelled) return;
+        throw NetworkError(
+          'The response stream ended before completion.',
+          source: failureSource,
+        );
+      } on Object catch (error, stack) {
+        if (cancelled ||
+            (error is DioException && CancelToken.isCancel(error))) {
+          return;
+        }
+        final AppFailure failure = _failureMapper.fromException(
+          error,
           source: failureSource,
           flavor: ProviderErrorFlavor.codex,
-        ),
-      );
-    } catch (e, stack) {
-      _log.severe('stream: unexpected error', e, stack);
-      yield ErrorEvent(UnknownError(e.toString(), source: failureSource));
+        );
+        _log.severe('stream: request failed', error, stack);
+        yield ErrorEvent(failure);
+      } finally {
+        if (identical(activeCancelToken, cancelToken)) {
+          activeCancelToken = null;
+        }
+      }
     } finally {
+      final CancelToken? token = activeCancelToken;
+      if (token != null && !token.isCancelled) token.cancel();
       await signalSub?.cancel();
     }
   }

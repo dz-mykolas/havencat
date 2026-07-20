@@ -6,7 +6,10 @@
     <application
         android:label="havencat"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,9 +38,9 @@
             android:name="flutterEmbedding"
             android:value="2" />
         <service
-            android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
+            android:name=".GenerationForegroundService"
             android:exported="false"
-            android:stopWithTask="false"
+            android:stopWithTask="true"
             android:foregroundServiceType="dataSync" />
     </application>
     <!-- Required to query activities that can process text, see:

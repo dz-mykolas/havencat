@@ -1,8 +1,9 @@
-/// Web implementation: writes log lines via `print` (browser console).
+import 'dart:developer' as developer;
+
+/// Web implementation: writes log lines to the browser console.
 ///
 /// Log level is resolved by the caller (`AppConfig` → `initLogging(level:)`),
 /// so this file only handles output routing.
 void writeLogLine(String line, bool isWarningOrAbove) {
-  // On web, `print` goes to the browser console.
-  print(line);
+  developer.log(line, level: isWarningOrAbove ? 900 : 800);
 }

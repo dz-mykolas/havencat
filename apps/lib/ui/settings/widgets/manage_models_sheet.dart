@@ -52,16 +52,19 @@ Future<void> showManageModels(
     context: context,
     isScrollControlled: true,
     builder: (BuildContext ctx) {
-      return ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 560),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: _ManageModelsContent(
-            account: account,
-            selector: selector,
-            onSubmit: (List<String> ids) =>
-                settings.setAllowedModels(account.id, ids),
-            onDone: () => Navigator.of(ctx).maybePop(),
+      return SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: _ManageModelsContent(
+              account: account,
+              selector: selector,
+              onSubmit: (List<String> ids) =>
+                  settings.setAllowedModels(account.id, ids),
+              onDone: () => Navigator.of(ctx).maybePop(),
+            ),
           ),
         ),
       );

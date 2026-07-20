@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +14,7 @@ import '../core/widgets/gradient_text.dart';
 import '../core/widgets/theme_mode_button.dart';
 import '../../data/repositories/conversation_repository.dart';
 import '../../domain/models/conversation.dart';
+import '../../domain/models/generation_task.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/message_attachment.dart';
 import '../../domain/errors/app_failure.dart';
@@ -128,7 +131,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return ChatInput(
           textController: _textController,
           isGenerating: vm.isGenerating,
+          queuedCount: vm.queuedGenerationCount,
           onSend: _send,
+          onCancel: () => unawaited(vm.cancelGeneration()),
+          onSteer: (String text) => unawaited(vm.steerGeneration(text)),
+          onShowQueue: () => _showGenerationQueue(vm),
           toolsEnabled: toolsEnabled,
           onToggleTools: (bool next) {
             ref.read(toolsEnabledProvider.notifier).state = next;
@@ -139,6 +146,111 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       },
     );
+  }
+
+  void _showGenerationQueue(ChatViewModel vm) {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (BuildContext context) {
+        return ListenableBuilder(
+          listenable: vm,
+          builder: (BuildContext context, _) {
+            final List<GenerationTask> tasks = vm.queuedGenerations;
+            return ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.symmetric(vertical: 12),
+              children: <Widget>[
+                ListTile(
+                  title: Text('Queued messages'),
+                  subtitle: Text('${tasks.length} waiting'),
+                ),
+                for (int index = 0; index < tasks.length; index++)
+                  ListTile(
+                    title: Text(
+                      vm.queuedGenerationText(tasks[index]),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _editQueuedGeneration(vm, tasks[index]),
+                    leading: Text('${index + 1}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        IconButton(
+                          tooltip: 'Move up',
+                          onPressed:
+                              !vm.canMoveQueuedGeneration(tasks[index].id, -1)
+                              ? null
+                              : () => unawaited(
+                                  vm.moveQueuedGeneration(tasks[index].id, -1),
+                                ),
+                          icon: Icon(Icons.arrow_upward_rounded),
+                        ),
+                        IconButton(
+                          tooltip: 'Move down',
+                          onPressed:
+                              !vm.canMoveQueuedGeneration(tasks[index].id, 1)
+                              ? null
+                              : () => unawaited(
+                                  vm.moveQueuedGeneration(tasks[index].id, 1),
+                                ),
+                          icon: Icon(Icons.arrow_downward_rounded),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove',
+                          onPressed:
+                              vm.canRemoveQueuedGeneration(tasks[index].id)
+                              ? () => unawaited(
+                                  vm.removeQueuedGeneration(tasks[index].id),
+                                )
+                              : null,
+                          icon: Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _editQueuedGeneration(
+    ChatViewModel vm,
+    GenerationTask task,
+  ) async {
+    final TextEditingController controller = TextEditingController(
+      text: vm.queuedGenerationText(task),
+    );
+    final String? value = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Edit queued message'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 5,
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (value != null) await vm.editQueuedGeneration(task.id, value);
   }
 
   @override
@@ -157,7 +269,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ConversationSidebar.railWidth +
         AppTheme.contentMaxWidth;
     final bool persistentSidebar = viewportWidth >= persistentSidebarBreakpoint;
-    final double topSafeInset = MediaQuery.paddingOf(context).top;
+    final MediaQueryData mediaQuery = MediaQuery.of(context);
+    final double topSafeInset = mediaQuery.padding.top;
+    final double bottomSafeInset = mediaQuery.viewInsets.bottom > 0
+        ? 0
+        : mediaQuery.viewPadding.bottom;
     final double headerExtent = topSafeInset + kToolbarHeight;
     final double headerFadeHeight = headerExtent + 44;
 
@@ -206,6 +322,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           SafeArea(
             top: false,
+            bottom: false,
             child: ListenableBuilder(
               listenable: vm,
               builder: (BuildContext context, _) {
@@ -239,7 +356,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         16,
                         headerExtent + 12,
                         16,
-                        200,
+                        200 + bottomSafeInset,
                       ),
                       itemCount: activePath.length,
                       scrollCacheExtent: ScrollCacheExtent.pixels(1500),
@@ -374,7 +491,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       right: 0,
                       bottom: 0,
                       child: Padding(
-                        padding: EdgeInsets.fromLTRB(12, 0, 12, 27),
+                        padding: EdgeInsets.fromLTRB(
+                          12,
+                          0,
+                          12,
+                          27 + bottomSafeInset,
+                        ),
                         child: Center(
                           child: ConstrainedBox(
                             constraints: BoxConstraints(

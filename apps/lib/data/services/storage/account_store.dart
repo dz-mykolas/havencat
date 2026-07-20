@@ -26,21 +26,34 @@ class AccountStore {
   static const String _accountsKey = 'provider_accounts::v1';
   static const String _activeKey = 'active_account_id::v1';
 
-  /// Reads the persisted accounts. Returns an empty list on first run or if
-  /// the stored payload is corrupt (we'd rather re-seed than crash).
-  List<ProviderAccount> loadAccounts() {
+  /// Whether an account list has ever been persisted for this installation.
+  ///
+  /// This distinguishes a fresh install from a valid, intentionally empty
+  /// list after the user removes their final account.
+  bool get hasStoredAccounts =>
+      _prefs?.containsKey(_accountsKey) ?? _fallback!.containsKey(_accountsKey);
+
+  /// Reads the persisted accounts. Returns null only on first run.
+  List<ProviderAccount>? loadAccounts() {
     final String? raw = _getString(_accountsKey);
-    if (raw == null || raw.isEmpty) return <ProviderAccount>[];
-    try {
-      final Object? decoded = jsonDecode(raw);
-      if (decoded is! List) return <ProviderAccount>[];
-      return decoded
-          .whereType<Map<String, Object?>>()
-          .map(ProviderAccount.fromJson)
-          .toList();
-    } on Object {
-      return <ProviderAccount>[];
+    if (raw == null) return null;
+    if (raw.isEmpty) {
+      throw const FormatException('Stored provider accounts are empty.');
     }
+    final Object? decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      throw const FormatException('Stored provider accounts are not a list.');
+    }
+    return decoded
+        .map((Object? value) {
+          if (value is! Map) {
+            throw const FormatException(
+              'Stored provider account is not an object.',
+            );
+          }
+          return ProviderAccount.fromJson(Map<String, Object?>.from(value));
+        })
+        .toList(growable: false);
   }
 
   String? loadActiveAccountId() => _getString(_activeKey);

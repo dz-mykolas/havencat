@@ -67,9 +67,18 @@ Future<void> fetchStream({
       if (sink.isClosed) break;
       sink.add(chunk);
     }
-    _log.fine('dio stream: stream complete');
-  } finally {
-    // Drain any remaining bytes so the underlying socket is released.
-    await rb.stream.drain<void>();
+  } on DioException {
+    rethrow;
+  } on Object catch (error, stack) {
+    Error.throwWithStackTrace(
+      DioException(
+        requestOptions: response.requestOptions,
+        type: DioExceptionType.connectionError,
+        error: error,
+        message: 'The response stream disconnected before completion.',
+      ),
+      stack,
+    );
   }
+  _log.fine('dio stream: stream complete');
 }

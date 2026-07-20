@@ -45,7 +45,7 @@ class ProviderAccountRepository extends ChangeNotifier {
     for (final ProviderAccount a in _accounts) {
       if (a.id == _activeAccountId) return a;
     }
-    return _accounts.isEmpty ? null : _accounts.first;
+    return null;
   }
 
   String? get activeAccountId => _activeAccountId;
@@ -68,15 +68,16 @@ class ProviderAccountRepository extends ChangeNotifier {
 
   /// Restores persisted accounts + active id. Call once on startup before the
   /// first frame. If nothing is persisted yet (first run), the seeded mock
-  /// account is persisted so its id stays stable across launches.
+  /// account is persisted so its id stays stable across launches. A persisted
+  /// empty list remains empty after the final account is removed.
   ///
   /// Also runs a one-time forward migration: any pre-existing account that
   /// only has the legacy `config['model']` single-selection gets an
   /// `enabledModels: [model]` entry written so it shows up as enabled in the
   /// new multi-select world (no behaviour change for existing accounts).
   Future<void> load() async {
-    final List<ProviderAccount> persisted = _accountStore.loadAccounts();
-    if (persisted.isEmpty) {
+    final List<ProviderAccount>? persisted = _accountStore.loadAccounts();
+    if (persisted == null) {
       await _persist();
       _loaded = true;
       return;
@@ -91,7 +92,7 @@ class ProviderAccountRepository extends ChangeNotifier {
     _activeAccountId =
         (storedActive != null && _accounts.any((a) => a.id == storedActive))
         ? storedActive
-        : _accounts.first.id;
+        : _accounts.firstOrNull?.id;
     _loaded = true;
     // If any account was migrated (config changed), persist the new shape so
     // future loads skip the migration path.
@@ -139,9 +140,17 @@ class ProviderAccountRepository extends ChangeNotifier {
     final ProviderDefinition def = ProviderCatalog.byId(definitionId)!;
     final ProviderAccount account = _newAccount(def, displayName, config);
     await _secretStore.write(account.id, apiKey);
+    final String? previousActiveId = _activeAccountId;
     _accounts.add(account);
     _activeAccountId ??= account.id;
-    await _persist();
+    try {
+      await _persist();
+    } on Object {
+      _accounts.remove(account);
+      _activeAccountId = previousActiveId;
+      await _secretStore.delete(account.id);
+      rethrow;
+    }
     notifyListeners();
     return account;
   }
@@ -158,9 +167,17 @@ class ProviderAccountRepository extends ChangeNotifier {
     final ProviderDefinition def = ProviderCatalog.byId(definitionId)!;
     final ProviderAccount account = _newAccount(def, displayName, config);
     await _secretStore.write(account.id, tokens.encode());
+    final String? previousActiveId = _activeAccountId;
     _accounts.add(account);
     _activeAccountId ??= account.id;
-    await _persist();
+    try {
+      await _persist();
+    } on Object {
+      _accounts.remove(account);
+      _activeAccountId = previousActiveId;
+      await _secretStore.delete(account.id);
+      rethrow;
+    }
     notifyListeners();
     return account;
   }
@@ -175,15 +192,25 @@ class ProviderAccountRepository extends ChangeNotifier {
       config: const <String, Object?>{},
       createdAt: DateTime.now(),
     );
+    final String? previousActiveId = _activeAccountId;
     _accounts.add(account);
     _activeAccountId ??= account.id;
-    await _persist();
+    try {
+      await _persist();
+    } on Object {
+      _accounts.remove(account);
+      _activeAccountId = previousActiveId;
+      rethrow;
+    }
     notifyListeners();
     return account;
   }
 
   Future<void> setActive(String accountId) async {
     if (_activeAccountId == accountId) return;
+    if (!_accounts.any((ProviderAccount account) => account.id == accountId)) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown account.');
+    }
     _activeAccountId = accountId;
     notifyListeners();
     await _persist();
@@ -193,7 +220,9 @@ class ProviderAccountRepository extends ChangeNotifier {
   /// persists it so it survives a restart.
   Future<void> setModel(String accountId, String modelId) async {
     final int index = _accounts.indexWhere((a) => a.id == accountId);
-    if (index == -1) return;
+    if (index == -1) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown account.');
+    }
     final ProviderAccount current = _accounts[index];
     if (current.config['model'] == modelId) return;
     _accounts[index] = ProviderAccount(
@@ -215,7 +244,9 @@ class ProviderAccountRepository extends ChangeNotifier {
   /// existing single-select code paths keep working unchanged.
   Future<void> setAllowedModels(String accountId, List<String> modelIds) async {
     final int index = _accounts.indexWhere((a) => a.id == accountId);
-    if (index == -1) return;
+    if (index == -1) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown account.');
+    }
     final ProviderAccount current = _accounts[index];
     final List<String> deduped = <String>[...modelIds.whereType<String>()];
     final Map<String, Object?> next = <String, Object?>{
@@ -239,12 +270,25 @@ class ProviderAccountRepository extends ChangeNotifier {
   }
 
   Future<void> remove(String accountId) async {
-    _accounts.removeWhere((a) => a.id == accountId);
+    final int index = _accounts.indexWhere((a) => a.id == accountId);
+    if (index == -1) return;
+    final String? previousSecret = await _secretStore.read(accountId);
     await _secretStore.delete(accountId);
+    final ProviderAccount removed = _accounts.removeAt(index);
+    final String? previousActiveId = _activeAccountId;
     if (_activeAccountId == accountId) {
       _activeAccountId = _accounts.isEmpty ? null : _accounts.first.id;
     }
-    await _persist();
+    try {
+      await _persist();
+    } on Object {
+      _accounts.insert(index, removed);
+      _activeAccountId = previousActiveId;
+      if (previousSecret != null) {
+        await _secretStore.write(accountId, previousSecret);
+      }
+      rethrow;
+    }
     notifyListeners();
   }
 

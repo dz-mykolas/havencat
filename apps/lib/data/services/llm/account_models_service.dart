@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+// ignore_for_file: prefer_initializing_formals
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,6 +37,7 @@ class AccountModelsService extends ChangeNotifier {
     required this._credentials,
     ModelsDevService? modelsDev,
   }) : _modelsDev = modelsDev {
+    _accountIds = _providers.accounts.map((a) => a.id).toSet();
     _providers.addListener(_onAccountsChanged);
   }
 
@@ -43,6 +46,7 @@ class AccountModelsService extends ChangeNotifier {
   final AdapterRegistry _adapters;
   final CredentialResolver _credentials;
   final ModelsDevService? _modelsDev;
+  late Set<String> _accountIds;
 
   /// accountId -> cached models. Empty list = fetched but provider returned
   /// nothing (the account should be greyed out as non-selectable). Absent
@@ -147,7 +151,7 @@ class AccountModelsService extends ChangeNotifier {
       await _persistError(id, e);
       if (!silent) rethrow;
     } finally {
-      _inFlight.remove(id);
+      unawaited(_inFlight.remove(id));
       completer.complete();
       notifyListeners();
     }
@@ -177,15 +181,30 @@ class AccountModelsService extends ChangeNotifier {
   void _onAccountsChanged() {
     // Drop cache entries for removed accounts and fetch any new ones.
     final Set<String> live = _providers.accounts.map((a) => a.id).toSet();
+    final Set<String> removed = _accountIds.difference(live);
+    _accountIds = live;
     _cache.removeWhere((String id, _) => !live.contains(id));
     _errors.removeWhere((String id, _) => !live.contains(id));
     _seen.removeWhere((String id, _) => !live.contains(id));
+    for (final String id in removed) {
+      unawaited(_deletePersisted(id));
+    }
     for (final ProviderAccount a in _providers.accounts) {
       if (!_cache.containsKey(a.id)) {
         unawaited(_fetch(a, silent: true));
       }
     }
     notifyListeners();
+  }
+
+  Future<void> _deletePersisted(String accountId) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    await Future.wait(<Future<bool>>[
+      prefs.remove('$_keyPrefix::$accountId'),
+      prefs.remove('$_errorPrefix::$accountId'),
+      prefs.remove('$_seenPrefix::$accountId'),
+    ]);
   }
 
   /// Marks [ids] as acknowledged for [accountId] and persists them. Called
@@ -240,27 +259,21 @@ class AccountModelsService extends ChangeNotifier {
     if (prefs == null) return;
     final String? json = prefs.getString('$_keyPrefix::$accountId');
     if (json != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(json) as List<dynamic>;
-        _cache[accountId] = decoded.map((dynamic value) {
-          final Map<String, Object?> m = Map<String, Object?>.from(
-            value as Map,
-          );
-          return LlmModel(
-            id: m['id'] as String,
-            displayName: m['displayName'] as String?,
-            hidden: (m['hidden'] as bool?) ?? false,
-            contextWindow: (m['contextWindow'] as num?)?.toInt(),
-            capabilities: m['capabilities'] is Map
-                ? ModelCapabilities.fromJson(
-                    Map<String, Object?>.from(m['capabilities'] as Map),
-                  )
-                : null,
-          );
-        }).toList();
-      } catch (_) {
-        // Corrupt cache — ignore, the network fetch will repopulate.
-      }
+      final List<dynamic> decoded = jsonDecode(json) as List<dynamic>;
+      _cache[accountId] = decoded.map((dynamic value) {
+        final Map<String, Object?> m = Map<String, Object?>.from(value as Map);
+        return LlmModel(
+          id: m['id'] as String,
+          displayName: m['displayName'] as String?,
+          hidden: (m['hidden'] as bool?) ?? false,
+          contextWindow: (m['contextWindow'] as num?)?.toInt(),
+          capabilities: m['capabilities'] is Map
+              ? ModelCapabilities.fromJson(
+                  Map<String, Object?>.from(m['capabilities'] as Map),
+                )
+              : null,
+        );
+      }).toList();
     }
     final String? err = prefs.getString('$_errorPrefix::$accountId');
     if (err != null) _errors[accountId] = err;
@@ -273,12 +286,11 @@ class AccountModelsService extends ChangeNotifier {
     if (prefs == null) return;
     final String? raw = prefs.getString('$_seenPrefix::$accountId');
     if (raw == null) return;
-    try {
-      final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
-      _seen[accountId] = list.whereType<String>().toSet();
-    } catch (_) {
-      // Corrupt — ignore; next markSeen repopulates.
+    final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
+    if (list.any((dynamic value) => value is! String)) {
+      throw const FormatException('Stored seen-model ids are invalid.');
     }
+    _seen[accountId] = list.cast<String>().toSet();
   }
 
   @override
@@ -289,27 +301,18 @@ class AccountModelsService extends ChangeNotifier {
 
   /// Enriches [models] with limits and capabilities from models.dev.
   ///
-  /// Returns the original list unchanged when the catalog isn't available
-  /// (offline, not yet fetched) — the caller falls back to
-  /// [kFallbackContextWindow] at the compaction call site. Never throws.
   Future<List<LlmModel>> _enrichFromCatalog(
     List<LlmModel> models,
     ProviderAccount account,
   ) async {
     final ModelsDevService? svc = _modelsDev;
     if (svc == null || models.isEmpty) return models;
-    try {
-      final catalog = await svc.load();
-      final resolver = ModelContextResolver(catalog);
-      return resolver.enrich(
-        models,
-        providerId: _providerIdFromCatalog(catalog, account),
-      );
-    } catch (_) {
-      // Catalog unavailable — return models without context windows.
-      // The compaction call site falls back to kFallbackContextWindow.
-      return models;
-    }
+    final catalog = await svc.load();
+    final resolver = ModelContextResolver(catalog);
+    return resolver.enrich(
+      models,
+      providerId: _providerIdFromCatalog(catalog, account),
+    );
   }
 
   /// Resolves a models.dev provider id by matching the account's base URL

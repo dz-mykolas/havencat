@@ -6,6 +6,494 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+class GenerationCheckpoint {
+  final String taskId;
+  final String runId;
+  final String workerId;
+  final String checkpointJson;
+  final PlatformInt64 nowMs;
+  final PlatformInt64 leaseDurationMs;
+
+  const GenerationCheckpoint({
+    required this.taskId,
+    required this.runId,
+    required this.workerId,
+    required this.checkpointJson,
+    required this.nowMs,
+    required this.leaseDurationMs,
+  });
+
+  @override
+  int get hashCode =>
+      taskId.hashCode ^
+      runId.hashCode ^
+      workerId.hashCode ^
+      checkpointJson.hashCode ^
+      nowMs.hashCode ^
+      leaseDurationMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationCheckpoint &&
+          runtimeType == other.runtimeType &&
+          taskId == other.taskId &&
+          runId == other.runId &&
+          workerId == other.workerId &&
+          checkpointJson == other.checkpointJson &&
+          nowMs == other.nowMs &&
+          leaseDurationMs == other.leaseDurationMs;
+}
+
+class GenerationClaim {
+  final GenerationTask task;
+  final GenerationRun run;
+
+  const GenerationClaim({required this.task, required this.run});
+
+  @override
+  int get hashCode => task.hashCode ^ run.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationClaim &&
+          runtimeType == other.runtimeType &&
+          task == other.task &&
+          run == other.run;
+}
+
+class GenerationCommand {
+  final String id;
+  final String taskId;
+  final String kind;
+  final String? payloadJson;
+  final String status;
+  final PlatformInt64 createdAt;
+  final PlatformInt64? acknowledgedAt;
+
+  const GenerationCommand({
+    required this.id,
+    required this.taskId,
+    required this.kind,
+    this.payloadJson,
+    required this.status,
+    required this.createdAt,
+    this.acknowledgedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      kind.hashCode ^
+      payloadJson.hashCode ^
+      status.hashCode ^
+      createdAt.hashCode ^
+      acknowledgedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationCommand &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          kind == other.kind &&
+          payloadJson == other.payloadJson &&
+          status == other.status &&
+          createdAt == other.createdAt &&
+          acknowledgedAt == other.acknowledgedAt;
+}
+
+class GenerationFinish {
+  final String taskId;
+  final String runId;
+  final String workerId;
+  final String status;
+  final String? checkpointJson;
+  final String? error;
+  final PlatformInt64 finishedAt;
+
+  const GenerationFinish({
+    required this.taskId,
+    required this.runId,
+    required this.workerId,
+    required this.status,
+    this.checkpointJson,
+    this.error,
+    required this.finishedAt,
+  });
+
+  @override
+  int get hashCode =>
+      taskId.hashCode ^
+      runId.hashCode ^
+      workerId.hashCode ^
+      status.hashCode ^
+      checkpointJson.hashCode ^
+      error.hashCode ^
+      finishedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationFinish &&
+          runtimeType == other.runtimeType &&
+          taskId == other.taskId &&
+          runId == other.runId &&
+          workerId == other.workerId &&
+          status == other.status &&
+          checkpointJson == other.checkpointJson &&
+          error == other.error &&
+          finishedAt == other.finishedAt;
+}
+
+class GenerationLifecycleEvent {
+  final PlatformInt64 id;
+  final String taskId;
+  final String? runId;
+  final String eventType;
+  final String? payloadJson;
+  final PlatformInt64 createdAt;
+
+  const GenerationLifecycleEvent({
+    required this.id,
+    required this.taskId,
+    this.runId,
+    required this.eventType,
+    this.payloadJson,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      runId.hashCode ^
+      eventType.hashCode ^
+      payloadJson.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationLifecycleEvent &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          runId == other.runId &&
+          eventType == other.eventType &&
+          payloadJson == other.payloadJson &&
+          createdAt == other.createdAt;
+}
+
+class GenerationRun {
+  final String id;
+  final String taskId;
+  final PlatformInt64 attempt;
+  final String status;
+  final String workerId;
+  final String? checkpointJson;
+  final String? error;
+  final PlatformInt64 startedAt;
+  final PlatformInt64 updatedAt;
+  final PlatformInt64? finishedAt;
+
+  const GenerationRun({
+    required this.id,
+    required this.taskId,
+    required this.attempt,
+    required this.status,
+    required this.workerId,
+    this.checkpointJson,
+    this.error,
+    required this.startedAt,
+    required this.updatedAt,
+    this.finishedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      attempt.hashCode ^
+      status.hashCode ^
+      workerId.hashCode ^
+      checkpointJson.hashCode ^
+      error.hashCode ^
+      startedAt.hashCode ^
+      updatedAt.hashCode ^
+      finishedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationRun &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          attempt == other.attempt &&
+          status == other.status &&
+          workerId == other.workerId &&
+          checkpointJson == other.checkpointJson &&
+          error == other.error &&
+          startedAt == other.startedAt &&
+          updatedAt == other.updatedAt &&
+          finishedAt == other.finishedAt;
+}
+
+class GenerationTask {
+  final String id;
+  final String conversationId;
+  final String? assistantMessageId;
+  final String status;
+  final String requestJson;
+  final PlatformInt64 priority;
+  final PlatformInt64 attemptCount;
+  final PlatformInt64 maxAttempts;
+  final String? leaseOwner;
+  final PlatformInt64? leaseExpiresAt;
+  final String? checkpointJson;
+  final String? lastError;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+  final PlatformInt64? startedAt;
+  final PlatformInt64? finishedAt;
+
+  const GenerationTask({
+    required this.id,
+    required this.conversationId,
+    this.assistantMessageId,
+    required this.status,
+    required this.requestJson,
+    required this.priority,
+    required this.attemptCount,
+    required this.maxAttempts,
+    this.leaseOwner,
+    this.leaseExpiresAt,
+    this.checkpointJson,
+    this.lastError,
+    required this.createdAt,
+    required this.updatedAt,
+    this.startedAt,
+    this.finishedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      conversationId.hashCode ^
+      assistantMessageId.hashCode ^
+      status.hashCode ^
+      requestJson.hashCode ^
+      priority.hashCode ^
+      attemptCount.hashCode ^
+      maxAttempts.hashCode ^
+      leaseOwner.hashCode ^
+      leaseExpiresAt.hashCode ^
+      checkpointJson.hashCode ^
+      lastError.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode ^
+      startedAt.hashCode ^
+      finishedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GenerationTask &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          conversationId == other.conversationId &&
+          assistantMessageId == other.assistantMessageId &&
+          status == other.status &&
+          requestJson == other.requestJson &&
+          priority == other.priority &&
+          attemptCount == other.attemptCount &&
+          maxAttempts == other.maxAttempts &&
+          leaseOwner == other.leaseOwner &&
+          leaseExpiresAt == other.leaseExpiresAt &&
+          checkpointJson == other.checkpointJson &&
+          lastError == other.lastError &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt &&
+          startedAt == other.startedAt &&
+          finishedAt == other.finishedAt;
+}
+
+class NewGenerationCommand {
+  final String id;
+  final String taskId;
+  final String kind;
+  final String? payloadJson;
+  final PlatformInt64 createdAt;
+
+  const NewGenerationCommand({
+    required this.id,
+    required this.taskId,
+    required this.kind,
+    this.payloadJson,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      kind.hashCode ^
+      payloadJson.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NewGenerationCommand &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          kind == other.kind &&
+          payloadJson == other.payloadJson &&
+          createdAt == other.createdAt;
+}
+
+class NewGenerationLifecycleEvent {
+  final String taskId;
+  final String? runId;
+  final String eventType;
+  final String? payloadJson;
+  final PlatformInt64 createdAt;
+
+  const NewGenerationLifecycleEvent({
+    required this.taskId,
+    this.runId,
+    required this.eventType,
+    this.payloadJson,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      taskId.hashCode ^
+      runId.hashCode ^
+      eventType.hashCode ^
+      payloadJson.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NewGenerationLifecycleEvent &&
+          runtimeType == other.runtimeType &&
+          taskId == other.taskId &&
+          runId == other.runId &&
+          eventType == other.eventType &&
+          payloadJson == other.payloadJson &&
+          createdAt == other.createdAt;
+}
+
+class NewGenerationTask {
+  final String id;
+  final String conversationId;
+  final String? assistantMessageId;
+  final String requestJson;
+  final PlatformInt64 priority;
+  final PlatformInt64 maxAttempts;
+  final PlatformInt64 createdAt;
+
+  const NewGenerationTask({
+    required this.id,
+    required this.conversationId,
+    this.assistantMessageId,
+    required this.requestJson,
+    required this.priority,
+    required this.maxAttempts,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      conversationId.hashCode ^
+      assistantMessageId.hashCode ^
+      requestJson.hashCode ^
+      priority.hashCode ^
+      maxAttempts.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NewGenerationTask &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          conversationId == other.conversationId &&
+          assistantMessageId == other.assistantMessageId &&
+          requestJson == other.requestJson &&
+          priority == other.priority &&
+          maxAttempts == other.maxAttempts &&
+          createdAt == other.createdAt;
+}
+
+class ProviderCall {
+  final String id;
+  final String runId;
+  final String provider;
+  final String? model;
+  final String status;
+  final String requestJson;
+  final String? responseJson;
+  final String? error;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+  final PlatformInt64? finishedAt;
+
+  const ProviderCall({
+    required this.id,
+    required this.runId,
+    required this.provider,
+    this.model,
+    required this.status,
+    required this.requestJson,
+    this.responseJson,
+    this.error,
+    required this.createdAt,
+    required this.updatedAt,
+    this.finishedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      runId.hashCode ^
+      provider.hashCode ^
+      model.hashCode ^
+      status.hashCode ^
+      requestJson.hashCode ^
+      responseJson.hashCode ^
+      error.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode ^
+      finishedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProviderCall &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          runId == other.runId &&
+          provider == other.provider &&
+          model == other.model &&
+          status == other.status &&
+          requestJson == other.requestJson &&
+          responseJson == other.responseJson &&
+          error == other.error &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt &&
+          finishedAt == other.finishedAt;
+}
+
 class StoredConversation {
   final String id;
   final String title;
@@ -154,4 +642,63 @@ class StoredMessage {
           reasoning == other.reasoning &&
           attachmentsJson == other.attachmentsJson &&
           generationStatus == other.generationStatus;
+}
+
+class ToolExecution {
+  final String id;
+  final String runId;
+  final String? toolCallId;
+  final String toolName;
+  final String status;
+  final String inputJson;
+  final String? outputJson;
+  final String? error;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+  final PlatformInt64? finishedAt;
+
+  const ToolExecution({
+    required this.id,
+    required this.runId,
+    this.toolCallId,
+    required this.toolName,
+    required this.status,
+    required this.inputJson,
+    this.outputJson,
+    this.error,
+    required this.createdAt,
+    required this.updatedAt,
+    this.finishedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      runId.hashCode ^
+      toolCallId.hashCode ^
+      toolName.hashCode ^
+      status.hashCode ^
+      inputJson.hashCode ^
+      outputJson.hashCode ^
+      error.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode ^
+      finishedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ToolExecution &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          runId == other.runId &&
+          toolCallId == other.toolCallId &&
+          toolName == other.toolName &&
+          status == other.status &&
+          inputJson == other.inputJson &&
+          outputJson == other.outputJson &&
+          error == other.error &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt &&
+          finishedAt == other.finishedAt;
 }
