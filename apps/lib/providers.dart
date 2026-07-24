@@ -187,10 +187,7 @@ final conversationRepositoryProvider =
         credentialResolver: ref.read(credentialResolverProvider),
         conversationStore: ref.read(conversationStoreProvider),
         webRetrieval: webRetrieval,
-        // ref.read (not ref.watch) so toggling doesn't recreate the repository
-        // and wipe conversations. The chat screen syncs the flag at runtime
-        // via the toolsEnabled setter.
-        toolsEnabled: ref.read(toolsEnabledProvider),
+        toolsEnabled: ref.read(appSettingsProvider).toolsEnabled,
         appSettings: ref.read(appSettingsProvider),
         accountModels: ref.read(accountModelsServiceProvider),
         backgroundController: ref.read(generationBackgroundServiceProvider),
@@ -240,8 +237,3 @@ final webSearchSettingsProvider = ChangeNotifierProvider<WebSearchSettings>((
     adapter: ref.watch(webRetrievalProvider),
   );
 });
-
-/// Whether tools (web search/fetch, etc.) are attached to outgoing chat
-/// messages. Toggled from the chat input's "+" menu. Persists across rebuilds
-/// (StateProvider); custom per-tool configuration can come later.
-final toolsEnabledProvider = StateProvider<bool>((ref) => false);

@@ -1844,9 +1844,11 @@ impl SseDecode for crate::api::web_retrieval::ProviderConfig {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_kind = <String>::sse_decode(deserializer);
         let mut var_secret = <Option<String>>::sse_decode(deserializer);
+        let mut var_endpoint = <Option<String>>::sse_decode(deserializer);
         return crate::api::web_retrieval::ProviderConfig {
             kind: var_kind,
             secret: var_secret,
+            endpoint: var_endpoint,
         };
     }
 }
@@ -2563,6 +2565,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::web_retrieval::ProviderConfig
         [
             self.kind.into_into_dart().into_dart(),
             self.secret.into_into_dart().into_dart(),
+            self.endpoint.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3126,6 +3129,7 @@ impl SseEncode for crate::api::web_retrieval::ProviderConfig {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.kind, serializer);
         <Option<String>>::sse_encode(self.secret, serializer);
+        <Option<String>>::sse_encode(self.endpoint, serializer);
     }
 }
 

@@ -29,7 +29,7 @@ void main() {
     await tester.dragFrom(const Offset(195, 320), const Offset(170, 0));
     await tester.pumpAndSettle();
 
-    expect(find.text('Use light theme'), findsOneWidget);
+    expect(find.byTooltip('Use light theme'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
   });
 

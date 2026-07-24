@@ -103,6 +103,7 @@ impl WebSearchProvider for ExaMcpProvider {
         &self,
         query: &str,
         secret: Option<&str>,
+        _endpoint: Option<&str>,
         options: SearchOptions,
     ) -> Result<Vec<SearchResult>> {
         let args = json!({

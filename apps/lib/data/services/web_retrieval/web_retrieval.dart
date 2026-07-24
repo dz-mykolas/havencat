@@ -51,10 +51,11 @@ class WebSearchResponse {
 }
 
 class ProviderSlotConfig {
-  const ProviderSlotConfig({required this.kind, this.secret});
+  const ProviderSlotConfig({required this.kind, this.secret, this.endpoint});
 
   final String kind;
   final String? secret;
+  final String? endpoint;
 }
 
 /// A fetched page.

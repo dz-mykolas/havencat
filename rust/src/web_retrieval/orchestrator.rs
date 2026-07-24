@@ -15,11 +15,12 @@ use crate::web_retrieval::provider::{
     WebSearchProvider,
 };
 
-/// A search provider paired with its optional secret (or config string).
+/// A search provider paired with its optional secret and endpoint.
 #[derive(Clone)]
 pub struct SearchProviderSlot {
     pub provider: Arc<dyn WebSearchProvider>,
     pub secret: Option<String>,
+    pub endpoint: Option<String>,
 }
 
 /// A fetch provider paired with its optional secret.
@@ -52,7 +53,12 @@ pub async fn search_all(
                 let kind = slot.provider.kind();
                 match slot
                     .provider
-                    .search(query, slot.secret.as_deref(), options)
+                    .search(
+                        query,
+                        slot.secret.as_deref(),
+                        slot.endpoint.as_deref(),
+                        options,
+                    )
                     .await
                 {
                     Ok(results) => (kind, Ok(results)),
@@ -164,6 +170,7 @@ mod tests {
             &self,
             _query: &str,
             _secret: Option<&str>,
+            _endpoint: Option<&str>,
             _options: SearchOptions,
         ) -> Result<Vec<crate::web_retrieval::provider::SearchResult>> {
             if self.fails {
@@ -185,6 +192,7 @@ mod tests {
                     fails: false,
                 }),
                 secret: None,
+                endpoint: None,
             },
             SearchProviderSlot {
                 provider: Arc::new(TestProvider {
@@ -192,6 +200,7 @@ mod tests {
                     fails: true,
                 }),
                 secret: None,
+                endpoint: None,
             },
         ];
 

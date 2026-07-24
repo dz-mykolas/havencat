@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/data/services/errors/provider_failure_mapper.dart';
@@ -216,6 +217,25 @@ void main() {
       expect(notice.actions.single.kind, NoticeActionKind.openSettings);
     });
 
+    test('offers provider configuration for web authentication failures', () {
+      final AppNotice notice = const FailurePresenter().present(
+        const AppFailure(
+          kind: FailureKind.authentication,
+          source: FailureSource(
+            subsystem: AppSubsystem.webSearch,
+            operation: 'search',
+            providerId: 'SearXNG',
+          ),
+          message: 'SearXNG credentials were rejected.',
+        ),
+        onOpenSettings: () async {},
+      );
+
+      expect(notice.title, 'Configure SearXNG');
+      expect(notice.actions.single.kind, NoticeActionKind.configureProvider);
+      expect(notice.actions.single.label, 'Configure');
+    });
+
     test('routes notices by placement', () {
       final NoticeCenter center = NoticeCenter();
       center.publish(
@@ -281,6 +301,24 @@ void main() {
   testWidgets('NoticeHost renders a published snackbar notice', (
     WidgetTester tester,
   ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    String? copied;
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (
+      MethodCall call,
+    ) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map<Object?, Object?>)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
     final NoticeCenter center = NoticeCenter();
     await tester.pumpWidget(
       ProviderScope(
@@ -300,10 +338,35 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('Request failed'), findsOneWidget);
     expect(find.text('Try again later.'), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.text('Try again later.'),
+        matching: find.byType(SelectionArea),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<SnackBar>(find.byType(SnackBar)).width, 560);
+
+    final Finder copyButton = find.ancestor(
+      of: find.byTooltip('Copy error message'),
+      matching: find.byType(IconButton),
+    );
+    tester.widget<IconButton>(copyButton).onPressed!();
+    await tester.pump();
+
+    expect(copied, 'Request failed\nTry again later.');
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+
+    await tester.tap(find.byTooltip('Dismiss message'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsNothing);
+    expect(center.current, isNull);
   });
 }
 

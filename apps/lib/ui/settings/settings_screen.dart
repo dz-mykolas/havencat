@@ -11,36 +11,68 @@ import '../core/widgets/theme_mode_button.dart';
 import '../pricing/discover_panel.dart';
 import 'widgets/web_search_settings_panel.dart';
 
-enum _SettingsCategory { models, webSearch, appearance, general, context }
+enum SettingsSection { models, webSearch, appearance, general, context }
 
-extension on _SettingsCategory {
+extension SettingsSectionPresentation on SettingsSection {
+  String get routeSegment => switch (this) {
+    SettingsSection.models => 'models',
+    SettingsSection.webSearch => 'web-search',
+    SettingsSection.appearance => 'appearance',
+    SettingsSection.general => 'general',
+    SettingsSection.context => 'context',
+  };
+
   String get label => switch (this) {
-    _SettingsCategory.models => 'Models & providers',
-    _SettingsCategory.webSearch => 'Web search',
-    _SettingsCategory.appearance => 'Appearance',
-    _SettingsCategory.general => 'General',
-    _SettingsCategory.context => 'Context',
+    SettingsSection.models => 'Models & providers',
+    SettingsSection.webSearch => 'Web search',
+    SettingsSection.appearance => 'Appearance',
+    SettingsSection.general => 'General',
+    SettingsSection.context => 'Context',
   };
 
   IconData get icon => switch (this) {
-    _SettingsCategory.models => Icons.hub_outlined,
-    _SettingsCategory.webSearch => Icons.travel_explore_rounded,
-    _SettingsCategory.appearance => Icons.palette_outlined,
-    _SettingsCategory.general => Icons.tune_rounded,
-    _SettingsCategory.context => Icons.compress_rounded,
+    SettingsSection.models => Icons.hub_outlined,
+    SettingsSection.webSearch => Icons.travel_explore_rounded,
+    SettingsSection.appearance => Icons.palette_outlined,
+    SettingsSection.general => Icons.tune_rounded,
+    SettingsSection.context => Icons.compress_rounded,
   };
 }
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    this.initialSection,
+    this.onSectionChanged,
+    this.onConfigureWebSearchProvider,
+    super.key,
+  });
+
+  final SettingsSection? initialSection;
+  final ValueChanged<SettingsSection?>? onSectionChanged;
+  final WebSearchProviderRouteCallback? onConfigureWebSearchProvider;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  _SettingsCategory _category = _SettingsCategory.models;
-  _SettingsCategory? _mobileCategory;
+  late SettingsSection _category;
+  SettingsSection? _mobileCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _category = widget.initialSection ?? SettingsSection.models;
+    _mobileCategory = widget.initialSection;
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection == widget.initialSection) return;
+    _category = widget.initialSection ?? SettingsSection.models;
+    _mobileCategory = widget.initialSection;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +80,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final bool wide =
         MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint;
     final bool showingMobileDetail = !wide && _mobileCategory != null;
+    final bool showingRoutedSection =
+        widget.onSectionChanged != null && widget.initialSection != null;
 
     return PopScope(
       canPop: !showingMobileDetail,
@@ -56,7 +90,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          leading: showingMobileDetail
+          leading: showingMobileDetail || showingRoutedSection
               ? BackButton(onPressed: _closeMobileCategory)
               : null,
           title: Text(
@@ -92,6 +126,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: _CategoryContent(
                               category: _category,
                               settings: settings,
+                              onConfigureWebSearchProvider:
+                                  widget.onConfigureWebSearchProvider,
                             ),
                           ),
                         ],
@@ -104,6 +140,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: _CategoryContent(
                         category: _mobileCategory!,
                         settings: settings,
+                        onConfigureWebSearchProvider:
+                            widget.onConfigureWebSearchProvider,
                       ),
                     ),
             ),
@@ -113,7 +151,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _openMobileCategory(_SettingsCategory category) {
+  void _openMobileCategory(SettingsSection category) {
+    if (widget.onSectionChanged case final onSectionChanged?) {
+      onSectionChanged(category);
+      return;
+    }
     setState(() {
       _category = category;
       _mobileCategory = category;
@@ -121,10 +163,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _closeMobileCategory() {
+    if (widget.onSectionChanged case final onSectionChanged?) {
+      onSectionChanged(null);
+      return;
+    }
     setState(() => _mobileCategory = null);
   }
 
-  void _selectCategory(_SettingsCategory category) {
+  void _selectCategory(SettingsSection category) {
+    if (widget.onSectionChanged case final onSectionChanged?) {
+      onSectionChanged(category);
+      return;
+    }
     setState(() => _category = category);
   }
 }
@@ -132,7 +182,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 class _MobileCategoryList extends StatelessWidget {
   const _MobileCategoryList({required this.onSelected});
 
-  final ValueChanged<_SettingsCategory> onSelected;
+  final ValueChanged<SettingsSection> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +194,7 @@ class _MobileCategoryList extends StatelessWidget {
             children: <Widget>[
               for (
                 int index = 0;
-                index < _SettingsCategory.values.length;
+                index < SettingsSection.values.length;
                 index++
               )
                 Padding(
@@ -152,8 +202,8 @@ class _MobileCategoryList extends StatelessWidget {
                   child: FadeSlideIn(
                     delay: Duration(milliseconds: 35 * index),
                     child: _MobileCategoryButton(
-                      category: _SettingsCategory.values[index],
-                      onTap: () => onSelected(_SettingsCategory.values[index]),
+                      category: SettingsSection.values[index],
+                      onTap: () => onSelected(SettingsSection.values[index]),
                     ),
                   ),
                 ),
@@ -166,7 +216,7 @@ class _MobileCategoryList extends StatelessWidget {
 class _MobileCategoryButton extends StatelessWidget {
   const _MobileCategoryButton({required this.category, required this.onTap});
 
-  final _SettingsCategory category;
+  final SettingsSection category;
   final VoidCallback onTap;
 
   @override
@@ -222,8 +272,8 @@ class _MobileCategoryButton extends StatelessWidget {
 class _CategoryNavigation extends StatelessWidget {
   const _CategoryNavigation({required this.selected, required this.onSelected});
 
-  final _SettingsCategory selected;
-  final ValueChanged<_SettingsCategory> onSelected;
+  final SettingsSection selected;
+  final ValueChanged<SettingsSection> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +292,7 @@ class _CategoryNavigation extends StatelessWidget {
             ),
           ),
         ),
-        for (final _SettingsCategory category in _SettingsCategory.values) ...[
+        for (final SettingsSection category in SettingsSection.values) ...[
           _CategoryButton(
             category: category,
             selected: category == selected,
@@ -262,7 +312,7 @@ class _CategoryButton extends StatelessWidget {
     required this.onTap,
   });
 
-  final _SettingsCategory category;
+  final SettingsSection category;
   final bool selected;
   final VoidCallback onTap;
 
@@ -313,10 +363,15 @@ class _CategoryButton extends StatelessWidget {
 }
 
 class _CategoryContent extends StatelessWidget {
-  const _CategoryContent({required this.category, required this.settings});
+  const _CategoryContent({
+    required this.category,
+    required this.settings,
+    required this.onConfigureWebSearchProvider,
+  });
 
-  final _SettingsCategory category;
+  final SettingsSection category;
   final AppSettings settings;
+  final WebSearchProviderRouteCallback? onConfigureWebSearchProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -337,22 +392,23 @@ class _CategoryContent extends StatelessWidget {
         );
       },
       child: switch (category) {
-        _SettingsCategory.models => _ModelsCategory(
-          key: ValueKey<_SettingsCategory>(_SettingsCategory.models),
+        SettingsSection.models => _ModelsCategory(
+          key: ValueKey<SettingsSection>(SettingsSection.models),
         ),
-        _SettingsCategory.webSearch => const WebSearchSettingsPanel(
-          key: ValueKey<_SettingsCategory>(_SettingsCategory.webSearch),
+        SettingsSection.webSearch => WebSearchSettingsPanel(
+          key: ValueKey<SettingsSection>(SettingsSection.webSearch),
+          onConfigureProvider: onConfigureWebSearchProvider,
         ),
-        _SettingsCategory.appearance => _ScrollableCategory(
-          key: ValueKey<_SettingsCategory>(_SettingsCategory.appearance),
+        SettingsSection.appearance => _ScrollableCategory(
+          key: ValueKey<SettingsSection>(SettingsSection.appearance),
           children: <Widget>[_AppearanceCard(settings: settings)],
         ),
-        _SettingsCategory.general => _ScrollableCategory(
-          key: ValueKey<_SettingsCategory>(_SettingsCategory.general),
+        SettingsSection.general => _ScrollableCategory(
+          key: ValueKey<SettingsSection>(SettingsSection.general),
           children: <Widget>[_PreferencesCard(settings: settings)],
         ),
-        _SettingsCategory.context => _ScrollableCategory(
-          key: ValueKey<_SettingsCategory>(_SettingsCategory.context),
+        SettingsSection.context => _ScrollableCategory(
+          key: ValueKey<SettingsSection>(SettingsSection.context),
           children: <Widget>[_CompactionCard(settings: settings)],
         ),
       },

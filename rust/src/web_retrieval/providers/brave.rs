@@ -40,6 +40,7 @@ impl WebSearchProvider for BraveSearchProvider {
         &self,
         query: &str,
         secret: Option<&str>,
+        _endpoint: Option<&str>,
         options: SearchOptions,
     ) -> Result<Vec<SearchResult>> {
         let key = secret

@@ -1,4 +1,5 @@
 import 'web_retrieval.dart';
+import 'web_retrieval_endpoint_policy.dart';
 
 enum WebProviderConfiguration { none, apiKey, instanceUrl }
 
@@ -39,6 +40,17 @@ class WebRetrievalProviderRegistry {
         ),
       ];
 
+  static WebSearchProviderDefinition? searchProviderFor(String value) {
+    final String normalized = value.trim().toLowerCase();
+    for (final WebSearchProviderDefinition definition in searchProviders) {
+      if (definition.kind == normalized ||
+          definition.displayName.toLowerCase() == normalized) {
+        return definition;
+      }
+    }
+    return null;
+  }
+
   static const Set<String> fetchProviderKinds = <String>{
     'direct_http',
     'jina_reader',
@@ -64,25 +76,27 @@ class WebRetrievalProviderRegistry {
       if (!seen.add(kind)) {
         throw FormatException('Web search provider "$kind" is duplicated.');
       }
-      final String? value = slot.secret?.trim();
+      final String? secret = slot.secret?.trim();
+      final String? endpoint = slot.endpoint?.trim();
       if (definition.configuration == WebProviderConfiguration.instanceUrl) {
-        final Uri? uri = Uri.tryParse(value ?? '');
-        if (uri == null ||
-            !uri.hasAuthority ||
-            !(uri.isScheme('https') || uri.isScheme('http'))) {
-          throw FormatException(
-            '$kind requires an HTTP or HTTPS instance URL.',
-          );
+        final String? validationError =
+            WebRetrievalEndpointPolicy.validateSearxng(
+              endpoint: endpoint,
+              hasAccessToken: secret?.isNotEmpty == true,
+            );
+        if (validationError != null) {
+          throw FormatException(validationError);
         }
       }
       if (definition.configuration == WebProviderConfiguration.apiKey &&
           !definition.zeroConfiguration &&
-          (value == null || value.isEmpty)) {
+          (secret == null || secret.isEmpty)) {
         throw FormatException('$kind requires an API key.');
       }
       return ProviderSlotConfig(
         kind: kind,
-        secret: value?.isEmpty == true ? null : value,
+        secret: secret?.isEmpty == true ? null : secret,
+        endpoint: endpoint?.isEmpty == true ? null : endpoint,
       );
     }).toList();
   }
@@ -106,7 +120,11 @@ class WebRetrievalProviderRegistry {
       if (!seen.add(kind)) {
         throw FormatException('URL fetch provider "$kind" is duplicated.');
       }
-      return ProviderSlotConfig(kind: kind, secret: slot.secret?.trim());
+      return ProviderSlotConfig(
+        kind: kind,
+        secret: slot.secret?.trim(),
+        endpoint: slot.endpoint?.trim(),
+      );
     }).toList();
   }
 }

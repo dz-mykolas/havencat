@@ -56,11 +56,12 @@ Future<void> webCacheCleanup() =>
 class ProviderConfig {
   final String kind;
   final String? secret;
+  final String? endpoint;
 
-  const ProviderConfig({required this.kind, this.secret});
+  const ProviderConfig({required this.kind, this.secret, this.endpoint});
 
   @override
-  int get hashCode => kind.hashCode ^ secret.hashCode;
+  int get hashCode => kind.hashCode ^ secret.hashCode ^ endpoint.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -68,5 +69,6 @@ class ProviderConfig {
       other is ProviderConfig &&
           runtimeType == other.runtimeType &&
           kind == other.kind &&
-          secret == other.secret;
+          secret == other.secret &&
+          endpoint == other.endpoint;
 }

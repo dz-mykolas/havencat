@@ -381,9 +381,13 @@ unofficial scraped search endpoint.
 
 Provider configuration lives under **Settings → Web search** and applies
 immediately without restarting the app. Non-secret settings are persisted in
-the app preferences; Exa and Brave API keys use the same secure storage layer
-as LLM credentials. In web builds the app sends the active configuration to
-the local server at runtime, so keys do not need to be placed in `.env` files.
+the app preferences; provider API keys and optional SearXNG access tokens use
+the same secure storage layer as LLM credentials. HavenCat sends the token as
+Bearer authentication, making it compatible with protected instances such as
+[searxng-access](https://github.com/dz-mykolas/searxng-access), while plain
+SearXNG instances remain supported. In web builds the app sends the active
+configuration to the local server at runtime, so keys do not need to be placed
+in `.env` files.
 
 - `exa` works without a key; a key can be supplied for higher limits.
 - `brave` requires a Brave Search API key.
@@ -399,4 +403,3 @@ shared application error system.
 
 HavenCat is licensed under the [Apache License 2.0](LICENSE). See
 [NOTICE](NOTICE) for attribution information.
-

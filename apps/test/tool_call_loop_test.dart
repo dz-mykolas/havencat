@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/data/repositories/conversation_repository.dart';
@@ -18,6 +19,7 @@ import 'package:app/domain/models/adapter_kind.dart';
 import 'package:app/domain/models/llm_model.dart';
 import 'package:app/domain/models/message.dart';
 import 'package:app/domain/models/provider_account.dart';
+import 'package:app/ui/chat/widgets/message_bubble.dart';
 
 /// A mock [LlmAdapter] that replays a scripted list of [LlmEvent] sequences.
 ///
@@ -91,6 +93,21 @@ class _FakeWebRetrieval implements WebRetrievalAdapter {
       title: 'Fetched: $url',
       content: 'Content of $url',
       contentType: 'text/markdown',
+    );
+  }
+}
+
+class _FailingWebRetrieval extends _FakeWebRetrieval {
+  @override
+  Future<WebSearchResponse> search(
+    String query, {
+    WebSearchOptions options = const WebSearchOptions(),
+  }) async {
+    return const WebSearchResponse(
+      results: <WebSearchResult>[],
+      issues: <WebProviderIssue>[
+        WebProviderIssue(provider: 'searxng', kind: 'authentication'),
+      ],
     );
   }
 }
@@ -407,5 +424,86 @@ void main() {
       expect(toolResult.role, MessageRole.tool);
       expect(toolResult.text, 'Web search not configured.');
     });
+
+    test('surfaces a failed web tool and marks its result as failed', () async {
+      final adapter = _ScriptedAdapter(<List<LlmEvent>>[
+        <LlmEvent>[
+          const ToolCallEvent(
+            id: 'call_1',
+            name: 'web_search',
+            args: '{"query":"test"}',
+          ),
+          const DoneEvent(finishReason: 'tool_calls'),
+        ],
+        <LlmEvent>[
+          const TokenEvent('The search backend failed.'),
+          const DoneEvent(finishReason: 'stop'),
+        ],
+      ]);
+      adapters = AdapterRegistry()..register(AdapterKind.mock, adapter);
+      final repo = ConversationRepository(
+        providerRepository: providers,
+        adapterRegistry: adapters,
+        credentialResolver: credentials,
+        webRetrieval: _FailingWebRetrieval(),
+        toolsEnabled: true,
+      );
+
+      await repo.sendMessage('search');
+
+      final ChatMessage toolResult = repo.active.messages[2];
+      expect(toolResult.role, MessageRole.tool);
+      expect(toolResult.hasError, isTrue);
+      expect(toolResult.text, contains('SearXNG credentials were rejected'));
+      expect(repo.lastFailure?.kind, FailureKind.authentication);
+      expect(repo.lastFailure?.source.providerId, 'searxng');
+    });
+  });
+
+  testWidgets('tool call row shows the web search query only when expanded', (
+    WidgetTester tester,
+  ) async {
+    final ChatMessage assistant = ChatMessage(
+      id: 'assistant',
+      role: MessageRole.assistant,
+      toolCalls: <ToolCall>[
+        ToolCall(
+          id: 'call_1',
+          name: 'web_search',
+          args: '{"query":"rust sqlite mobile"}',
+        ),
+      ],
+    );
+    final ChatMessage result = ChatMessage(
+      id: 'result',
+      role: MessageRole.tool,
+      text: 'Search completed.',
+      toolCallId: 'call_1',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: assistant,
+            messages: <ChatMessage>[assistant, result],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Web search'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('rust sqlite mobile'), findsNothing);
+    expect(find.text('REQUEST'), findsNothing);
+    expect(find.text('RESULT'), findsNothing);
+
+    await tester.tap(find.text('Web search'));
+    await tester.pump();
+
+    expect(find.text('REQUEST'), findsOneWidget);
+    expect(find.text('rust sqlite mobile'), findsOneWidget);
+    expect(find.text('RESULT'), findsOneWidget);
+    expect(find.text('Search completed.'), findsOneWidget);
   });
 }

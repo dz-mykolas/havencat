@@ -108,8 +108,8 @@ class _ConversationSidebarState extends State<ConversationSidebar>
   }
 
   void _newChat() {
-    (widget.onNewChat ?? widget.viewModel.newConversation).call();
     widget.onClose?.call();
+    (widget.onNewChat ?? widget.viewModel.newConversation).call();
   }
 
   void _openSettings() {
@@ -458,10 +458,10 @@ class _ConversationSidebarState extends State<ConversationSidebar>
                               active:
                                   conversation.id == widget.viewModel.activeId,
                               onTap: () {
+                                widget.onClose?.call();
                                 widget.viewModel.selectConversation(
                                   conversation.id,
                                 );
-                                widget.onClose?.call();
                               },
                               onAction: (_ConversationAction action) =>
                                   _performAction(action, conversation),

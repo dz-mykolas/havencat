@@ -96,6 +96,130 @@ void main() {
     expect(find.text('SearXNG'), findsOneWidget);
   });
 
+  testWidgets('settings can open directly to web search', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: SettingsScreen(initialSection: SettingsSection.webSearch),
+        ),
+      ),
+    );
+
+    expect(find.text('Search providers'), findsOneWidget);
+    expect(find.text('SearXNG'), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+
+    await tester.tap(find.text('SearXNG'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      'search.dzmykolas.place',
+    );
+    await tester.pump();
+
+    DropdownButton<String> scheme = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(scheme.value, 'https');
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      'localhost:8080',
+    );
+    await tester.pump();
+    scheme = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(scheme.value, 'http');
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      'https://search.dzmykolas.place',
+    );
+    await tester.pump();
+    expect(find.text('search.dzmykolas.place'), findsOneWidget);
+    scheme = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(scheme.value, 'https');
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      'localhost:8080',
+    );
+    await tester.pump();
+    scheme = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(scheme.value, 'https');
+
+    await tester.tap(find.byKey(const ValueKey<String>('instance-url-scheme')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('HTTP').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      'search.dzmykolas.place',
+    );
+    await tester.pump();
+    scheme = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(scheme.value, 'http');
+    expect(
+      find.text('Public SearXNG instances require HTTPS.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Instance address'),
+      '192.168.1.20:8080',
+    );
+    await tester.pump();
+    expect(
+      find.textContaining('Local HTTP traffic is unencrypted'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Access token (optional)'),
+      'access-token',
+    );
+    await tester.pump();
+    expect(
+      find.text('Access tokens require HTTPS outside this device.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('Accounts tab renders the seeded mock account', (
     WidgetTester tester,
   ) async {

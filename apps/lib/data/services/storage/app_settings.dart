@@ -19,6 +19,7 @@ class AppSettings extends ChangeNotifier {
       _abortOnSummaryFailure =
           prefs?.getBool(_abortOnSummaryFailureKey) ?? false,
       _autoFocusTopic = prefs?.getBool(_autoFocusTopicKey) ?? false,
+      _toolsEnabled = prefs?.getBool(_toolsEnabledKey) ?? false,
       _themeSlot = enumByNameOr(
         AppThemeSlot.values,
         prefs?.getString(_themeSlotKey),
@@ -46,6 +47,7 @@ class AppSettings extends ChangeNotifier {
   static const String _abortOnSummaryFailureKey =
       'compaction.abort_on_summary_failure::v1';
   static const String _autoFocusTopicKey = 'compaction.auto_focus_topic::v1';
+  static const String _toolsEnabledKey = 'chat.tools_enabled::v1';
   static const String _themeSlotKey = 'appearance.theme_slot::v1';
   static const String _lightThemeKey = 'appearance.light_theme::v1';
   static const String _darkThemeKey = 'appearance.dark_theme::v1';
@@ -96,6 +98,17 @@ class AppSettings extends ChangeNotifier {
     _showHiddenModels = value;
     notifyListeners();
     await _prefs?.setBool(_showHiddenModelsKey, value);
+  }
+
+  bool _toolsEnabled;
+
+  bool get toolsEnabled => _toolsEnabled;
+
+  Future<void> setToolsEnabled(bool value) async {
+    if (value == _toolsEnabled) return;
+    _toolsEnabled = value;
+    notifyListeners();
+    await _prefs?.setBool(_toolsEnabledKey, value);
   }
 
   // ── Compaction settings ──────────────────────────────────────────────────

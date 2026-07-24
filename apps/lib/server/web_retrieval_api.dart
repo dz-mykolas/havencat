@@ -200,7 +200,11 @@ List<ProviderSlotConfig> _providerConfigs(Object? value) {
     if (kind == null || kind.trim().isEmpty) {
       throw const FormatException('provider kind required');
     }
-    return ProviderSlotConfig(kind: kind, secret: config['secret'] as String?);
+    return ProviderSlotConfig(
+      kind: kind,
+      secret: config['secret'] as String?,
+      endpoint: config['endpoint'] as String?,
+    );
   }).toList();
 }
 

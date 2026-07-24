@@ -24,7 +24,11 @@ void main() {
 
       await adapter.configureProviders(
         searchProviders: const <ProviderSlotConfig>[
-          ProviderSlotConfig(kind: 'brave', secret: 'secret'),
+          ProviderSlotConfig(
+            kind: 'searxng',
+            secret: 'secret',
+            endpoint: 'https://search.example.com',
+          ),
         ],
         fetchProviders: const <ProviderSlotConfig>[
           ProviderSlotConfig(kind: 'direct_http'),
@@ -33,11 +37,15 @@ void main() {
 
       expect(
         ((body['search_providers'] as List).single as Map)['kind'],
-        'brave',
+        'searxng',
       );
       expect(
         ((body['search_providers'] as List).single as Map)['secret'],
         'secret',
+      );
+      expect(
+        ((body['search_providers'] as List).single as Map)['endpoint'],
+        'https://search.example.com',
       );
     });
 

@@ -328,17 +328,24 @@ class _StatusRow extends StatelessWidget {
           ),
         SizedBox(width: 10),
         Expanded(
-          child: Text(
-            hasError ? (error!.isNotEmpty ? error! : status) : status,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: hasError
-                  ? context.appColors.brandPink
-                  : context.appColors.textSecondary,
-            ),
-          ),
+          child: hasError
+              ? SelectableText(
+                  error!.isNotEmpty ? error! : status,
+                  maxLines: 2,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.brandPink,
+                  ),
+                )
+              : Text(
+                  status,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appColors.textSecondary,
+                  ),
+                ),
         ),
       ],
     );

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 import '../../../providers.dart';
 import 'app_notice.dart';
@@ -50,11 +52,13 @@ class _NoticeHostState extends ConsumerState<NoticeHost> {
       NoticeSeverity.error => (Icons.error_outline, colors.error),
       NoticeSeverity.critical => (Icons.dangerous_outlined, colors.error),
     };
+    final double width = math.min(MediaQuery.sizeOf(context).width - 32, 560);
     messenger.hideCurrentSnackBar();
     final ScaffoldFeatureController<SnackBar, SnackBarClosedReason> controller =
         messenger.showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,
+            width: width,
             duration: Duration(
               seconds: notice.severity == NoticeSeverity.info ? 5 : 9,
             ),
@@ -63,19 +67,41 @@ class _NoticeHostState extends ConsumerState<NoticeHost> {
                 Icon(appearance.$1, color: appearance.$2),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        notice.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(notice.message),
-                    ],
+                  child: SelectionArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          notice.title,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(notice.message),
+                      ],
+                    ),
                   ),
                 ),
+                const SizedBox(width: 4),
+                _CopyNoticeButton(
+                  text: '${notice.title}\n${notice.message}',
+                  error:
+                      notice.severity == NoticeSeverity.error ||
+                      notice.severity == NoticeSeverity.critical,
+                ),
+                if (notice.dismissible)
+                  IconButton(
+                    tooltip: 'Dismiss message',
+                    onPressed: messenger.hideCurrentSnackBar,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    padding: EdgeInsets.zero,
+                    iconSize: 18,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
               ],
             ),
             action: notice.actions.isEmpty
@@ -93,6 +119,50 @@ class _NoticeHostState extends ConsumerState<NoticeHost> {
         center.dismiss(notice.id);
         if (_showingId == notice.id) _showingId = null;
       }),
+    );
+  }
+}
+
+class _CopyNoticeButton extends StatefulWidget {
+  const _CopyNoticeButton({required this.text, required this.error});
+
+  final String text;
+  final bool error;
+
+  @override
+  State<_CopyNoticeButton> createState() => _CopyNoticeButtonState();
+}
+
+class _CopyNoticeButtonState extends State<_CopyNoticeButton> {
+  Timer? _resetTimer;
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) return;
+    _resetTimer?.cancel();
+    setState(() => _copied = true);
+    _resetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: widget.error ? 'Copy error message' : 'Copy message',
+      onPressed: _copy,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      padding: EdgeInsets.zero,
+      iconSize: 18,
+      icon: Icon(_copied ? Icons.check_rounded : Icons.copy_rounded),
     );
   }
 }

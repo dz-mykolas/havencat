@@ -94,27 +94,37 @@ void main() {
     );
   });
 
-  test('persists and applies a SearXNG instance URL', () async {
-    final _ConfigurableAdapter adapter = _ConfigurableAdapter();
-    final WebSearchSettings settings = WebSearchSettings(
-      preferences: await SharedPreferences.getInstance(),
-      secrets: SecretStore(),
-      adapter: adapter,
+  test('persists and applies a SearXNG URL and access token', () async {
+    final SharedPreferences preferences = await SharedPreferences.getInstance();
+    final SecretStore secrets = SecretStore();
+    final WebSearchSettings first = WebSearchSettings(
+      preferences: preferences,
+      secrets: secrets,
+      adapter: _ConfigurableAdapter(),
     );
-    await settings.initialize();
+    await first.initialize();
 
-    await settings.saveProvider(
+    await first.saveProvider(
       kind: 'searxng',
       enabled: true,
+      apiKey: 'access-token',
       instanceUrl: 'https://search.example.com',
     );
 
-    expect(
-      adapter.searchProviders
-          .firstWhere((ProviderSlotConfig item) => item.kind == 'searxng')
-          .secret,
-      'https://search.example.com',
+    final _ConfigurableAdapter secondAdapter = _ConfigurableAdapter();
+    final WebSearchSettings second = WebSearchSettings(
+      preferences: preferences,
+      secrets: secrets,
+      adapter: secondAdapter,
     );
+    await second.initialize();
+
+    final ProviderSlotConfig searxng = secondAdapter.searchProviders.firstWhere(
+      (ProviderSlotConfig item) => item.kind == 'searxng',
+    );
+    expect(second.preferenceFor('searxng').hasApiKey, isTrue);
+    expect(searxng.endpoint, 'https://search.example.com');
+    expect(searxng.secret, 'access-token');
   });
 
   test('does not allow disabling every provider', () async {

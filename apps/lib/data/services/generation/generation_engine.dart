@@ -45,6 +45,7 @@ class GenerationRunResult {
 }
 
 typedef GenerationChanged = void Function();
+typedef GenerationFailure = void Function(AppFailure failure);
 typedef GenerationCheckpoint =
     Future<void> Function(Conversation conversation, GenerationTask task);
 typedef GenerationIdFactory = String Function();
@@ -118,6 +119,7 @@ class GenerationEngine {
     required CompactionSettings compactionSettings,
     required GenerationCheckpoint checkpoint,
     required GenerationChanged onChanged,
+    required GenerationFailure onFailure,
   }) async {
     if (_activeTaskId != null) {
       throw StateError('GenerationEngine already owns task $_activeTaskId.');
@@ -152,6 +154,7 @@ class GenerationEngine {
         compactionSettings: compactionSettings,
         checkpoint: checkpoint,
         onChanged: onChanged,
+        onFailure: onFailure,
       );
       if (leaseError case final Object error) {
         Error.throwWithStackTrace(error, leaseStack ?? StackTrace.current);
@@ -174,6 +177,7 @@ class GenerationEngine {
     required CompactionSettings compactionSettings,
     required GenerationCheckpoint checkpoint,
     required GenerationChanged onChanged,
+    required GenerationFailure onFailure,
   }) async {
     final snapshot = task.snapshot;
     final account = snapshot.account;
@@ -452,6 +456,7 @@ class GenerationEngine {
         parentId: taskLeafId,
         currentTurnMessageIds: currentTurnMessageIds,
         onChanged: onChanged,
+        onFailure: onFailure,
       );
       await checkpoint(conversation, task);
     }
@@ -522,10 +527,20 @@ class GenerationEngine {
     required String parentId,
     required Set<String> currentTurnMessageIds,
     required GenerationChanged onChanged,
+    required GenerationFailure onFailure,
   }) async {
     for (final ToolCall call in calls) {
       WebToolResult result;
+      AppFailure? failure;
       if (_webRetrieval == null) {
+        failure = const AppFailure(
+          kind: FailureKind.unavailable,
+          source: FailureSource(
+            subsystem: AppSubsystem.webSearch,
+            operation: 'execute_tool',
+          ),
+          message: 'Web search is not configured.',
+        );
         result = const WebToolResult(content: 'Web search not configured.');
       } else {
         try {
@@ -535,8 +550,25 @@ class GenerationEngine {
             adapter: _webRetrieval,
           );
         } on Object catch (error) {
-          result = WebToolResult(content: 'The web tool failed: $error');
+          failure = _failureMapper.fromException(
+            error,
+            source: FailureSource(
+              subsystem: call.name == 'fetch_page'
+                  ? AppSubsystem.webFetch
+                  : AppSubsystem.webSearch,
+              operation: call.name == 'fetch_page' ? 'fetch' : 'search',
+            ),
+            fallbackMessage: 'The web tool failed.',
+          );
+          result = WebToolResult(
+            content: 'The web tool failed: ${failure.message}',
+          );
         }
+      }
+      if (failure != null) {
+        onFailure(failure);
+      } else if (result.warnings.isNotEmpty) {
+        onFailure(result.warnings.first);
       }
       final ChatMessage toolResult = ChatMessage(
         id: _newId(),
@@ -544,7 +576,7 @@ class GenerationEngine {
         text: result.content,
         toolCallId: call.id,
         createdAt: DateTime.now(),
-      );
+      )..hasError = failure != null;
       _addTaskMessage(conversation, toolResult, parentId: parentId);
       parentId = toolResult.id;
       currentTurnMessageIds.add(toolResult.id);

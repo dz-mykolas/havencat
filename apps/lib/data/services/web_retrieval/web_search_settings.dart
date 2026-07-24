@@ -231,10 +231,13 @@ class WebSearchSettings extends ChangeNotifier {
     final List<ProviderSlotConfig> slots = preferences.values
         .where((WebSearchProviderPreference preference) => preference.enabled)
         .map((WebSearchProviderPreference preference) {
-          final String? value = preference.kind == 'searxng'
-              ? preference.instanceUrl
-              : keys[preference.kind];
-          return ProviderSlotConfig(kind: preference.kind, secret: value);
+          return ProviderSlotConfig(
+            kind: preference.kind,
+            secret: keys[preference.kind],
+            endpoint: preference.kind == 'searxng'
+                ? preference.instanceUrl
+                : null,
+          );
         })
         .toList();
     if (slots.isEmpty) {

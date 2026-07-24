@@ -4,7 +4,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderProxyBox, ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../app_router.dart';
 import '../../branding.dart';
 import '../../data/services/storage/app_settings.dart';
 import '../../data/services/llm/token_estimator.dart';
@@ -35,7 +37,9 @@ import '../core/notices/failure_presenter.dart';
 /// conversations) and the [ConversationRepository] for the active
 /// conversation's messages (which mutate token-by-token during streaming).
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key});
+  const ChatScreen({this.conversationId, super.key});
+
+  final String? conversationId;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -48,16 +52,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _followLatest = true;
   bool _bottomScrollScheduled = false;
   bool _animateNextBottomScroll = false;
+  late final ChatViewModel _routeViewModel;
+  String? _lastObservedActiveId;
+  bool _syncingConversationRoute = false;
 
   static const double _followThreshold = 72;
   static const double _minimumTrailingSpace = 200;
   static const double _composerClearance = 64;
 
   @override
+  void initState() {
+    super.initState();
+    _routeViewModel = ref.read(chatViewModelProvider);
+    _lastObservedActiveId = _routeViewModel.activeId;
+    _routeViewModel.addListener(_handleActiveConversationChanged);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_syncConversationFromRoute()),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversationId == widget.conversationId) return;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_syncConversationFromRoute()),
+    );
+  }
+
+  @override
   void dispose() {
+    _routeViewModel.removeListener(_handleActiveConversationChanged);
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _syncConversationFromRoute() async {
+    final String? requestedId = widget.conversationId;
+    final ConversationRepository repository = ref.read(
+      conversationRepositoryProvider,
+    );
+    await repository.ready;
+    if (!mounted || widget.conversationId != requestedId) return;
+
+    _syncingConversationRoute = true;
+    try {
+      if (requestedId == null) {
+        if (repository.activeId != null) repository.newConversation();
+      } else if (repository.conversations.any(
+        (Conversation conversation) => conversation.id == requestedId,
+      )) {
+        repository.selectConversation(requestedId);
+      } else {
+        context.replace(homeRoute);
+      }
+      _lastObservedActiveId = repository.activeId;
+    } finally {
+      _syncingConversationRoute = false;
+    }
+  }
+
+  void _handleActiveConversationChanged() {
+    final String? activeId = _routeViewModel.activeId;
+    if (activeId == _lastObservedActiveId) return;
+    _lastObservedActiveId = activeId;
+    if (!mounted || _syncingConversationRoute) return;
+
+    final String currentRoute = GoRouter.of(context).state.uri.path;
+    if (currentRoute != homeRoute && !currentRoute.startsWith('/chat/')) return;
+    final String nextRoute = activeId == null
+        ? homeRoute
+        : chatRouteFor(activeId);
+    if (currentRoute != nextRoute) context.go(nextRoute);
   }
 
   void _scrollToBottom({bool force = false, bool animate = false}) {
@@ -134,7 +201,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       failure,
       onRetry: failure.isRetryable ? vm.retryLastFailure : null,
       onOpenSettings: () async {
-        if (mounted) _openSettings(context);
+        if (!mounted) return;
+        await openSettingsForFailure(context, failure);
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -143,10 +211,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  void _openSettings(BuildContext context) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => SettingsScreen()));
+  void _openSettings(
+    BuildContext context, {
+    SettingsSection? initialSection,
+    String? route,
+  }) {
+    unawaited(context.push<void>(route ?? settingsRouteFor(initialSection)));
   }
 
   void _goHome() {
@@ -173,7 +243,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildInput() {
     final ChatViewModel vm = ref.read(chatViewModelProvider);
-    final bool toolsEnabled = ref.watch(toolsEnabledProvider);
+    final AppSettings appSettings = ref.watch(appSettingsProvider);
+    final bool toolsEnabled = appSettings.toolsEnabled;
     final WebRetrievalAdapter webRetrieval = ref.watch(webRetrievalProvider);
     return ListenableBuilder(
       listenable: vm,
@@ -188,8 +259,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           onShowQueue: () => _showGenerationQueue(vm),
           toolsEnabled: toolsEnabled,
           onToggleTools: (bool next) {
-            ref.read(toolsEnabledProvider.notifier).state = next;
             ref.read(conversationRepositoryProvider).toolsEnabled = next;
+            unawaited(appSettings.setToolsEnabled(next));
           },
           webRetrievalAdapter: webRetrieval,
           imageUploadEnabled: vm.canUploadImages,

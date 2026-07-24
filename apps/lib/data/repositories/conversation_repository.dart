@@ -741,6 +741,10 @@ class ConversationRepository extends ChangeNotifier {
         }
       },
       onChanged: notifyListeners,
+      onFailure: (AppFailure failure) {
+        _lastFailure = failure;
+        notifyListeners();
+      },
     );
     final bool transitioned = await _taskStore.transition(
       taskId: running.id,

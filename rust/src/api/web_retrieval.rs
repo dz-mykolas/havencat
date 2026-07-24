@@ -33,6 +33,7 @@ static FETCH_SLOTS: OnceCell<RwLock<Vec<FetchProviderSlot>>> = OnceCell::new();
 pub struct ProviderConfig {
     pub kind: String,
     pub secret: Option<String>,
+    pub endpoint: Option<String>,
 }
 
 /// Initialize the web-retrieval subsystem: open the DB at `db_path`, run
@@ -58,7 +59,7 @@ pub async fn configure_web_retrieval(
 
     let search_slots: Vec<SearchProviderSlot> = search_providers
         .into_iter()
-        .map(|c| build_search_slot(&c.kind, c.secret))
+        .map(|c| build_search_slot(&c.kind, c.secret, c.endpoint))
         .collect::<Result<_>>()?;
     let fetch_slots: Vec<FetchProviderSlot> = fetch_providers
         .into_iter()
@@ -201,14 +202,22 @@ async fn fetch_slots() -> Result<Vec<FetchProviderSlot>> {
     Ok(slots.read().await.clone())
 }
 
-fn build_search_slot(kind: &str, secret: Option<String>) -> Result<SearchProviderSlot> {
+fn build_search_slot(
+    kind: &str,
+    secret: Option<String>,
+    endpoint: Option<String>,
+) -> Result<SearchProviderSlot> {
     let provider: Arc<dyn crate::web_retrieval::provider::WebSearchProvider> = match kind {
         "exa" => Arc::new(ExaMcpProvider::new()),
         "brave" => Arc::new(BraveSearchProvider::new()),
         "searxng" => Arc::new(SearxngProvider::new()),
         _ => return Err(WebRetrievalError::ProviderNotFound(kind.into())),
     };
-    Ok(SearchProviderSlot { provider, secret })
+    Ok(SearchProviderSlot {
+        provider,
+        secret,
+        endpoint,
+    })
 }
 
 fn build_fetch_slot(kind: &str, secret: Option<String>) -> Result<FetchProviderSlot> {
@@ -232,10 +241,12 @@ mod tests {
             vec![ProviderConfig {
                 kind: "exa".into(),
                 secret: None,
+                endpoint: None,
             }],
             vec![ProviderConfig {
                 kind: "direct_http".into(),
                 secret: None,
+                endpoint: None,
             }],
         )
         .await
@@ -245,10 +256,12 @@ mod tests {
             vec![ProviderConfig {
                 kind: "brave".into(),
                 secret: Some("test-key".into()),
+                endpoint: None,
             }],
             vec![ProviderConfig {
                 kind: "jina_reader".into(),
                 secret: None,
+                endpoint: None,
             }],
         )
         .await

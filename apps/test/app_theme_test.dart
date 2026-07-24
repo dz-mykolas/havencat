@@ -22,6 +22,17 @@ void main() {
     expect(restored.themeSlot, AppThemeSlot.light);
   });
 
+  test('web search tool preference persists', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final AppSettings settings = AppSettings(prefs: prefs);
+
+    expect(settings.toolsEnabled, isFalse);
+    await settings.setToolsEnabled(true);
+
+    expect(AppSettings(prefs: prefs).toolsEnabled, isTrue);
+  });
+
   test('preset brightness is independent from its assigned slot', () {
     expect(AppTheme.build(AppThemePreset.midnight).brightness, Brightness.dark);
     expect(

@@ -77,7 +77,8 @@ pub enum FetchFormat {
     Html,
 }
 
-/// A web search provider. Stateless — auth/config come in via `secret`.
+/// A web search provider. Stateless — auth and endpoint configuration are
+/// supplied for each request.
 #[async_trait::async_trait]
 pub trait WebSearchProvider: Send + Sync {
     fn kind(&self) -> &'static str;
@@ -85,6 +86,7 @@ pub trait WebSearchProvider: Send + Sync {
         &self,
         query: &str,
         secret: Option<&str>,
+        endpoint: Option<&str>,
         options: SearchOptions,
     ) -> Result<Vec<SearchResult>>;
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../../domain/models/message.dart';
 import '../../../domain/models/message_attachment.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_scroll_view.dart';
 import '../../core/widgets/typing_indicator.dart';
 import 'chat_markdown.dart';
 import 'token_usage_chip.dart';
@@ -704,7 +706,7 @@ class _ToolStepCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   for (final tc in calls)
-                    _ToolCallRow(name: tc.name, result: resultsById[tc.id]),
+                    _ToolCallRow(call: tc, result: resultsById[tc.id]),
                 ],
               ),
             ),
@@ -719,9 +721,9 @@ class _ToolStepCard extends StatelessWidget {
 /// failure icon) once the result arrives, and — when a result exists — an
 /// expand arrow to reveal the tool-result payload inline.
 class _ToolCallRow extends StatefulWidget {
-  const _ToolCallRow({required this.name, required this.result});
+  const _ToolCallRow({required this.call, required this.result});
 
-  final String name;
+  final ToolCall call;
   final ChatMessage? result;
 
   @override
@@ -734,93 +736,297 @@ class _ToolCallRowState extends State<_ToolCallRow> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final String? requestValue = _toolCallRequestValue(widget.call);
     final bool done = widget.result != null;
-    final bool failed = done && widget.result!.text.startsWith('Error');
-
-    final IconData icon;
-    final Color iconColor;
-    if (!done) {
-      icon = Icons.more_horiz;
-      iconColor = context.appColors.outline;
-    } else if (failed) {
-      icon = Icons.close;
-      iconColor = theme.colorScheme.error;
-    } else {
-      icon = Icons.check;
-      iconColor = Colors.green;
-    }
+    final bool failed =
+        done &&
+        (widget.result!.hasError ||
+            widget.result!.text.startsWith('Error') ||
+            widget.result!.text.startsWith('The web tool failed:'));
+    final Color statusColor = failed
+        ? theme.colorScheme.error
+        : done
+        ? const Color(0xFF3BAF7A)
+        : context.appColors.brandViolet;
+    final String statusLabel = failed
+        ? 'Failed'
+        : done
+        ? 'Completed'
+        : _toolCallPendingLabel(widget.call);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        MouseRegion(
-          cursor: done ? SystemMouseCursors.click : SystemMouseCursors.basic,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: done ? () => setState(() => _expanded = !_expanded) : null,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: <Widget>[
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: done
-                        ? Icon(icon, size: 14, color: iconColor)
-                        : _DotLoader(),
-                  ),
-                  SizedBox(width: 8),
-                  Icon(
-                    Icons.build_circle_outlined,
-                    size: 14,
-                    color: context.appColors.outline,
-                  ),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      widget.name,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.55,
+        Semantics(
+          button: done,
+          expanded: done ? _expanded : null,
+          label: '${_toolCallLabel(widget.call)}, $statusLabel',
+          child: MouseRegion(
+            cursor: done ? SystemMouseCursors.click : SystemMouseCursors.basic,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: done ? () => setState(() => _expanded = !_expanded) : null,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: context.appColors.brandViolet.withValues(
+                          alpha: 0.1,
                         ),
-                        fontWeight: FontWeight.w500,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        _toolCallIcon(widget.call),
+                        size: 16,
+                        color: context.appColors.brandViolet,
                       ),
                     ),
-                  ),
-                  if (done)
-                    Icon(
-                      _expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 16,
-                      color: context.appColors.outline,
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            _toolCallLabel(widget.call),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: context.appColors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          SizedBox(
+                            height: 14,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: <Widget>[
+                                SizedBox.square(
+                                  dimension: 12,
+                                  child: done
+                                      ? Icon(
+                                          failed
+                                              ? Icons.error_outline
+                                              : Icons.check,
+                                          size: 12,
+                                          color: statusColor,
+                                        )
+                                      : _DotLoader(),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  statusLabel,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: statusColor,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                ],
+                    if (done)
+                      Icon(
+                        _expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        size: 18,
+                        color: context.appColors.outline,
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
         if (done && _expanded)
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.fromLTRB(12, 0, 12, 10),
-            child: Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.5,
+          Padding(
+            padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                if (requestValue != null)
+                  _ToolDetailSection(
+                    icon: Icons.north_east_rounded,
+                    label: 'Request',
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: context.appColors.brandViolet.withValues(
+                          alpha: 0.08,
+                        ),
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(
+                          color: context.appColors.brandViolet.withValues(
+                            alpha: 0.18,
+                          ),
+                        ),
+                      ),
+                      child: SelectableText(
+                        requestValue,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: context.appColors.textPrimary,
+                          fontWeight: FontWeight.w500,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ),
+                _ToolDetailSection(
+                  icon: failed
+                      ? Icons.error_outline_rounded
+                      : Icons.south_west_rounded,
+                  label: failed ? 'Error' : 'Result',
+                  accentColor: failed
+                      ? theme.colorScheme.error
+                      : context.appColors.textSecondary,
+                  child: _ToolResultText(
+                    text: widget.result!.text,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: failed
+                          ? theme.colorScheme.error
+                          : context.appColors.textPrimary,
+                      fontFamily: 'monospace',
+                      height: 1.45,
+                    ),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: SelectableText(
-                widget.result!.text,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                ),
-                maxLines: 12,
-              ),
+              ],
             ),
           ),
       ],
     );
+  }
+}
+
+class _ToolResultText extends StatelessWidget {
+  const _ToolResultText({required this.text, required this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextStyle effectiveStyle = DefaultTextStyle.of(
+      context,
+    ).style.merge(style);
+    final double maxHeight =
+        (effectiveStyle.fontSize ?? 14) * (effectiveStyle.height ?? 1.2) * 12;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: AppScrollView(
+        builder: (BuildContext context, AppScrollController controller) =>
+            SingleChildScrollView(
+              controller: controller,
+              child: SelectionArea(child: Text(text, style: effectiveStyle)),
+            ),
+      ),
+    );
+  }
+}
+
+class _ToolDetailSection extends StatelessWidget {
+  const _ToolDetailSection({
+    required this.icon,
+    required this.label,
+    required this.child,
+    this.accentColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget child;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = accentColor ?? context.appColors.textSecondary;
+    return Padding(
+      padding: EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(icon, size: 13, color: color),
+              SizedBox(width: 5),
+              Text(
+                label.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.7,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 7),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+String _toolCallLabel(ToolCall call) {
+  return switch (call.name) {
+    'web_search' => 'Web search',
+    'fetch_page' => 'Open page',
+    _ =>
+      call.name
+          .split('_')
+          .where((String part) => part.isNotEmpty)
+          .map(
+            (String part) =>
+                '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}',
+          )
+          .join(' '),
+  };
+}
+
+IconData _toolCallIcon(ToolCall call) {
+  return switch (call.name) {
+    'web_search' => Icons.travel_explore_rounded,
+    'fetch_page' => Icons.article_outlined,
+    _ => Icons.build_circle_outlined,
+  };
+}
+
+String _toolCallPendingLabel(ToolCall call) {
+  return switch (call.name) {
+    'web_search' => 'Searching',
+    'fetch_page' => 'Opening',
+    _ => 'Running',
+  };
+}
+
+String? _toolCallRequestValue(ToolCall call) {
+  if (call.args.isEmpty) return null;
+  try {
+    final Object? decoded = jsonDecode(call.args);
+    if (decoded is! Map<String, dynamic>) return null;
+    final Object? value = switch (call.name) {
+      'web_search' => decoded['query'],
+      'fetch_page' => decoded['url'],
+      _ => null,
+    };
+    if (value is! String) return null;
+    return value.isEmpty ? '(empty)' : value;
+  } on FormatException {
+    return null;
   }
 }
 

@@ -10,10 +10,14 @@ class FailurePresenter {
     Future<void> Function()? onOpenSettings,
   }) {
     final String provider = failure.source.providerId ?? 'Provider';
+    final bool webProvider =
+        failure.source.subsystem == AppSubsystem.webSearch ||
+        failure.source.subsystem == AppSubsystem.webFetch;
     final String title = failure.source.subsystem == AppSubsystem.storage
         ? 'Storage unavailable'
         : switch (failure.kind) {
-            FailureKind.authentication => 'Reconnect $provider',
+            FailureKind.authentication =>
+              webProvider ? 'Configure $provider' : 'Reconnect $provider',
             FailureKind.permission => 'Access denied',
             FailureKind.billingRequired => 'Billing required',
             FailureKind.quotaExhausted => 'Usage limit reached',
@@ -43,10 +47,14 @@ class FailurePresenter {
               failure.kind == FailureKind.billingRequired ||
               failure.kind == FailureKind.unavailable))
         NoticeAction(
-          kind: failure.kind == FailureKind.authentication
+          kind: webProvider
+              ? NoticeActionKind.configureProvider
+              : failure.kind == FailureKind.authentication
               ? NoticeActionKind.reconnect
               : NoticeActionKind.openSettings,
-          label: failure.kind == FailureKind.authentication
+          label: webProvider
+              ? 'Configure'
+              : failure.kind == FailureKind.authentication
               ? 'Reconnect'
               : 'Open settings',
           onPressed: onOpenSettings,

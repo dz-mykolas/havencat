@@ -56,10 +56,22 @@ class RustWebRetrievalAdapter
     await rust.configureWebRetrieval(
       dbPath: _dbPath,
       searchProviders: resolvedSearch
-          .map((p) => rust.ProviderConfig(kind: p.kind, secret: p.secret))
+          .map(
+            (p) => rust.ProviderConfig(
+              kind: p.kind,
+              secret: p.secret,
+              endpoint: p.endpoint,
+            ),
+          )
           .toList(),
       fetchProviders: resolvedFetch
-          .map((p) => rust.ProviderConfig(kind: p.kind, secret: p.secret))
+          .map(
+            (p) => rust.ProviderConfig(
+              kind: p.kind,
+              secret: p.secret,
+              endpoint: p.endpoint,
+            ),
+          )
           .toList(),
     );
     _log.info('configure: done');

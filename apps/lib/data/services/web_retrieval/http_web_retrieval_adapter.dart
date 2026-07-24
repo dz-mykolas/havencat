@@ -214,6 +214,7 @@ class HttpWebRetrievalAdapter
   ) => <String, Object?>{
     'kind': config.kind,
     if (config.secret != null) 'secret': config.secret,
+    if (config.endpoint != null) 'endpoint': config.endpoint,
   };
 
   static FetchedPage _fetchedPageFromJson(Map<String, dynamic> json) {
