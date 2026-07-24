@@ -123,8 +123,6 @@ class ConversationRepository extends ChangeNotifier {
   }
 
   Future<void> _persistTail = Future<void>.value();
-  Timer? _partialPersistTimer;
-  Conversation? _pendingPartialConversation;
 
   void _persist(Conversation conversation) {
     unawaited(_persistConversation(conversation));
@@ -147,25 +145,6 @@ class ConversationRepository extends ChangeNotifier {
     });
     _persistTail = operation;
     await operation;
-  }
-
-  void _schedulePartialPersist(Conversation conversation) {
-    _pendingPartialConversation = conversation;
-    _partialPersistTimer ??= Timer(const Duration(milliseconds: 500), () {
-      _partialPersistTimer = null;
-      final Conversation? pending = _pendingPartialConversation;
-      _pendingPartialConversation = null;
-      if (pending != null) unawaited(_persistConversation(pending));
-    });
-  }
-
-  Future<void> flushPartialGeneration() async {
-    _partialPersistTimer?.cancel();
-    _partialPersistTimer = null;
-    final Conversation? pending = _pendingPartialConversation;
-    _pendingPartialConversation = null;
-    if (pending != null) await _persistConversation(pending);
-    await _persistTail;
   }
 
   Future<void> _deletePersistedConversation(String id) async {
@@ -674,7 +653,7 @@ class ConversationRepository extends ChangeNotifier {
     } finally {
       _activeGenerationTaskId = null;
       try {
-        await flushPartialGeneration();
+        await _persistTail;
         await _finishBackgroundWork(
           cancelled: _drainWasCancelled,
           interrupted: !_drainWasCancelled && _drainWasInterrupted,
@@ -732,7 +711,6 @@ class ConversationRepository extends ChangeNotifier {
       modelCapabilities: running.snapshot.modelCapabilities,
       compactionSettings: _compactionSettings(),
       checkpoint: (Conversation updated, GenerationTask task) async {
-        _schedulePartialPersist(updated);
         await _taskStore.checkpoint(conversation: updated, task: task);
         final GenerationBackgroundController? background =
             _backgroundController;
@@ -764,7 +742,6 @@ class ConversationRepository extends ChangeNotifier {
     );
     _knownTasks[running.id] = running;
     if (result.failure != null) _lastFailure = result.failure;
-    await flushPartialGeneration();
     await _persistConversation(conversation);
     _drainWasCancelled =
         _drainWasCancelled || result.state == GenerationTaskState.cancelled;
@@ -1033,7 +1010,20 @@ class ConversationRepository extends ChangeNotifier {
 
   Future<void> handleAppVisibility(bool visible) async {
     _backgroundController?.setAppVisible(visible);
-    if (!visible && _isGenerating) await flushPartialGeneration();
+    if (!visible && _isGenerating) {
+      _generationEngine.flushBufferedOutput();
+      final String? conversationId = _activeGenerationTaskId == null
+          ? null
+          : _knownTasks[_activeGenerationTaskId]?.conversationId;
+      final Conversation? conversation = _conversations
+          .where((Conversation value) => value.id == conversationId)
+          .firstOrNull;
+      if (conversation != null) {
+        await _persistConversation(conversation);
+      } else {
+        await _persistTail;
+      }
+    }
     if (visible) {
       final String? conversationId = _backgroundController
           ?.takeSelectedConversation();
@@ -1186,7 +1176,6 @@ class ConversationRepository extends ChangeNotifier {
   @override
   void dispose() {
     _providers.removeListener(_onProvidersChanged);
-    _partialPersistTimer?.cancel();
     _backgroundController?.onBackgroundTimeExpired = null;
     if (_activeGenerationTaskId case final String taskId) {
       unawaited(_generationEngine.cancel(taskId));

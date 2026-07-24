@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/app.dart';
+import 'package:app/app_router.dart';
 import 'package:app/data/services/storage/conversation_store.dart';
 import 'package:app/domain/models/conversation.dart';
 import 'package:app/domain/models/message.dart';
@@ -32,7 +33,10 @@ void main() {
     repository.selectConversation(conversation.id);
 
     await tester.pumpWidget(
-      UncontrolledProviderScope(container: container, child: const App()),
+      UncontrolledProviderScope(
+        container: container,
+        child: App(initialLocation: chatRouteFor(conversation.id)),
+      ),
     );
     await tester.pumpAndSettle();
 

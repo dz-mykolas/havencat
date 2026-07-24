@@ -241,31 +241,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Widget _buildInput() {
+  Widget _buildInput(_ChatInputState state) {
     final ChatViewModel vm = ref.read(chatViewModelProvider);
     final AppSettings appSettings = ref.watch(appSettingsProvider);
     final bool toolsEnabled = appSettings.toolsEnabled;
     final WebRetrievalAdapter webRetrieval = ref.watch(webRetrievalProvider);
-    return ListenableBuilder(
-      listenable: vm,
-      builder: (BuildContext context, _) {
-        return ChatInput(
-          textController: _textController,
-          isGenerating: vm.isGenerating,
-          queuedCount: vm.queuedGenerationCount,
-          onSend: _send,
-          onCancel: () => unawaited(vm.cancelGeneration()),
-          onSteer: (String text) => unawaited(vm.steerGeneration(text)),
-          onShowQueue: () => _showGenerationQueue(vm),
-          toolsEnabled: toolsEnabled,
-          onToggleTools: (bool next) {
-            ref.read(conversationRepositoryProvider).toolsEnabled = next;
-            unawaited(appSettings.setToolsEnabled(next));
-          },
-          webRetrievalAdapter: webRetrieval,
-          imageUploadEnabled: vm.canUploadImages,
-        );
+    return ChatInput(
+      textController: _textController,
+      isGenerating: state.isGenerating,
+      queuedCount: state.queuedCount,
+      onSend: _send,
+      onCancel: () => unawaited(vm.cancelGeneration()),
+      onSteer: (String text) => unawaited(vm.steerGeneration(text)),
+      onShowQueue: () => _showGenerationQueue(vm),
+      toolsEnabled: toolsEnabled,
+      onToggleTools: (bool next) {
+        ref.read(conversationRepositoryProvider).toolsEnabled = next;
+        unawaited(appSettings.setToolsEnabled(next));
       },
+      webRetrievalAdapter: webRetrieval,
+      imageUploadEnabled: state.canUploadImages,
     );
   }
 
@@ -381,6 +376,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final ConversationRepository repo = ref.read(
       conversationRepositoryProvider,
     );
+    final _ChatInputState inputState = ref.watch(
+      chatViewModelProvider.select(
+        (ChatViewModel value) => (
+          isGenerating: value.isGenerating,
+          queuedCount: value.queuedGenerationCount,
+          canUploadImages: value.canUploadImages,
+        ),
+      ),
+    );
+    final bool isEmpty = ref.watch(
+      conversationRepositoryProvider.select(
+        (ConversationRepository value) => value.active.isEmpty,
+      ),
+    );
 
     // On wide screens the logo sits on the left; on phones it's slightly
     // smaller. The model selector lives in the input bar now.
@@ -437,25 +446,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         fit: StackFit.expand,
         children: <Widget>[
           Positioned.fill(
-            child: ListenableBuilder(
-              listenable: vm,
-              builder: (BuildContext context, _) {
-                return AnimatedBackground(active: vm.isGenerating);
-              },
+            child: RepaintBoundary(
+              child: AnimatedBackground(active: inputState.isGenerating),
             ),
           ),
           SafeArea(
             top: false,
             bottom: false,
             child: ListenableBuilder(
+              key: ValueKey<bool>(isEmpty),
               listenable: vm,
-              builder: (BuildContext context, _) {
+              child: _buildInput(inputState),
+              builder: (BuildContext context, Widget? input) {
                 _publishFailure(vm);
                 final Conversation conversation = repo.active;
                 if (conversation.isEmpty) {
                   return Padding(
                     padding: EdgeInsets.only(top: headerExtent),
-                    child: EmptyState(input: _buildInput()),
+                    child: EmptyState(input: input!),
                   );
                 }
                 // Keep pinned to the newest content as tokens stream in.
@@ -659,7 +667,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                             child: _SizeReporter(
                               onSizeChanged: _handleComposerSize,
-                              child: _buildInput(),
+                              child: input!,
                             ),
                           ),
                         ),
@@ -730,3 +738,9 @@ class _RenderSizeReporter extends RenderProxyBox {
     WidgetsBinding.instance.addPostFrameCallback((_) => onSizeChanged(size));
   }
 }
+
+typedef _ChatInputState = ({
+  bool isGenerating,
+  int queuedCount,
+  bool canUploadImages,
+});

@@ -1,5 +1,6 @@
 // Basic smoke test for the app UI.
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +50,31 @@ void main() {
     expect(find.text('Hello there'), findsNothing);
 
     // Drain the mock reply stream so no timers remain pending at teardown.
+    for (int i = 0; i < 80; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+  });
+
+  testWidgets('starts a chat while the composer tooltip is visible', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const ProviderScope(child: App()));
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(find.byTooltip('Tools')));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Tools'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Hello!');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+
     for (int i = 0; i < 80; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }

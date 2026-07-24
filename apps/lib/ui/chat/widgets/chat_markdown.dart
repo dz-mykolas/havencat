@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
@@ -22,17 +19,15 @@ import '../../core/theme/app_theme.dart';
 ///  * Tappable links opened in the system browser.
 ///  * Selectable text on desktop/web.
 ///
-/// When [streaming] is true, the text is revealed smoothly character-by-
-/// character using a per-frame ticker, so chunky token arrivals from the LLM
-/// still look like fluid typing (like ChatGPT/Gemini). When not streaming, the
-/// full text is rendered immediately.
+/// The rendered subtree is reused while its input is unchanged. Streaming
+/// updates are already batched by the generation pipeline, so Markdown is
+/// parsed once per visible update rather than from a second animation ticker.
 class ChatMarkdown extends StatefulWidget {
   const ChatMarkdown({
     super.key,
     required this.text,
     this.selectable = true,
     this.onLinkTap,
-    this.streaming = false,
     this.fillWidth = true,
   });
 
@@ -45,10 +40,6 @@ class ChatMarkdown extends StatefulWidget {
   /// Override link handling. Defaults to opening in the system browser.
   final void Function(String url, String title)? onLinkTap;
 
-  /// When true, the text is revealed smoothly character-by-character. When
-  /// false, the full text is shown immediately.
-  final bool streaming;
-
   /// When true, the widget fills the available width (so block elements like
   /// headings stay left-aligned). When false, it shrinks to fit its content
   /// (so user bubbles are only as wide as their text).
@@ -58,195 +49,29 @@ class ChatMarkdown extends StatefulWidget {
   State<ChatMarkdown> createState() => _ChatMarkdownState();
 }
 
-class _ChatMarkdownState extends State<ChatMarkdown>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
-  late Duration _lastElapsed;
-  bool _ticking = false;
-
-  /// How many characters of [widget.text] are currently rendered.
-  double _revealed = 0;
-
-  /// Timestamp of the last [setState] that triggered a [GptMarkdown] re-parse.
-  /// We throttle these to at most one every ~50ms (20fps) because re-parsing
-  /// the full markdown is expensive; the ticker still advances [_revealed]
-  /// every frame for smooth animation, but we only rebuild on a cadence.
-  Duration _lastRender = Duration.zero;
-  static const Duration _renderInterval = Duration(milliseconds: 50);
-
-  // ── Dynamic speed tracking ──────────────────────────────────────────────
-  // The reveal speed is driven by a "pursuit" model: we always aim to close
-  // the gap to the model's latest text, but the speed scales with how far
-  // behind we are. This means:
-  //  - Small gap (model trickling): we match its pace → smooth, no chunking.
-  //  - Large gap (model bursted): we speed up dramatically → catch up fast.
-  //  - The gap naturally decelerates the reveal as we approach → no snap.
-  //
-  // Formula: revealCps = modelCps + remaining / catchupTime
-  //   where catchupTime ≈ 1.2s. This gives a pursuit curve: if we're 500 chars
-  //   behind, we get +416 cps bonus; if 10 behind, +8 cps. The gap closes
-  //   exponentially, which feels natural.
-
-  int _lastTarget = 0;
-  Duration _lastTargetTime = Duration.zero;
-  double _modelCps = 0;
-  double _revealCps = 60;
-
-  static const double _minCps = 25;
-  static const double _maxCps = 5000;
-
-  /// Target time (seconds) to close the gap to the model's output.
-  static const double _catchupTime = 1.2;
-
-  /// EMA smoothing factor for the model rate (0–1).
-  static const double _emaAlpha = 0.2;
+class _ChatMarkdownState extends State<ChatMarkdown> {
+  Widget? _rendered;
+  String? _renderedText;
+  bool? _renderedSelectable;
+  bool? _renderedFillWidth;
+  void Function(String url, String title)? _renderedOnLinkTap;
 
   @override
-  void initState() {
-    super.initState();
-    _revealed = widget.streaming ? 0 : widget.text.length.toDouble();
-    _lastElapsed = Duration.zero;
-    _lastRender = Duration.zero;
-    _lastTarget = widget.text.length;
-    _lastTargetTime = Duration.zero;
-    _ticker = createTicker(_onTick);
-    if (widget.streaming) _startTicker();
-  }
-
-  @override
-  void didUpdateWidget(covariant ChatMarkdown oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // If the text changed to a completely different message (not just
-    // appended tokens during streaming), snap to full reveal immediately.
-    // This happens on branch switches — re-animating would look like the
-    // message is regenerating.
-    final bool isExtension =
-        oldWidget.text.isEmpty || widget.text.startsWith(oldWidget.text);
-    if (!isExtension) {
-      _revealed = widget.text.length.toDouble();
-      _lastTarget = widget.text.length;
-      _lastTargetTime = Duration.zero;
-      _modelCps = 0;
-      _stopTicker();
-      setState(() {});
-      return;
-    }
-    if (widget.text.length < _revealed.round()) {
-      _revealed = widget.text.length.toDouble();
-      _lastTarget = widget.text.length;
-    }
-    if (widget.streaming && !_ticking) {
-      _lastElapsed = Duration.zero;
-      _lastRender = Duration.zero;
-      _lastTarget = widget.text.length;
-      _lastTargetTime = Duration.zero;
-      _startTicker();
-    } else if (!widget.streaming &&
-        !_ticking &&
-        _revealed.round() < widget.text.length) {
-      // Streaming ended but there's still buffered text to reveal — start
-      // the ticker so it smoothly catches up instead of snapping.
-      _lastElapsed = Duration.zero;
-      _lastRender = Duration.zero;
-      _startTicker();
-    }
-  }
-
-  @override
-  void dispose() {
-    _ticker.dispose();
-    super.dispose();
-  }
-
-  void _startTicker() {
-    if (_ticking) return;
-    _ticking = true;
-    _lastElapsed = Duration.zero;
-    _lastRender = Duration.zero;
-    _lastTargetTime = Duration.zero;
-    _ticker.start();
-  }
-
-  void _stopTicker() {
-    if (!_ticking) return;
-    _ticking = false;
-    _ticker.stop();
-  }
-
-  void _onTick(Duration elapsed) {
-    final double dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
-    _lastElapsed = elapsed;
-    if (dt <= 0) return;
-
-    final int target = widget.text.length;
-    final double remaining = target - _revealed;
-
-    if (remaining <= 0.5) {
-      _revealed = target.toDouble();
-      _lastTarget = target;
-      _lastTargetTime = elapsed;
-      _stopTicker();
-      setState(() {});
-      return;
-    }
-
-    // ── Measure the model's output rate since the last tick ──────────────
-    final int newChars = target - _lastTarget;
-    if (newChars > 0) {
-      final double tickSec = (elapsed - _lastTargetTime).inMicroseconds / 1e6;
-      if (tickSec > 0) {
-        final double instantCps = newChars / tickSec;
-        _modelCps = _modelCps == 0
-            ? instantCps
-            : _modelCps + _emaAlpha * (instantCps - _modelCps);
-      }
-      _lastTarget = target;
-      _lastTargetTime = elapsed;
-    } else {
-      // No new text — decay the model rate so the reveal slows naturally
-      // when the model pauses, but never below _minCps.
-      _modelCps *= 0.9;
-    }
-
-    // ── Pursuit-based reveal speed ───────────────────────────────────────
-    // Base = model rate (match its pace). Bonus = gap / catchupTime (close
-    // the gap over ~1.2s). This scales dynamically: small gap → barely above
-    // model rate; large gap → much faster. The gap shrinks exponentially.
-    //
-    // When streaming has finished (we're just flushing buffered text), use a
-    // higher floor so the tail doesn't crawl — the model is done, there's no
-    // reason to keep matching its (now zero) pace.
-    final bool flushing = !widget.streaming;
-    final double floor = flushing ? 400 : _minCps;
-    final double targetCps = (_modelCps + remaining / _catchupTime).clamp(
-      floor,
-      _maxCps,
-    );
-    // Smoothly approach the target speed (avoid jarring jumps).
-    _revealCps += (targetCps - _revealCps) * (flushing ? 0.3 : 0.15);
-
-    _revealed = (_revealed + _revealCps * dt).clamp(0, target.toDouble());
-
-    if (_revealed.round() >= target) {
-      _revealed = target.toDouble();
-      _stopTicker();
-    }
-
-    // Throttle the expensive GptMarkdown re-parse to ~20fps.
-    if (elapsed - _lastRender >= _renderInterval ||
-        _revealed.round() >= target) {
-      _lastRender = elapsed;
-      setState(() {});
-    }
-  }
-
-  String get _visibleText {
-    final int n = _revealed.round().clamp(0, widget.text.length);
-    return widget.text.substring(0, n);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _rendered = null;
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_rendered != null &&
+        _renderedText == widget.text &&
+        _renderedSelectable == widget.selectable &&
+        _renderedFillWidth == widget.fillWidth &&
+        _renderedOnLinkTap == widget.onLinkTap) {
+      return _rendered!;
+    }
+
     final ThemeData theme = Theme.of(context);
     final GptMarkdownThemeData mdTheme = GptMarkdownTheme.of(context);
 
@@ -281,7 +106,7 @@ class _ChatMarkdownState extends State<ChatMarkdown>
         ),
       ),
       child: GptMarkdown(
-        _visibleText,
+        widget.text,
         style: TextStyle(
           color: context.appColors.textPrimary,
           fontSize: 15,
@@ -305,7 +130,11 @@ class _ChatMarkdownState extends State<ChatMarkdown>
     if (widget.selectable) {
       md = SelectionArea(child: md);
     }
-    return md;
+    _renderedText = widget.text;
+    _renderedSelectable = widget.selectable;
+    _renderedFillWidth = widget.fillWidth;
+    _renderedOnLinkTap = widget.onLinkTap;
+    return _rendered = md;
   }
 
   Future<void> _defaultOnLinkTap(String url, String title) async {

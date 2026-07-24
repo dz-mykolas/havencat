@@ -199,7 +199,6 @@ class _BackgroundPainter extends CustomPainter {
     const double peakAlpha = 0.16;
     for (final _Blob blob in blobs) {
       final Paint paint = Paint()
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blob.radius * 0.55)
         ..shader =
             RadialGradient(
               colors: <Color>[

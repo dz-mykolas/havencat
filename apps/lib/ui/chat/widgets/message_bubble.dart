@@ -113,7 +113,7 @@ class _MessageBubbleState extends State<MessageBubble>
   late final FocusNode _editFocus;
 
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => _editing;
 
   @override
   void initState() {
@@ -141,7 +141,7 @@ class _MessageBubbleState extends State<MessageBubble>
 
   void _startEdit() {
     _editController.text = widget.message.text;
-    setState(() => _editing = true);
+    _setEditing(true);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _editFocus.requestFocus(),
     );
@@ -166,13 +166,19 @@ class _MessageBubbleState extends State<MessageBubble>
     return parts.isEmpty ? 'Nothing below' : parts.join(', ');
   }
 
-  void _cancelEdit() => setState(() => _editing = false);
+  void _setEditing(bool value) {
+    if (_editing == value) return;
+    setState(() => _editing = value);
+    updateKeepAlive();
+  }
+
+  void _cancelEdit() => _setEditing(false);
 
   void _save(bool resend) {
     final String text = _editController.text.trim();
     if (text.isEmpty) return;
     widget.onEditUser?.call(text, resend);
-    setState(() => _editing = false);
+    _setEditing(false);
   }
 
   @override
@@ -349,11 +355,7 @@ class _MessageBubbleState extends State<MessageBubble>
             if (showTyping)
               Align(alignment: Alignment.centerLeft, child: TypingIndicator())
             else if (widget.message.text.isNotEmpty)
-              ChatMarkdown(
-                text: widget.message.text,
-                selectable: true,
-                streaming: widget.message.isStreaming,
-              ),
+              ChatMarkdown(text: widget.message.text, selectable: true),
             if (widget.message.generationStatus ==
                     MessageGenerationStatus.interrupted ||
                 widget.message.generationStatus ==
@@ -1210,7 +1212,6 @@ class _ThinkingRowState extends State<_ThinkingRow>
                         child: ChatMarkdown(
                           text: widget.reasoning,
                           selectable: true,
-                          streaming: widget.streaming,
                         ),
                       ),
                     ),

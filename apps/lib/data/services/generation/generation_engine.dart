@@ -76,11 +76,14 @@ class GenerationEngine {
   Completer<void>? _cancellation;
   StreamSubscription<LlmEvent>? _activeSubscription;
   StreamController<LlmEvent>? _activeEvents;
+  _StreamingMessageBuffer? _activeMessageBuffer;
   String? _activeTaskId;
   GenerationTaskState? _requestedTerminalState;
 
   bool get isRunning => _activeTaskId != null;
   String? get activeTaskId => _activeTaskId;
+
+  void flushBufferedOutput() => _activeMessageBuffer?.flush();
 
   Future<void> cancel(String taskId) async {
     if (_activeTaskId != taskId) return;
@@ -164,6 +167,7 @@ class GenerationEngine {
       leaseTimer?.cancel();
       await _stopActiveStream();
       _cancellation = null;
+      _activeMessageBuffer = null;
       _requestedTerminalState = null;
       _activeTaskId = null;
     }
@@ -292,6 +296,15 @@ class GenerationEngine {
       bool dispatched = false;
       bool acknowledged = false;
       final StreamController<LlmEvent> events = StreamController<LlmEvent>();
+      final _StreamingMessageBuffer messageBuffer = _StreamingMessageBuffer(
+        assistant,
+      );
+      _activeMessageBuffer = messageBuffer;
+      final _StreamUpdateCadence cadence = _StreamUpdateCadence(
+        beforeRead: messageBuffer.flush,
+        onChanged: onChanged,
+        checkpoint: () => checkpoint(conversation, task),
+      );
       _activeEvents = events;
       try {
         await recordCall('sending');
@@ -322,13 +335,11 @@ class GenerationEngine {
           }
           switch (event) {
             case TokenEvent(:final String delta):
-              assistant
-                ..generationStatus = MessageGenerationStatus.streaming
-                ..text += delta;
+              messageBuffer.addText(delta);
+              assistant.generationStatus = MessageGenerationStatus.streaming;
             case ReasoningEvent(:final String delta):
-              assistant
-                ..generationStatus = MessageGenerationStatus.streaming
-                ..reasoning += delta;
+              messageBuffer.addReasoning(delta);
+              assistant.generationStatus = MessageGenerationStatus.streaming;
             case AttachmentEvent(:final MessageAttachment attachment):
               _upsertAttachment(assistant, attachment);
               assistant.generationStatus = MessageGenerationStatus.streaming;
@@ -346,6 +357,7 @@ class GenerationEngine {
               );
               assistant.generationStatus = MessageGenerationStatus.streaming;
             case DoneEvent(:final LlmUsage? usage):
+              messageBuffer.flush();
               assistant
                 ..text = assistant.text.trimRight()
                 ..generationStatus = MessageGenerationStatus.completed;
@@ -355,19 +367,24 @@ class GenerationEngine {
             case ErrorEvent(:final AppFailure error):
               failure = error;
           }
-          onChanged();
-          await checkpoint(conversation, task);
+          cadence.changed();
+          if (cadence.checkpointIfDue() case final Future<void> pending) {
+            await pending;
+          }
           if (failure != null || completed) break;
 
-          final GenerationRunResult? commandResult = await _consumeCommands(
-            task,
-          );
-          if (commandResult != null) {
-            _requestedTerminalState = commandResult.state;
-            if (!cancellation.isCompleted) cancellation.complete();
-            _applyTerminalMessageState(assistant, commandResult.state);
-            await checkpoint(conversation, task);
-            return commandResult.atLeaf(taskLeafId);
+          if (cadence.shouldPollCommands) {
+            messageBuffer.flush();
+            final GenerationRunResult? commandResult = await _consumeCommands(
+              task,
+            );
+            if (commandResult != null) {
+              _requestedTerminalState = commandResult.state;
+              if (!cancellation.isCompleted) cancellation.complete();
+              _applyTerminalMessageState(assistant, commandResult.state);
+              await checkpoint(conversation, task);
+              return commandResult.atLeaf(taskLeafId);
+            }
           }
         }
       } on Object catch (error, stack) {
@@ -386,6 +403,12 @@ class GenerationEngine {
           await recordCall('failed_before_send', error: failure.message);
         }
       } finally {
+        cadence
+          ..flushChanges()
+          ..dispose();
+        if (identical(_activeMessageBuffer, messageBuffer)) {
+          _activeMessageBuffer = null;
+        }
         await _stopActiveStream();
         _cancellation = null;
       }
@@ -710,5 +733,95 @@ class GenerationEngine {
       estimate += estimateTokens(jsonEncode(tool.parameters));
     }
     return estimate;
+  }
+}
+
+class _StreamingMessageBuffer {
+  _StreamingMessageBuffer(this.message);
+
+  final ChatMessage message;
+  StringBuffer _text = StringBuffer();
+  StringBuffer _reasoning = StringBuffer();
+
+  void addText(String delta) => _text.write(delta);
+
+  void addReasoning(String delta) => _reasoning.write(delta);
+
+  void flush() {
+    if (_text.isNotEmpty) {
+      message.text += _text.toString();
+      _text = StringBuffer();
+    }
+    if (_reasoning.isNotEmpty) {
+      message.reasoning += _reasoning.toString();
+      _reasoning = StringBuffer();
+    }
+  }
+}
+
+class _StreamUpdateCadence {
+  _StreamUpdateCadence({
+    required this.beforeRead,
+    required this.onChanged,
+    required this.checkpoint,
+  }) : _checkpointClock = Stopwatch()..start(),
+       _commandClock = Stopwatch()..start();
+
+  static const Duration _uiInterval = Duration(milliseconds: 50);
+  static const Duration _checkpointInterval = Duration(milliseconds: 500);
+  static const Duration _commandInterval = Duration(milliseconds: 100);
+
+  final void Function() beforeRead;
+  final GenerationChanged onChanged;
+  final Future<void> Function() checkpoint;
+  final Stopwatch _checkpointClock;
+  final Stopwatch _commandClock;
+
+  Timer? _uiTimer;
+  bool _uiPending = false;
+  bool _hasCheckpoint = false;
+
+  void changed() {
+    _uiPending = true;
+    _uiTimer ??= Timer(_uiInterval, _emitChanges);
+  }
+
+  Future<void>? checkpointIfDue() {
+    if (_hasCheckpoint && _checkpointClock.elapsed < _checkpointInterval) {
+      return null;
+    }
+    _hasCheckpoint = true;
+    _checkpointClock.stop();
+    beforeRead();
+    return checkpoint().whenComplete(() {
+      _checkpointClock
+        ..reset()
+        ..start();
+    });
+  }
+
+  bool get shouldPollCommands {
+    if (_commandClock.elapsed < _commandInterval) return false;
+    _commandClock.reset();
+    return true;
+  }
+
+  void flushChanges() {
+    _uiTimer?.cancel();
+    _uiTimer = null;
+    if (_uiPending) _emitChanges();
+  }
+
+  void _emitChanges() {
+    _uiTimer = null;
+    if (!_uiPending) return;
+    _uiPending = false;
+    beforeRead();
+    onChanged();
+  }
+
+  void dispose() {
+    _uiTimer?.cancel();
+    _uiTimer = null;
   }
 }

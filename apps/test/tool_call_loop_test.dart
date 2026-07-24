@@ -10,12 +10,15 @@ import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
 import 'package:app/data/services/auth/chatgpt_token_service.dart';
 import 'package:app/data/services/auth/credential_resolver.dart';
 import 'package:app/data/services/auth/secret_store.dart';
+import 'package:app/data/services/generation/in_memory_generation_task_store.dart';
 import 'package:app/data/services/llm/adapter_registry.dart';
 import 'package:app/data/services/llm/llm_adapter.dart';
 import 'package:app/data/services/llm/llm_event.dart';
 import 'package:app/data/services/storage/account_store.dart';
 import 'package:app/data/services/web_retrieval/web_retrieval.dart';
 import 'package:app/domain/models/adapter_kind.dart';
+import 'package:app/domain/models/conversation.dart';
+import 'package:app/domain/models/generation_task.dart';
 import 'package:app/domain/models/llm_model.dart';
 import 'package:app/domain/models/message.dart';
 import 'package:app/domain/models/provider_account.dart';
@@ -109,6 +112,26 @@ class _FailingWebRetrieval extends _FakeWebRetrieval {
         WebProviderIssue(provider: 'searxng', kind: 'authentication'),
       ],
     );
+  }
+}
+
+class _CountingGenerationTaskStore extends InMemoryGenerationTaskStore {
+  int checkpointCount = 0;
+  int commandPollCount = 0;
+
+  @override
+  Future<void> checkpoint({
+    required Conversation conversation,
+    required GenerationTask task,
+  }) {
+    checkpointCount++;
+    return super.checkpoint(conversation: conversation, task: task);
+  }
+
+  @override
+  Future<List<GenerationCommand>> pendingCommands(String taskId) {
+    commandPollCount++;
+    return super.pendingCommands(taskId);
   }
 }
 
@@ -423,6 +446,37 @@ void main() {
       final toolResult = messages[2];
       expect(toolResult.role, MessageRole.tool);
       expect(toolResult.text, 'Web search not configured.');
+    });
+
+    test('coalesces burst token updates and durable stream work', () async {
+      const int tokenCount = 400;
+      final adapter = _ScriptedAdapter(<List<LlmEvent>>[
+        <LlmEvent>[
+          ...List<LlmEvent>.generate(tokenCount, (_) => const TokenEvent('x')),
+          const DoneEvent(finishReason: 'stop'),
+        ],
+      ]);
+      final _CountingGenerationTaskStore taskStore =
+          _CountingGenerationTaskStore();
+      adapters = AdapterRegistry()..register(AdapterKind.mock, adapter);
+      final repo = ConversationRepository(
+        providerRepository: providers,
+        adapterRegistry: adapters,
+        credentialResolver: credentials,
+        generationTaskStore: taskStore,
+      );
+      int notificationCount = 0;
+      repo.addListener(() => notificationCount++);
+
+      await repo.sendMessage('stream quickly');
+
+      expect(
+        repo.active.messages.last.text,
+        List<String>.filled(tokenCount, 'x').join(),
+      );
+      expect(taskStore.checkpointCount, lessThanOrEqualTo(3));
+      expect(taskStore.commandPollCount, lessThanOrEqualTo(4));
+      expect(notificationCount, lessThan(20));
     });
 
     test('surfaces a failed web tool and marks its result as failed', () async {
