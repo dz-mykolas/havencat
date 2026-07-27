@@ -254,16 +254,10 @@ class _PopoverDialog extends StatelessWidget {
           top: preferBelow ? anchorBottom + 6 : null,
           bottom: preferBelow ? null : (viewport.height - anchorTopLeft.dy + 6),
           child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 320,
-              decoration: BoxDecoration(
-                color: context.appColors.surface,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: child,
-            ),
+            color: context.appColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(width: 320, child: child),
           ),
         ),
       ],

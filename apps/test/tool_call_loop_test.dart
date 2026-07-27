@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:app/data/repositories/conversation_repository.dart';
@@ -22,6 +24,7 @@ import 'package:app/domain/models/generation_task.dart';
 import 'package:app/domain/models/llm_model.dart';
 import 'package:app/domain/models/message.dart';
 import 'package:app/domain/models/provider_account.dart';
+import 'package:app/domain/models/web_search_result_payload.dart';
 import 'package:app/ui/chat/widgets/message_bubble.dart';
 
 /// A mock [LlmAdapter] that replays a scripted list of [LlmEvent] sequences.
@@ -531,7 +534,18 @@ void main() {
     final ChatMessage result = ChatMessage(
       id: 'result',
       role: MessageRole.tool,
-      text: 'Search completed.',
+      text: const WebSearchResultPayload(
+        query: 'rust sqlite mobile',
+        results: <WebSearchResultItem>[
+          WebSearchResultItem(
+            title: 'SQLite in mobile Rust apps',
+            url: 'https://example.com/guides/mobile-rust',
+            snippet:
+                'A practical guide to embedding SQLite in a Rust mobile app.',
+            provider: 'test',
+          ),
+        ],
+      ).encode(),
       toolCallId: 'call_1',
     );
 
@@ -547,17 +561,282 @@ void main() {
     );
 
     expect(find.text('Web search'), findsOneWidget);
-    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('Completed'), findsNothing);
+    expect(find.byIcon(Icons.check), findsOneWidget);
     expect(find.text('rust sqlite mobile'), findsNothing);
     expect(find.text('REQUEST'), findsNothing);
-    expect(find.text('RESULT'), findsNothing);
+    expect(find.text('RESULTS'), findsNothing);
+    final Offset labelPosition = tester.getTopLeft(find.text('Web search'));
+    final Offset iconPosition = tester.getTopLeft(
+      find.byIcon(Icons.travel_explore_rounded),
+    );
+    final double labelCenterY = tester.getCenter(find.text('Web search')).dy;
+    expect(
+      tester.getCenter(find.byIcon(Icons.travel_explore_rounded)).dy,
+      moreOrLessEquals(labelCenterY, epsilon: 1),
+    );
+    expect(
+      tester.getCenter(find.byIcon(Icons.check)).dy,
+      moreOrLessEquals(labelCenterY, epsilon: 1),
+    );
+    expect(
+      tester.getCenter(find.byIcon(Icons.expand_more_rounded)).dy,
+      moreOrLessEquals(labelCenterY, epsilon: 1),
+    );
 
     await tester.tap(find.text('Web search'));
     await tester.pump();
+    final double statusStart = tester.getTopLeft(find.text('Completed')).dx;
+    await tester.pump(const Duration(milliseconds: 70));
+    final double statusMiddle = tester.getTopLeft(find.text('Completed')).dx;
+    expect(find.byIcon(Icons.check), findsNWidgets(2));
+    await tester.pumpAndSettle();
+    final double statusEnd = tester.getTopLeft(find.text('Completed')).dx;
 
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(statusMiddle, greaterThan(statusStart));
+    expect(statusEnd, greaterThan(statusMiddle));
+    expect(tester.getTopLeft(find.text('Web search')), labelPosition);
+    expect(
+      tester.getTopLeft(find.byIcon(Icons.travel_explore_rounded)),
+      iconPosition,
+    );
+    expect(
+      tester.getTopLeft(find.byIcon(Icons.check)).dx,
+      moreOrLessEquals(labelPosition.dx, epsilon: 1),
+    );
+    expect(
+      tester.getTopLeft(find.text('Completed')).dy,
+      greaterThan(tester.getBottomLeft(find.text('Web search')).dy),
+    );
     expect(find.text('REQUEST'), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.text('Completed')).dy,
+      lessThan(tester.getTopLeft(find.text('REQUEST')).dy),
+    );
     expect(find.text('rust sqlite mobile'), findsOneWidget);
-    expect(find.text('RESULT'), findsOneWidget);
-    expect(find.text('Search completed.'), findsOneWidget);
+    expect(find.text('RESULTS'), findsOneWidget);
+    expect(
+      find.textContaining('SQLite in mobile Rust apps', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('example.com/guides/mobile-rust', findRichText: true),
+      findsOneWidget,
+    );
+    final GestureDetector resultLink = tester.widget<GestureDetector>(
+      find.byKey(const ValueKey<String>('web-search-result-0')),
+    );
+    expect(resultLink.onTap, isNotNull);
+    final MouseRegion resultCursor = tester.widget<MouseRegion>(
+      find.byKey(const ValueKey<String>('web-search-result-cursor-0')),
+    );
+    expect(resultCursor.cursor, SystemMouseCursors.click);
+    expect(
+      find.text('A practical guide to embedding SQLite in a Rust mobile app.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('"type":"web_search_results"'), findsNothing);
+  });
+
+  testWidgets('user actions appear beneath without changing row height', (
+    WidgetTester tester,
+  ) async {
+    String? copiedText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (MethodCall call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final ChatMessage message = ChatMessage(
+      id: 'user',
+      role: MessageRole.user,
+      text: 'Editable message',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: message,
+            onEditUser: (String text, bool resend) {},
+          ),
+        ),
+      ),
+    );
+
+    final Finder actions = find.byKey(
+      const ValueKey<String>('user-message-actions'),
+    );
+    expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
+    final double heightBefore = tester
+        .getSize(find.byType(MessageBubble))
+        .height;
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(find.text('Editable message')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AnimatedOpacity>(actions).opacity, 1);
+    expect(tester.getSize(find.byType(MessageBubble)).height, heightBefore);
+    final Rect copyRect = tester.getRect(
+      find.byKey(const ValueKey<String>('user-copy-control')),
+    );
+    final Rect editRect = tester.getRect(
+      find.byKey(const ValueKey<String>('user-edit-control')),
+    );
+    expect(copyRect.center.dx, lessThan(editRect.center.dx));
+    expect(copyRect.width, greaterThanOrEqualTo(30));
+    expect(copyRect.height, greaterThanOrEqualTo(30));
+    expect(editRect.left - copyRect.right, greaterThanOrEqualTo(4));
+    expect(tester.getSize(actions).height, 38);
+    expect(
+      copyRect.top,
+      greaterThan(tester.getRect(find.text('Editable message')).bottom),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('user-copy-control')));
+    expect(copiedText, 'Editable message');
+
+    await tester.tap(find.byKey(const ValueKey<String>('user-edit-control')));
+    await tester.pump();
+    expect(find.text('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('touch hold opens user message action sheet', (
+    WidgetTester tester,
+  ) async {
+    final ChatMessage message = ChatMessage(
+      id: 'user',
+      role: MessageRole.user,
+      text: 'Hold this message',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: message,
+            onEditUser: (String text, bool resend) {},
+          ),
+        ),
+      ),
+    );
+
+    final Finder actions = find.byKey(
+      const ValueKey<String>('user-message-actions'),
+    );
+    expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
+
+    await tester.longPress(find.text('Hold this message'));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
+    expect(find.text('Copy message'), findsOneWidget);
+    expect(find.text('Edit message'), findsOneWidget);
+  });
+
+  testWidgets('message editor clearly separates saving from sending again', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    String? submittedText;
+    bool? submittedAsResend;
+    final ChatMessage message = ChatMessage(
+      id: 'user',
+      role: MessageRole.user,
+      text: 'Original message',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: message,
+            descendantCount: 2,
+            onEditUser: (String text, bool resend) {
+              submittedText = text;
+              submittedAsResend = resend;
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.longPress(find.text('Original message'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit message'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('Send'), findsOneWidget);
+    final Finder branchTooltip = find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is Tooltip &&
+          (widget.message?.contains('available after sending') ?? false),
+    );
+    expect(
+      tester.widget<Tooltip>(branchTooltip).message,
+      '2 later messages stay available after sending',
+    );
+    expect(
+      tester
+          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.enterText(find.byType(TextField), 'Updated message');
+    await tester.pump();
+    expect(
+      tester
+          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
+          .enabled,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Save without sending'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(PopupMenuItem<String>)).width,
+      greaterThan(100),
+    );
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Send'));
+    await tester.pump();
+    expect(submittedText, 'Updated message');
+    expect(submittedAsResend, isTrue);
   });
 }

@@ -4,9 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../domain/models/message.dart';
 import '../../../domain/models/message_attachment.dart';
+import '../../../domain/models/web_search_result_payload.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_scroll_view.dart';
 import '../../core/widgets/typing_indicator.dart';
@@ -26,7 +28,7 @@ import 'token_usage_chip.dart';
 /// because they're inlined into the originating tool-call row.
 ///
 /// Editing: user messages show a pencil affordance on hover; tapping swaps
-/// the bubble for a textarea with Save (in-place) and Send (resend) buttons.
+/// the bubble for a textarea with Save (in-place) and Send again buttons.
 /// Assistant messages show a regenerate button. When a message has siblings
 /// (alternate versions from edits/regenerations), a `‹ 2/3 ›` counter lets
 /// the user switch branches.
@@ -109,6 +111,7 @@ class _MessageBubbleState extends State<MessageBubble>
     with AutomaticKeepAliveClientMixin {
   bool _editing = false;
   bool _hovered = false;
+  bool _editBranchHovered = false;
   late final TextEditingController _editController;
   late final FocusNode _editFocus;
 
@@ -147,28 +150,12 @@ class _MessageBubbleState extends State<MessageBubble>
     );
   }
 
-  /// Breakdown of messages below this one on the active path, e.g.
-  /// "1 reply, 2 user messages, 2 replies" — shown as a tooltip on the
-  /// cost hint so the user knows what they're replacing.
-  String get _downstreamBreakdown {
-    final int idx = widget.messages.indexOf(widget.message);
-    if (idx < 0) return '';
-    final List<ChatMessage> below = widget.messages.sublist(idx + 1);
-    final int replies = below.where((m) => m.isAssistant).length;
-    final int userMsgs = below.where((m) => m.isUser).length;
-    final List<String> parts = <String>[];
-    if (replies > 0) {
-      parts.add('$replies repl${replies == 1 ? 'y' : 'ies'}');
-    }
-    if (userMsgs > 0) {
-      parts.add('$userMsgs user message${userMsgs == 1 ? '' : 's'}');
-    }
-    return parts.isEmpty ? 'Nothing below' : parts.join(', ');
-  }
-
   void _setEditing(bool value) {
     if (_editing == value) return;
-    setState(() => _editing = value);
+    setState(() {
+      _editing = value;
+      if (!value) _editBranchHovered = false;
+    });
     updateKeepAlive();
   }
 
@@ -179,6 +166,49 @@ class _MessageBubbleState extends State<MessageBubble>
     if (text.isEmpty) return;
     widget.onEditUser?.call(text, resend);
     _setEditing(false);
+  }
+
+  void _copyUserMessage() {
+    Clipboard.setData(ClipboardData(text: widget.message.text));
+  }
+
+  void _showUserActions() {
+    final bool canCopy = widget.message.text.isNotEmpty;
+    final bool canEdit = widget.onEditUser != null && !widget.isGenerating;
+    if (!canCopy && !canEdit) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (canCopy)
+                ListTile(
+                  leading: Icon(Icons.copy_outlined),
+                  title: Text('Copy message'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _copyUserMessage();
+                  },
+                ),
+              if (canEdit)
+                ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Edit message'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _startEdit();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -192,41 +222,117 @@ class _MessageBubbleState extends State<MessageBubble>
 
   Widget _buildUser(BuildContext context) {
     if (_editing) return _buildUserEditor(context);
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Container(
-        margin: EdgeInsets.symmetric(vertical: 6),
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth * 0.7),
-        decoration: BoxDecoration(
-          color: context.appColors.surface,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-            bottomLeft: Radius.circular(20),
-            bottomRight: Radius.circular(6),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (widget.message.attachments.isNotEmpty)
-              _AttachmentGallery(attachments: widget.message.attachments),
-            if (widget.message.attachments.isNotEmpty &&
-                widget.message.text.isNotEmpty)
-              SizedBox(height: 8),
-            if (widget.message.text.isNotEmpty)
-              ChatMarkdown(
-                text: widget.message.text,
-                selectable: true,
-                fillWidth: false,
+    final bool canCopy = widget.message.text.isNotEmpty;
+    final bool canEdit = widget.onEditUser != null && !widget.isGenerating;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double maxBubbleWidth = math.min(
+          AppTheme.contentMaxWidth * 0.7,
+          constraints.maxWidth,
+        );
+        return MouseRegion(
+          onEnter: (_) {
+            if (canCopy || canEdit) setState(() => _hovered = true);
+          },
+          onExit: (_) {
+            if (_hovered) setState(() => _hovered = false);
+          },
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onLongPress: _showUserActions,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Container(
+                    margin: EdgeInsets.only(top: 6),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                    decoration: BoxDecoration(
+                      color: context.appColors.surface,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(20),
+                        topRight: Radius.circular(20),
+                        bottomLeft: Radius.circular(20),
+                        bottomRight: Radius.circular(6),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        if (widget.message.attachments.isNotEmpty)
+                          _AttachmentGallery(
+                            attachments: widget.message.attachments,
+                          ),
+                        if (widget.message.attachments.isNotEmpty &&
+                            widget.message.text.isNotEmpty)
+                          SizedBox(height: 8),
+                        if (widget.message.text.isNotEmpty)
+                          ChatMarkdown(
+                            text: widget.message.text,
+                            selectable: false,
+                            fillWidth: false,
+                          ),
+                        _buildActionsRow(context, isUser: true),
+                      ],
+                    ),
+                  ),
+                  if (canCopy || canEdit)
+                    SizedBox(
+                      height: 38,
+                      child: AnimatedOpacity(
+                        key: const ValueKey<String>('user-message-actions'),
+                        opacity: _hovered ? 1 : 0,
+                        duration: const Duration(milliseconds: 100),
+                        child: IgnorePointer(
+                          ignoring: !_hovered,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              if (canCopy)
+                                KeyedSubtree(
+                                  key: const ValueKey<String>(
+                                    'user-copy-control',
+                                  ),
+                                  child: _IconButton(
+                                    icon: Icons.copy_outlined,
+                                    tooltip: 'Copy',
+                                    onTap: _copyUserMessage,
+                                    iconSize: 18,
+                                    padding: 6,
+                                  ),
+                                ),
+                              if (canCopy && canEdit) SizedBox(width: 4),
+                              if (canEdit)
+                                KeyedSubtree(
+                                  key: const ValueKey<String>(
+                                    'user-edit-control',
+                                  ),
+                                  child: _IconButton(
+                                    icon: Icons.edit_outlined,
+                                    tooltip: 'Edit',
+                                    onTap: _startEdit,
+                                    iconSize: 18,
+                                    padding: 6,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(height: 6),
+                ],
               ),
-            _buildActionsRow(context, isUser: true),
-          ],
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -234,9 +340,10 @@ class _MessageBubbleState extends State<MessageBubble>
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
+        width: double.infinity,
         margin: EdgeInsets.symmetric(vertical: 6),
         padding: EdgeInsets.all(8),
-        constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth * 0.85),
+        constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
         decoration: BoxDecoration(
           color: context.appColors.surface,
           borderRadius: BorderRadius.all(Radius.circular(20)),
@@ -260,6 +367,7 @@ class _MessageBubbleState extends State<MessageBubble>
                 maxLines: 12,
                 autofocus: true,
                 decoration: InputDecoration(
+                  filled: false,
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 8,
@@ -271,45 +379,106 @@ class _MessageBubbleState extends State<MessageBubble>
               ),
             ),
             SizedBox(height: 4),
-            if (widget.descendantCount > 0)
-              Tooltip(
-                message: _downstreamBreakdown,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(
-                        Icons.info_outline,
-                        size: 13,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.4),
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        '${widget.descendantCount} '
-                        'message${widget.descendantCount == 1 ? '' : 's'} '
-                        'below will branch off',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.45),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _editController,
+              builder: (BuildContext context, TextEditingValue value, Widget? child) {
+                final String text = value.text.trim();
+                final bool canCommit =
+                    text.isNotEmpty && text != widget.message.text.trim();
+                final ButtonStyle textActionStyle = TextButton.styleFrom(
+                  minimumSize: Size(0, 36),
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  visualDensity: VisualDensity.compact,
+                );
+                final ButtonStyle filledActionStyle = FilledButton.styleFrom(
+                  minimumSize: Size(0, 36),
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  visualDensity: VisualDensity.compact,
+                );
+                return Row(
+                  children: <Widget>[
+                    if (widget.descendantCount > 0)
+                      MouseRegion(
+                        onEnter: (_) =>
+                            setState(() => _editBranchHovered = true),
+                        onExit: (_) =>
+                            setState(() => _editBranchHovered = false),
+                        child: AnimatedOpacity(
+                          opacity: _editBranchHovered ? 1 : 0.5,
+                          duration: Duration(milliseconds: 100),
+                          child: Tooltip(
+                            message:
+                                '${widget.descendantCount} later '
+                                'message${widget.descendantCount == 1 ? '' : 's'} '
+                                '${widget.descendantCount == 1 ? 'stays' : 'stay'} '
+                                'available after sending',
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.call_split_rounded,
+                                    size: 14,
+                                    color: context.appColors.textSecondary,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    '${widget.descendantCount}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color:
+                                              context.appColors.textSecondary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                TextButton(onPressed: _cancelEdit, child: Text('Cancel')),
-                SizedBox(width: 4),
-                TextButton(onPressed: () => _save(false), child: Text('Save')),
-                SizedBox(width: 4),
-                FilledButton(onPressed: () => _save(true), child: Text('Send')),
-              ],
+                    Spacer(),
+                    PopupMenuButton<String>(
+                      enabled: canCommit,
+                      tooltip: 'More edit options',
+                      icon: Icon(Icons.more_horiz_rounded, size: 18),
+                      padding: EdgeInsets.zero,
+                      style: IconButton.styleFrom(
+                        fixedSize: Size.square(36),
+                        padding: EdgeInsets.zero,
+                      ),
+                      onSelected: (String action) {
+                        if (action == 'save') _save(false);
+                      },
+                      itemBuilder: (BuildContext context) =>
+                          <PopupMenuEntry<String>>[
+                            PopupMenuItem<String>(
+                              value: 'save',
+                              child: Text('Save without sending'),
+                            ),
+                          ],
+                    ),
+                    SizedBox(width: 2),
+                    TextButton(
+                      onPressed: _cancelEdit,
+                      style: textActionStyle,
+                      child: Text('Cancel'),
+                    ),
+                    SizedBox(width: 6),
+                    FilledButton(
+                      onPressed: canCommit ? () => _save(true) : null,
+                      style: filledActionStyle,
+                      child: Text('Send'),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -373,12 +542,8 @@ class _MessageBubbleState extends State<MessageBubble>
     );
   }
 
-  /// Row of hover-visible actions: sibling counter (if siblings > 1),
-  /// edit (user only), regenerate menu (assistant, last only, not while
-  /// generating), revert (if edited in place).
+  /// Row of message actions: sibling counter, regenerate, revert, and usage.
   Widget _buildActionsRow(BuildContext context, {required bool isUser}) {
-    final bool canEdit =
-        isUser && widget.onEditUser != null && !widget.isGenerating;
     final bool canRegenerate =
         !isUser &&
         widget.isLast &&
@@ -401,7 +566,7 @@ class _MessageBubbleState extends State<MessageBubble>
             widget.estimatedCompletionTokens != null);
     final bool chipVisible = hasUsage && (widget.isLast || _hovered);
 
-    if (!canEdit && !canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
+    if (!canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
       return SizedBox.shrink();
     }
 
@@ -419,12 +584,6 @@ class _MessageBubbleState extends State<MessageBubble>
               icon: Icons.undo,
               tooltip: 'Revert edit',
               onTap: widget.onRevert,
-            ),
-          if (canEdit)
-            _IconButton(
-              icon: Icons.edit_outlined,
-              tooltip: 'Edit',
-              onTap: _startEdit,
             ),
           if (canRegenerate) _buildRegenerateMenu(context),
           if (hasUsage)
@@ -639,11 +798,15 @@ class _IconButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onTap,
+    this.iconSize = 16,
+    this.padding = 4,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
+  final double iconSize;
+  final double padding;
 
   @override
   Widget build(BuildContext context) {
@@ -654,10 +817,10 @@ class _IconButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         child: Padding(
-          padding: EdgeInsets.all(4),
+          padding: EdgeInsets.all(padding),
           child: Icon(
             icon,
-            size: 16,
+            size: iconSize,
             color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
           ),
         ),
@@ -755,6 +918,10 @@ class _ToolCallRowState extends State<_ToolCallRow> {
         : done
         ? 'Completed'
         : _toolCallPendingLabel(widget.call);
+    final WebSearchResultPayload? searchResults =
+        done && !failed && widget.call.name == 'web_search'
+        ? WebSearchResultPayload.tryDecode(widget.result!.text)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -770,78 +937,160 @@ class _ToolCallRowState extends State<_ToolCallRow> {
               onTap: done ? () => setState(() => _expanded = !_expanded) : null,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                child: Row(
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: <Widget>[
-                    Container(
-                      width: 30,
+                    SizedBox(
                       height: 30,
-                      decoration: BoxDecoration(
-                        color: context.appColors.brandViolet.withValues(
-                          alpha: 0.1,
-                        ),
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        _toolCallIcon(widget.call),
-                        size: 16,
-                        color: context.appColors.brandViolet,
-                      ),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: <Widget>[
-                          Text(
-                            _toolCallLabel(widget.call),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: context.appColors.textPrimary,
-                              fontWeight: FontWeight.w600,
+                          Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: context.appColors.brandViolet.withValues(
+                                alpha: 0.1,
+                              ),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              _toolCallIcon(widget.call),
+                              size: 16,
+                              color: context.appColors.brandViolet,
                             ),
                           ),
-                          SizedBox(height: 2),
-                          SizedBox(
-                            height: 14,
+                          SizedBox(width: 10),
+                          Expanded(
                             child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: <Widget>[
-                                SizedBox.square(
-                                  dimension: 12,
-                                  child: done
-                                      ? Icon(
-                                          failed
-                                              ? Icons.error_outline
-                                              : Icons.check,
-                                          size: 12,
-                                          color: statusColor,
-                                        )
-                                      : _DotLoader(),
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  statusLabel,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: statusColor,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
-                                    height: 1,
+                                Flexible(
+                                  child: Text(
+                                    _toolCallLabel(widget.call),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: context.appColors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
+                                if (done) ...<Widget>[
+                                  SizedBox(width: 5),
+                                  SizedBox.square(
+                                    dimension: 14,
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 140,
+                                      ),
+                                      switchInCurve: Curves.easeOutCubic,
+                                      switchOutCurve: Curves.easeInCubic,
+                                      transitionBuilder:
+                                          (
+                                            Widget child,
+                                            Animation<double> animation,
+                                          ) => FadeTransition(
+                                            opacity: animation,
+                                            child: SlideTransition(
+                                              position: Tween<Offset>(
+                                                begin: const Offset(-0.12, 0),
+                                                end: Offset.zero,
+                                              ).animate(animation),
+                                              child: child,
+                                            ),
+                                          ),
+                                      child: _expanded
+                                          ? const SizedBox(
+                                              key: ValueKey<String>(
+                                                'header-status-hidden',
+                                              ),
+                                            )
+                                          : Icon(
+                                              key: const ValueKey<String>(
+                                                'header-status-visible',
+                                              ),
+                                              failed
+                                                  ? Icons.error_outline
+                                                  : Icons.check,
+                                              size: 14,
+                                              color: statusColor,
+                                            ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
+                          if (done)
+                            Icon(
+                              _expanded
+                                  ? Icons.expand_less_rounded
+                                  : Icons.expand_more_rounded,
+                              size: 18,
+                              color: context.appColors.outline,
+                            ),
                         ],
                       ),
                     ),
-                    if (done)
-                      Icon(
-                        _expanded
-                            ? Icons.expand_less_rounded
-                            : Icons.expand_more_rounded,
-                        size: 18,
-                        color: context.appColors.outline,
+                    Positioned(
+                      left: 40,
+                      top: 23,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 140),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder:
+                            (Widget child, Animation<double> animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(-0.12, 0),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                ),
+                        child: !done || _expanded
+                            ? SizedBox(
+                                key: ValueKey<String>(statusLabel),
+                                height: 14,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: <Widget>[
+                                    SizedBox.square(
+                                      dimension: 12,
+                                      child: done
+                                          ? Icon(
+                                              failed
+                                                  ? Icons.error_outline
+                                                  : Icons.check,
+                                              size: 12,
+                                              color: statusColor,
+                                            )
+                                          : _DotLoader(),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      statusLabel,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: statusColor,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : const SizedBox(
+                                key: ValueKey<String>('status-hidden'),
+                              ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -889,20 +1138,26 @@ class _ToolCallRowState extends State<_ToolCallRow> {
                   icon: failed
                       ? Icons.error_outline_rounded
                       : Icons.south_west_rounded,
-                  label: failed ? 'Error' : 'Result',
+                  label: failed
+                      ? 'Error'
+                      : searchResults != null
+                      ? 'Results'
+                      : 'Result',
                   accentColor: failed
                       ? theme.colorScheme.error
                       : context.appColors.textSecondary,
-                  child: _ToolResultText(
-                    text: widget.result!.text,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: failed
-                          ? theme.colorScheme.error
-                          : context.appColors.textPrimary,
-                      fontFamily: 'monospace',
-                      height: 1.45,
-                    ),
-                  ),
+                  child: searchResults != null
+                      ? _WebSearchResults(payload: searchResults)
+                      : _ToolResultText(
+                          text: widget.result!.text,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: failed
+                                ? theme.colorScheme.error
+                                : context.appColors.textPrimary,
+                            fontFamily: 'monospace',
+                            height: 1.45,
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -910,6 +1165,231 @@ class _ToolCallRowState extends State<_ToolCallRow> {
       ],
     );
   }
+}
+
+class _WebSearchResults extends StatelessWidget {
+  const _WebSearchResults({required this.payload});
+
+  final WebSearchResultPayload payload;
+
+  @override
+  Widget build(BuildContext context) {
+    if (payload.results.isEmpty) {
+      return Row(
+        children: <Widget>[
+          Icon(
+            Icons.search_off_rounded,
+            size: 16,
+            color: context.appColors.textSecondary,
+          ),
+          SizedBox(width: 7),
+          Text(
+            'No results found',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: context.appColors.textSecondary,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final double maxHeight = math.min(
+      360,
+      MediaQuery.sizeOf(context).height * 0.45,
+    );
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: AppScrollView(
+        builder: (BuildContext context, AppScrollController controller) =>
+            SingleChildScrollView(
+              controller: controller,
+              child: Column(
+                children: <Widget>[
+                  for (int index = 0; index < payload.results.length; index++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        bottom: index == payload.results.length - 1 ? 0 : 14,
+                      ),
+                      child: _WebSearchResultRow(
+                        index: index,
+                        result: payload.results[index],
+                      ),
+                    ),
+                  if (payload.warnings.isNotEmpty) ...<Widget>[
+                    SizedBox(height: 16),
+                    SelectionArea(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            size: 15,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              payload.warnings.join(' '),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                    height: 1.35,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+      ),
+    );
+  }
+}
+
+class _WebSearchResultRow extends StatelessWidget {
+  const _WebSearchResultRow({required this.index, required this.result});
+
+  final int index;
+  final WebSearchResultItem result;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Uri? uri = Uri.tryParse(result.url);
+    final bool canOpen =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+    final DateTime? publishedAt = result.publishedAt;
+    final String metadata = <String>[
+      _displayWebResultUrl(result.url),
+      if (publishedAt != null)
+        MaterialLocalizations.of(
+          context,
+        ).formatShortDate(publishedAt.toLocal()),
+    ].join(' · ');
+
+    final String title = result.title.isEmpty ? result.url : result.title;
+    final VoidCallback? onOpen = canOpen
+        ? () => launchUrl(uri, mode: LaunchMode.externalApplication)
+        : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            SizedBox(
+              width: 24,
+              child: Text(
+                '${index + 1}.',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: context.appColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Flexible(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: 1,
+                child: Semantics(
+                  link: canOpen,
+                  label: canOpen ? '$title, $metadata' : null,
+                  child: MouseRegion(
+                    key: ValueKey<String>('web-search-result-cursor-$index'),
+                    cursor: canOpen
+                        ? SystemMouseCursors.click
+                        : SystemMouseCursors.basic,
+                    child: GestureDetector(
+                      key: ValueKey<String>('web-search-result-$index'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onOpen,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 2),
+                        child: Text.rich(
+                          TextSpan(
+                            children: <InlineSpan>[
+                              TextSpan(
+                                text: title,
+                                style: TextStyle(
+                                  color: context.appColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              TextSpan(
+                                text: '  ·  ',
+                                style: TextStyle(
+                                  color: context.appColors.outline,
+                                ),
+                              ),
+                              TextSpan(
+                                text: metadata,
+                                style: TextStyle(
+                                  color: context.appColors.brandViolet,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (canOpen)
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: Padding(
+                                    padding: EdgeInsets.only(left: 4),
+                                    child: Icon(
+                                      Icons.open_in_new_rounded,
+                                      size: 12,
+                                      color: context.appColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (result.snippet.isNotEmpty) ...<Widget>[
+          SizedBox(height: 4),
+          Padding(
+            padding: EdgeInsets.only(left: 24),
+            child: SelectionArea(
+              child: Text(
+                result.snippet,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: context.appColors.textSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+String _displayWebResultUrl(String value) {
+  final Uri? uri = Uri.tryParse(value);
+  if (uri == null || uri.host.isEmpty) return value;
+  final String host = uri.host.startsWith('www.')
+      ? uri.host.substring(4)
+      : uri.host;
+  final String path = uri.path == '/' ? '' : uri.path;
+  return '$host$path';
 }
 
 class _ToolResultText extends StatelessWidget {

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:app/data/services/web_retrieval/web_retrieval.dart';
 import 'package:app/data/services/web_retrieval/web_search_tools.dart';
 import 'package:app/domain/errors/app_failure.dart';
+import 'package:app/domain/models/web_search_result_payload.dart';
 
 /// A minimal fake [WebRetrievalAdapter] that records calls and returns
 /// canned data. Lets us test [WebSearchTools.execute] without any network.
@@ -100,10 +101,13 @@ void main() {
       );
 
       expect(adapter.lastSearchQuery, 'rust sqlite');
-      expect(result.content, contains('Rust SQLite'));
-      expect(result.content, contains('https://example.com/rust-sqlite'));
-      expect(result.content, contains('A guide to SQLite in Rust'));
-      expect(result.content, startsWith('1. '));
+      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+        result.content,
+      )!;
+      expect(payload.query, 'rust sqlite');
+      expect(payload.results.single.title, 'Rust SQLite');
+      expect(payload.results.single.url, 'https://example.com/rust-sqlite');
+      expect(payload.results.single.snippet, 'A guide to SQLite in Rust');
     });
 
     test('includes publication date when present', () async {
@@ -125,7 +129,10 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result.content, contains('published 2024-06-15'));
+      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+        result.content,
+      )!;
+      expect(payload.results.single.publishedAt, DateTime.utc(2024, 6, 15));
     });
 
     test('returns "No results" when adapter returns empty list', () async {
@@ -137,7 +144,11 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result.content, contains('No results found'));
+      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+        result.content,
+      )!;
+      expect(payload.query, 'nothing');
+      expect(payload.results, isEmpty);
     });
 
     test('throws a structured failure when query is missing', () async {
@@ -240,7 +251,11 @@ void main() {
         adapter: adapter,
       );
 
-      expect(result.content, contains('No results found'));
+      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+        result.content,
+      )!;
+      expect(payload.results, isEmpty);
+      expect(payload.warnings, isNotEmpty);
     });
   });
 

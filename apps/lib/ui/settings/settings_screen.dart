@@ -7,7 +7,6 @@ import '../../providers.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/app_scroll_view.dart';
 import '../core/widgets/fade_slide_in.dart';
-import '../core/widgets/theme_mode_button.dart';
 import '../pricing/discover_panel.dart';
 import 'widgets/web_search_settings_panel.dart';
 
@@ -96,13 +95,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           title: Text(
             showingMobileDetail ? _mobileCategory!.label : 'Settings',
           ),
-          actions: <Widget>[
-            ThemeModeButton(
-              slot: settings.themeSlot,
-              onToggle: settings.toggleThemeSlot,
-            ),
-            SizedBox(width: 4),
-          ],
         ),
         body: SafeArea(
           child: Center(
@@ -471,29 +463,78 @@ class _AppearanceCard extends StatelessWidget {
       padding: EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: <Widget>[
-          _ThemePreferenceTile(
-            icon: Icons.light_mode_rounded,
-            label: 'Light theme',
-            preset: settings.lightTheme,
-            onTap: () => _showThemePicker(
-              context,
-              title: 'Light theme',
-              selected: settings.lightTheme,
-              onSelected: settings.setLightTheme,
+          SwitchListTile(
+            key: const ValueKey<String>('use-device-theme'),
+            dense: true,
+            visualDensity: VisualDensity(vertical: -2),
+            value: settings.useDeviceTheme,
+            onChanged: settings.setUseDeviceTheme,
+            secondary: Icon(
+              Icons.brightness_auto_rounded,
+              size: 19,
+              color: context.appColors.brandViolet,
             ),
+            title: Text(
+              'Use device theme',
+              style: TextStyle(
+                color: context.appColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Switch automatically with your device appearance.',
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12),
           ),
           _SettingsDivider(),
-          _ThemePreferenceTile(
-            icon: Icons.dark_mode_rounded,
-            label: 'Dark theme',
-            preset: settings.darkTheme,
-            onTap: () => _showThemePicker(
-              context,
-              title: 'Dark theme',
-              selected: settings.darkTheme,
-              onSelected: settings.setDarkTheme,
+          if (settings.useDeviceTheme) ...<Widget>[
+            _ThemePreferenceTile(
+              icon: Icons.light_mode_rounded,
+              label: 'Light theme',
+              preset: settings.lightTheme,
+              onTap: () => _showThemePicker(
+                context,
+                title: 'Light theme',
+                presets: AppThemePreset.values
+                    .where((AppThemePreset value) => !value.isDark)
+                    .toList(growable: false),
+                selected: settings.lightTheme,
+                onSelected: settings.setLightTheme,
+              ),
             ),
-          ),
+            _SettingsDivider(),
+            _ThemePreferenceTile(
+              icon: Icons.dark_mode_rounded,
+              label: 'Dark theme',
+              preset: settings.darkTheme,
+              onTap: () => _showThemePicker(
+                context,
+                title: 'Dark theme',
+                presets: AppThemePreset.values
+                    .where((AppThemePreset value) => value.isDark)
+                    .toList(growable: false),
+                selected: settings.darkTheme,
+                onSelected: settings.setDarkTheme,
+              ),
+            ),
+          ] else
+            _ThemePreferenceTile(
+              icon: Icons.palette_outlined,
+              label: 'Theme',
+              preset: settings.theme,
+              onTap: () => _showThemePicker(
+                context,
+                title: 'Theme',
+                presets: AppThemePreset.values,
+                selected: settings.theme,
+                onSelected: settings.setTheme,
+              ),
+            ),
         ],
       ),
     );
@@ -588,11 +629,13 @@ class _ThemeSwatches extends StatelessWidget {
 Future<void> _showThemePicker(
   BuildContext context, {
   required String title,
+  required List<AppThemePreset> presets,
   required AppThemePreset selected,
   required ValueChanged<AppThemePreset> onSelected,
 }) {
   final Widget content = _ThemePicker(
     title: title,
+    presets: presets,
     selected: selected,
     onSelected: onSelected,
   );
@@ -617,11 +660,13 @@ Future<void> _showThemePicker(
 class _ThemePicker extends StatelessWidget {
   const _ThemePicker({
     required this.title,
+    required this.presets,
     required this.selected,
     required this.onSelected,
   });
 
   final String title;
+  final List<AppThemePreset> presets;
   final AppThemePreset selected;
   final ValueChanged<AppThemePreset> onSelected;
 
@@ -659,9 +704,9 @@ class _ThemePicker extends StatelessWidget {
                   controller: controller,
                   shrinkWrap: true,
                   padding: EdgeInsets.fromLTRB(8, 0, 8, 12),
-                  itemCount: AppThemePreset.values.length,
+                  itemCount: presets.length,
                   itemBuilder: (BuildContext context, int index) {
-                    final AppThemePreset preset = AppThemePreset.values[index];
+                    final AppThemePreset preset = presets[index];
                     final bool active = preset == selected;
                     return ListTile(
                       leading: _ThemePreview(preset: preset),

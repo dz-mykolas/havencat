@@ -59,6 +59,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   static const double _followThreshold = 72;
   static const double _minimumTrailingSpace = 200;
   static const double _composerClearance = 64;
+  static const double _minimumRenderableWidth = 160;
 
   @override
   void initState() {
@@ -372,7 +373,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final ChatViewModel vm = ref.read(chatViewModelProvider);
-    final AppSettings settings = ref.watch(appSettingsProvider);
     final ConversationRepository repo = ref.read(
       conversationRepositoryProvider,
     );
@@ -400,6 +400,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         AppTheme.contentMaxWidth;
     final bool persistentSidebar = viewportWidth >= persistentSidebarBreakpoint;
     final MediaQueryData mediaQuery = MediaQuery.of(context);
+    if (mediaQuery.size.width < _minimumRenderableWidth ||
+        mediaQuery.size.height < kToolbarHeight) {
+      return const SizedBox.expand();
+    }
     final double topSafeInset = mediaQuery.padding.top;
     final double bottomSafeInset = mediaQuery.viewInsets.bottom > 0
         ? 0
@@ -419,8 +423,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           : ConversationDrawer(
               viewModel: vm,
               onNewChat: _goHome,
-              themeSlot: settings.themeSlot,
-              onToggleTheme: settings.toggleThemeSlot,
               onOpenSettings: () => _openSettings(context),
             ),
       drawerEnableOpenDragGesture: !persistentSidebar,
@@ -482,146 +484,122 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   children: <Widget>[
                     // ListView extends full height; text scrolls behind the
                     // input pill.
-                    NotificationListener<ScrollNotification>(
-                      onNotification: _handleChatScroll,
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          headerExtent + 12,
-                          16,
-                          trailingSpace,
-                        ),
-                        itemCount: activePath.length,
-                        scrollCacheExtent: ScrollCacheExtent.pixels(1500),
-                        itemBuilder: (BuildContext context, int index) {
-                          final ChatMessage message = activePath[index];
-                          return Center(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: AppTheme.contentMaxWidth,
-                              ),
-                              child: MessageBubble(
-                                key: ValueKey<String>(message.id),
-                                message: message,
-                                messages: activePath,
-                                siblings: conversation.siblingsOf(message.id),
-                                isLast: index == activePath.length - 1,
-                                isGenerating: vm.isGenerating,
-                                descendantCount: downstreamCounts[index],
-                                actualTokens: message.promptTokens,
-                                completionTokens: message.completionTokens,
-                                totalTokens: message.totalTokens,
-                                estimatedTokens:
-                                    message.isAssistant &&
-                                        index == activePath.length - 1
-                                    ? vm.active.lastEstimatedTokens
-                                    : null,
-                                estimatedCompletionTokens:
-                                    message.isAssistant &&
-                                        index == activePath.length - 1
-                                    ? estimateGeneratedTokens(message)
-                                    : null,
-                                contextWindow: vm.activeContextWindow,
-                                onEditUser: message.isUser
-                                    ? (newText, resend) => vm.editMessage(
-                                        message.id,
-                                        newText,
-                                        resend: resend,
-                                      )
-                                    : null,
-                                onRegenerate: message.isAssistant
-                                    ? ({String? suggestion}) => vm.regenerate(
-                                        message.id,
-                                        suggestionPrompt: suggestion,
-                                      )
-                                    : null,
-                                onContinue:
-                                    message.isAssistant &&
-                                        (message.generationStatus ==
-                                                MessageGenerationStatus
-                                                    .interrupted ||
-                                            message.generationStatus ==
-                                                MessageGenerationStatus.failed)
-                                    ? () => vm.continueInterrupted(message.id)
-                                    : null,
-                                onRevert: message.isEdited
-                                    ? () => vm.revertEdit(message.id)
-                                    : null,
-                                onPrevSibling: () =>
-                                    vm.selectSibling(message.id, -1),
-                                onNextSibling: () =>
-                                    vm.selectSibling(message.id, 1),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: IgnorePointer(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: AppTheme.contentMaxWidth,
-                            ),
-                            child: Container(
-                              height: headerFadeHeight,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: <Color>[
-                                    context.appColors.background,
-                                    context.appColors.background,
-                                    context.appColors.background.withValues(
-                                      alpha: 0,
-                                    ),
-                                  ],
-                                  stops: <double>[
-                                    0,
-                                    headerExtent / headerFadeHeight,
-                                    1,
-                                  ],
+                    ShaderMask(
+                      blendMode: BlendMode.dstIn,
+                      shaderCallback: (Rect bounds) {
+                        final double height = bounds.height;
+                        final double topHidden = (headerExtent / height).clamp(
+                          0,
+                          0.25,
+                        );
+                        final double topVisible = (headerFadeHeight / height)
+                            .clamp(topHidden, 0.35);
+                        final double bottomVisible =
+                            ((height - bottomFadeHeight) / height).clamp(
+                              topVisible,
+                              1,
+                            );
+                        final double bottomHidden =
+                            ((height - bottomFadeHeight + 48) / height).clamp(
+                              bottomVisible,
+                              1,
+                            );
+                        return LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: const <Color>[
+                            Colors.transparent,
+                            Colors.transparent,
+                            Colors.white,
+                            Colors.white,
+                            Colors.transparent,
+                            Colors.transparent,
+                          ],
+                          stops: <double>[
+                            0,
+                            topHidden,
+                            topVisible,
+                            bottomVisible,
+                            bottomHidden,
+                            1,
+                          ],
+                        ).createShader(bounds);
+                      },
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: _handleChatScroll,
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            headerExtent + 12,
+                            16,
+                            trailingSpace,
+                          ),
+                          itemCount: activePath.length,
+                          scrollCacheExtent: ScrollCacheExtent.pixels(1500),
+                          itemBuilder: (BuildContext context, int index) {
+                            final ChatMessage message = activePath[index];
+                            return Center(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: AppTheme.contentMaxWidth,
+                                ),
+                                child: MessageBubble(
+                                  key: ValueKey<String>(message.id),
+                                  message: message,
+                                  messages: activePath,
+                                  siblings: conversation.siblingsOf(message.id),
+                                  isLast: index == activePath.length - 1,
+                                  isGenerating: vm.isGenerating,
+                                  descendantCount: downstreamCounts[index],
+                                  actualTokens: message.promptTokens,
+                                  completionTokens: message.completionTokens,
+                                  totalTokens: message.totalTokens,
+                                  estimatedTokens:
+                                      message.isAssistant &&
+                                          index == activePath.length - 1
+                                      ? vm.active.lastEstimatedTokens
+                                      : null,
+                                  estimatedCompletionTokens:
+                                      message.isAssistant &&
+                                          index == activePath.length - 1
+                                      ? estimateGeneratedTokens(message)
+                                      : null,
+                                  contextWindow: vm.activeContextWindow,
+                                  onEditUser: message.isUser
+                                      ? (newText, resend) => vm.editMessage(
+                                          message.id,
+                                          newText,
+                                          resend: resend,
+                                        )
+                                      : null,
+                                  onRegenerate: message.isAssistant
+                                      ? ({String? suggestion}) => vm.regenerate(
+                                          message.id,
+                                          suggestionPrompt: suggestion,
+                                        )
+                                      : null,
+                                  onContinue:
+                                      message.isAssistant &&
+                                          (message.generationStatus ==
+                                                  MessageGenerationStatus
+                                                      .interrupted ||
+                                              message.generationStatus ==
+                                                  MessageGenerationStatus
+                                                      .failed)
+                                      ? () => vm.continueInterrupted(message.id)
+                                      : null,
+                                  onRevert: message.isEdited
+                                      ? () => vm.revertEdit(message.id)
+                                      : null,
+                                  onPrevSibling: () =>
+                                      vm.selectSibling(message.id, -1),
+                                  onNextSibling: () =>
+                                      vm.selectSibling(message.id, 1),
                                 ),
                               ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Gradient that fades text out before the pill.
-                    // Constrained to the centered content width.
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: IgnorePointer(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: AppTheme.contentMaxWidth,
-                            ),
-                            child: Container(
-                              height: bottomFadeHeight,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: <Color>[
-                                    context.appColors.background.withValues(
-                                      alpha: 0,
-                                    ),
-                                    context.appColors.background,
-                                  ],
-                                  stops: <double>[0, 48 / bottomFadeHeight],
-                                ),
-                              ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -692,8 +670,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: ConversationSidebar(
               viewModel: vm,
               onNewChat: _goHome,
-              themeSlot: settings.themeSlot,
-              onToggleTheme: settings.toggleThemeSlot,
               onOpenSettings: () => _openSettings(context),
             ),
           ),

@@ -120,12 +120,11 @@ void main() {
     expect(find.text('Current'), findsNothing);
   });
 
-  testWidgets('theme icon and settings action share the sidebar footer', (
+  testWidgets('settings action owns the sidebar footer', (
     WidgetTester tester,
   ) async {
     final _TestChat chat = _TestChat();
     addTearDown(chat.dispose);
-    bool themeToggled = false;
     bool settingsOpened = false;
 
     await tester.pumpWidget(
@@ -135,8 +134,6 @@ void main() {
           body: ConversationSidebar(
             viewModel: chat.viewModel,
             collapsible: false,
-            themeSlot: AppThemeSlot.dark,
-            onToggleTheme: () => themeToggled = true,
             onOpenSettings: () => settingsOpened = true,
           ),
         ),
@@ -144,17 +141,11 @@ void main() {
     );
 
     expect(find.text('Settings'), findsOneWidget);
-    final Finder themeToggle = find.byKey(
-      const ValueKey<String>('sidebar-theme-toggle'),
-    );
-    expect(themeToggle, findsOneWidget);
-    expect(tester.getSize(themeToggle), const Size.square(40));
-    expect(find.byTooltip('Use light theme'), findsOneWidget);
+    expect(find.byIcon(Icons.light_mode_rounded), findsNothing);
+    expect(find.byIcon(Icons.dark_mode_rounded), findsNothing);
 
-    await tester.tap(themeToggle);
     await tester.tap(find.text('Settings'));
 
-    expect(themeToggled, isTrue);
     expect(settingsOpened, isTrue);
   });
 

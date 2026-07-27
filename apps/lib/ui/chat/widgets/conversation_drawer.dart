@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../branding.dart';
-import '../../../domain/models/app_theme_preferences.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_scroll_view.dart';
 import '../../core/widgets/gradient_text.dart';
@@ -29,8 +28,6 @@ class ConversationSidebar extends StatefulWidget {
     required this.viewModel,
     this.onClose,
     this.onNewChat,
-    this.themeSlot,
-    this.onToggleTheme,
     this.onOpenSettings,
     this.collapsible = true,
   });
@@ -38,8 +35,6 @@ class ConversationSidebar extends StatefulWidget {
   final ChatViewModel viewModel;
   final VoidCallback? onClose;
   final VoidCallback? onNewChat;
-  final AppThemeSlot? themeSlot;
-  final VoidCallback? onToggleTheme;
   final VoidCallback? onOpenSettings;
   final bool collapsible;
 
@@ -474,35 +469,17 @@ class _ConversationSidebarState extends State<ConversationSidebar>
             },
           ),
         ),
-        if (widget.themeSlot != null || widget.onOpenSettings != null) ...[
+        if (widget.onOpenSettings != null) ...[
           Divider(height: 1, color: context.appColors.divider),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-            child: Row(
-              children: <Widget>[
-                if (widget.onOpenSettings != null)
-                  Expanded(
-                    child: _SidebarUtilityButton(
-                      icon: Icons.settings_outlined,
-                      label: 'Settings',
-                      onTap: _openSettings,
-                    ),
-                  ),
-                if (widget.onOpenSettings != null &&
-                    widget.themeSlot != null &&
-                    widget.onToggleTheme != null)
-                  const SizedBox(width: 4),
-                if (widget.themeSlot != null && widget.onToggleTheme != null)
-                  _SidebarUtilityIconButton(
-                    tooltip: widget.themeSlot == AppThemeSlot.dark
-                        ? 'Use light theme'
-                        : 'Use dark theme',
-                    icon: widget.themeSlot == AppThemeSlot.dark
-                        ? Icons.light_mode_rounded
-                        : Icons.dark_mode_rounded,
-                    onTap: widget.onToggleTheme!,
-                  ),
-              ],
+            child: SizedBox(
+              width: double.infinity,
+              child: _SidebarUtilityButton(
+                icon: Icons.settings_outlined,
+                label: 'Settings',
+                onTap: _openSettings,
+              ),
             ),
           ),
         ],
@@ -532,16 +509,6 @@ class _ConversationSidebarState extends State<ConversationSidebar>
           onTap: _toggleSearch,
         ),
         const Spacer(),
-        if (widget.themeSlot != null && widget.onToggleTheme != null)
-          _RailButton(
-            tooltip: widget.themeSlot == AppThemeSlot.dark
-                ? 'Use light theme'
-                : 'Use dark theme',
-            icon: widget.themeSlot == AppThemeSlot.dark
-                ? Icons.light_mode_rounded
-                : Icons.dark_mode_rounded,
-            onTap: widget.onToggleTheme!,
-          ),
         if (widget.onOpenSettings != null)
           _RailButton(
             tooltip: 'Settings',
@@ -658,15 +625,11 @@ class ConversationDrawer extends StatelessWidget {
     super.key,
     required this.viewModel,
     this.onNewChat,
-    this.themeSlot,
-    this.onToggleTheme,
     this.onOpenSettings,
   });
 
   final ChatViewModel viewModel;
   final VoidCallback? onNewChat;
-  final AppThemeSlot? themeSlot;
-  final VoidCallback? onToggleTheme;
   final VoidCallback? onOpenSettings;
 
   @override
@@ -677,8 +640,6 @@ class ConversationDrawer extends StatelessWidget {
       child: ConversationSidebar(
         viewModel: viewModel,
         onNewChat: onNewChat,
-        themeSlot: themeSlot,
-        onToggleTheme: onToggleTheme,
         onOpenSettings: onOpenSettings,
         collapsible: false,
         onClose: () => Navigator.of(context).pop(),
@@ -723,37 +684,6 @@ class _SidebarUtilityButton extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SidebarUtilityIconButton extends StatelessWidget {
-  const _SidebarUtilityIconButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(9),
-          onTap: onTap,
-          child: SizedBox.square(
-            key: const ValueKey<String>('sidebar-theme-toggle'),
-            dimension: 40,
-            child: Icon(icon, size: 18, color: context.appColors.textSecondary),
           ),
         ),
       ),

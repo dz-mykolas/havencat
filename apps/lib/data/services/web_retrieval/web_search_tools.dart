@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
+import '../../../domain/models/web_search_result_payload.dart';
 import '../llm/llm_event.dart';
 import 'web_retrieval.dart';
 import 'web_retrieval_failure_mapper.dart';
@@ -108,24 +109,22 @@ class WebSearchTools {
           'web_search: query="$query" → ${response.results.length} result(s) '
           'provider=${response.results.isEmpty ? 'n/a' : response.results.first.provider}',
         );
-        if (response.results.isEmpty) {
-          return WebToolResult(content: 'No results found for "$query".');
-        }
-        final String content = response.results
-            .asMap()
-            .entries
-            .map((e) {
-              final WebSearchResult r = e.value;
-              final String date = r.publishedAt != null
-                  ? ' (published ${r.publishedAt!.toIso8601String().substring(0, 10)})'
-                  : '';
-              return '${e.key + 1}. ${r.title}$date\n   ${r.url}\n   ${r.snippet}';
-            })
-            .join('\n\n');
-        final String warning = issues.isEmpty
-            ? ''
-            : '\n\n[Search warning: ${issues.map((AppFailure issue) => issue.message).join(' ')}]';
-        return WebToolResult(content: '$content$warning', warnings: issues);
+        final WebSearchResultPayload payload = WebSearchResultPayload(
+          query: query,
+          results: response.results
+              .map(
+                (WebSearchResult result) => WebSearchResultItem(
+                  title: result.title,
+                  url: result.url,
+                  snippet: result.snippet,
+                  provider: result.provider,
+                  publishedAt: result.publishedAt,
+                ),
+              )
+              .toList(),
+          warnings: issues.map((AppFailure issue) => issue.message).toList(),
+        );
+        return WebToolResult(content: payload.encode(), warnings: issues);
       case 'fetch_page':
         final String url = parsed['url'] as String? ?? '';
         if (url.isEmpty) {

@@ -224,7 +224,7 @@ class _ChatInputState extends State<ChatInput>
                   colors.surface,
                 )
               : colors.surface;
-          return Container(
+          return DecoratedBox(
             decoration: BoxDecoration(
               color: fillColor,
               borderRadius: BorderRadius.circular(26),
@@ -237,8 +237,10 @@ class _ChatInputState extends State<ChatInput>
                     : 1,
               ),
             ),
-            padding: EdgeInsets.fromLTRB(16, 4, 6, 4),
-            child: child,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 6, 4),
+              child: child,
+            ),
           );
         },
         child: Column(

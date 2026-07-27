@@ -4,13 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 
-/// A subtle, living backdrop of drifting gradient "blobs" with twinkling stars
-/// that light up as a blob passes over them.
-///
-/// The effect ramps in while [active] (i.e. while the assistant is generating)
-/// and gently fades back out when idle. The blobs are mostly transparent
-/// (~90%) so they read as ambient color rather than solid shapes; stars peak
-/// around 40-60% opacity and only shine where a blob overlaps them.
+/// A minimal backdrop of two faint ambient glows that drift while the
+/// assistant is generating and fade away when idle.
 class AnimatedBackground extends StatefulWidget {
   const AnimatedBackground({super.key, required this.active});
 
@@ -22,19 +17,15 @@ class AnimatedBackground extends StatefulWidget {
 
 class _AnimatedBackgroundState extends State<AnimatedBackground>
     with TickerProviderStateMixin {
-  // Drives the continuous drift of blobs and the twinkle of stars.
   late final AnimationController _motion = AnimationController(
     vsync: this,
-    duration: Duration(seconds: 24),
+    duration: Duration(seconds: 36),
   );
 
-  // Ramps the whole effect in and out so it doesn't pop on/off abruptly.
   late final AnimationController _intensity = AnimationController(
     vsync: this,
     duration: Duration(milliseconds: 900),
   );
-
-  late final List<_Star> _stars = _buildStars(46);
 
   @override
   void initState() {
@@ -66,18 +57,6 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
     }
   }
 
-  static List<_Star> _buildStars(int count) {
-    final math.Random rng = math.Random(42);
-    return List<_Star>.generate(count, (int i) {
-      return _Star(
-        position: Offset(rng.nextDouble(), rng.nextDouble()),
-        radius: 0.7 + rng.nextDouble() * 1.6,
-        phase: rng.nextDouble() * math.pi * 2,
-        twinkleSpeed: 0.6 + rng.nextDouble() * 1.4,
-      );
-    });
-  }
-
   @override
   void dispose() {
     _intensity.removeStatusListener(_onIntensityStatus);
@@ -101,7 +80,6 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
             painter: _BackgroundPainter(
               motion: _motion.value,
               intensity: intensity,
-              stars: _stars,
               colors: context.appColors,
             ),
             size: Size.infinite,
@@ -110,21 +88,6 @@ class _AnimatedBackgroundState extends State<AnimatedBackground>
       ),
     );
   }
-}
-
-class _Star {
-  _Star({
-    required this.position,
-    required this.radius,
-    required this.phase,
-    required this.twinkleSpeed,
-  });
-
-  /// Normalized position in the [0, 1] x [0, 1] space.
-  final Offset position;
-  final double radius;
-  final double phase;
-  final double twinkleSpeed;
 }
 
 class _Blob {
@@ -139,13 +102,11 @@ class _BackgroundPainter extends CustomPainter {
   _BackgroundPainter({
     required this.motion,
     required this.intensity,
-    required this.stars,
     required this.colors,
   });
 
   final double motion;
   final double intensity;
-  final List<_Star> stars;
   final AppThemeColors colors;
 
   @override
@@ -154,12 +115,10 @@ class _BackgroundPainter extends CustomPainter {
     final double shortest = size.shortestSide;
     final List<_Blob> blobs = _blobsFor(size, t, shortest);
 
-    _paintBlobs(canvas, size, blobs);
-    _paintStars(canvas, size, blobs, shortest);
+    _paintBlobs(canvas, blobs);
   }
 
   List<_Blob> _blobsFor(Size size, double t, double shortest) {
-    // Each blob drifts along its own slow elliptical path.
     Offset drift(
       double cx,
       double cy,
@@ -174,29 +133,23 @@ class _BackgroundPainter extends CustomPainter {
       );
     }
 
-    final double r = shortest * 0.62;
+    final double r = shortest * 0.82;
     return <_Blob>[
       _Blob(
         color: colors.brandBlue,
-        center: drift(0.28, 0.30, 0.18, 0.14, 1.0, 0.0),
+        center: drift(0.24, 0.32, 0.12, 0.10, 0.72, 0.0),
         radius: r,
       ),
       _Blob(
         color: colors.brandViolet,
-        center: drift(0.72, 0.45, 0.16, 0.20, 0.85, 2.1),
-        radius: r * 1.1,
-      ),
-      _Blob(
-        color: colors.brandPink,
-        center: drift(0.50, 0.78, 0.22, 0.16, 1.15, 4.0),
-        radius: r * 0.95,
+        center: drift(0.76, 0.68, 0.10, 0.12, 0.58, 2.4),
+        radius: r * 0.9,
       ),
     ];
   }
 
-  void _paintBlobs(Canvas canvas, Size size, List<_Blob> blobs) {
-    // ~90% transparent: a low peak alpha keeps the blobs ambient.
-    const double peakAlpha = 0.16;
+  void _paintBlobs(Canvas canvas, List<_Blob> blobs) {
+    const double peakAlpha = 0.055;
     for (final _Blob blob in blobs) {
       final Paint paint = Paint()
         ..shader =
@@ -210,69 +163,6 @@ class _BackgroundPainter extends CustomPainter {
             );
       canvas.drawCircle(blob.center, blob.radius, paint);
     }
-  }
-
-  void _paintStars(
-    Canvas canvas,
-    Size size,
-    List<_Blob> blobs,
-    double shortest,
-  ) {
-    final double t = motion * 2 * math.pi;
-    final Paint paint = Paint()..style = PaintingStyle.fill;
-
-    for (final _Star star in stars) {
-      final Offset p = Offset(
-        star.position.dx * size.width,
-        star.position.dy * size.height,
-      );
-
-      // A star only shines where a blob overlaps it; closer to a blob center
-      // means brighter.
-      double proximity = 0.0;
-      for (final _Blob blob in blobs) {
-        final double d = (p - blob.center).distance;
-        final double reach = blob.radius * 0.85;
-        if (d < reach) {
-          proximity = math.max(proximity, 1.0 - d / reach);
-        }
-      }
-      if (proximity <= 0.0) continue;
-
-      final double twinkle =
-          0.45 +
-          0.55 * (0.5 + 0.5 * math.sin(t * star.twinkleSpeed + star.phase));
-      // Cap around 0.6 so stars stay translucent (40-60%).
-      final double alpha = (proximity * twinkle * 0.6 * intensity).clamp(
-        0.0,
-        0.6,
-      );
-      if (alpha <= 0.01) continue;
-
-      final double radius = star.radius * (0.7 + 0.5 * proximity);
-      paint.color = colors.textPrimary.withValues(alpha: alpha);
-      _drawSparkle(canvas, p, radius, paint);
-    }
-  }
-
-  /// A small four-point sparkle: a bright core plus thin cross rays.
-  void _drawSparkle(Canvas canvas, Offset center, double radius, Paint paint) {
-    canvas.drawCircle(center, radius * 0.8, paint);
-    final double ray = radius * 2.6;
-    final Paint rayPaint = Paint()
-      ..color = paint.color.withValues(alpha: paint.color.a * 0.6)
-      ..strokeWidth = math.max(0.6, radius * 0.35)
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      center.translate(-ray, 0),
-      center.translate(ray, 0),
-      rayPaint,
-    );
-    canvas.drawLine(
-      center.translate(0, -ray),
-      center.translate(0, ray),
-      rayPaint,
-    );
   }
 
   @override

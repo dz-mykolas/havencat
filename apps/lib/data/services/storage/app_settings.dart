@@ -20,21 +20,10 @@ class AppSettings extends ChangeNotifier {
           prefs?.getBool(_abortOnSummaryFailureKey) ?? false,
       _autoFocusTopic = prefs?.getBool(_autoFocusTopicKey) ?? false,
       _toolsEnabled = prefs?.getBool(_toolsEnabledKey) ?? false,
-      _themeSlot = enumByNameOr(
-        AppThemeSlot.values,
-        prefs?.getString(_themeSlotKey),
-        AppThemeSlot.dark,
-      ),
-      _lightTheme = enumByNameOr(
-        AppThemePreset.values,
-        prefs?.getString(_lightThemeKey),
-        AppThemePreset.parchment,
-      ),
-      _darkTheme = enumByNameOr(
-        AppThemePreset.values,
-        prefs?.getString(_darkThemeKey),
-        AppThemePreset.haven,
-      );
+      _useDeviceTheme = prefs?.getBool(_useDeviceThemeKey) ?? false,
+      _theme = _loadManualTheme(prefs),
+      _lightTheme = _loadLightTheme(prefs),
+      _darkTheme = _loadDarkTheme(prefs);
 
   final SharedPreferences? _prefs;
 
@@ -48,32 +37,71 @@ class AppSettings extends ChangeNotifier {
       'compaction.abort_on_summary_failure::v1';
   static const String _autoFocusTopicKey = 'compaction.auto_focus_topic::v1';
   static const String _toolsEnabledKey = 'chat.tools_enabled::v1';
-  static const String _themeSlotKey = 'appearance.theme_slot::v1';
+  static const String _legacyThemeSlotKey = 'appearance.theme_slot::v1';
+  static const String _useDeviceThemeKey = 'appearance.use_device_theme::v2';
+  static const String _themeKey = 'appearance.theme::v2';
   static const String _lightThemeKey = 'appearance.light_theme::v1';
   static const String _darkThemeKey = 'appearance.dark_theme::v1';
 
-  AppThemeSlot _themeSlot;
+  bool _useDeviceTheme;
+  AppThemePreset _theme;
   AppThemePreset _lightTheme;
   AppThemePreset _darkTheme;
 
-  AppThemeSlot get themeSlot => _themeSlot;
+  bool get useDeviceTheme => _useDeviceTheme;
+  AppThemePreset get theme => _theme;
   AppThemePreset get lightTheme => _lightTheme;
   AppThemePreset get darkTheme => _darkTheme;
 
-  Future<void> setThemeSlot(AppThemeSlot value) async {
-    if (value == _themeSlot) return;
-    _themeSlot = value;
-    notifyListeners();
-    await _prefs?.setString(_themeSlotKey, value.name);
-  }
-
-  Future<void> toggleThemeSlot() {
-    return setThemeSlot(
-      _themeSlot == AppThemeSlot.light ? AppThemeSlot.dark : AppThemeSlot.light,
+  static AppThemePreset _loadManualTheme(SharedPreferences? prefs) {
+    final String? stored = prefs?.getString(_themeKey);
+    if (stored != null) {
+      return enumByNameOr(AppThemePreset.values, stored, AppThemePreset.haven);
+    }
+    final bool legacyLight = prefs?.getString(_legacyThemeSlotKey) == 'light';
+    return enumByNameOr(
+      AppThemePreset.values,
+      prefs?.getString(legacyLight ? _lightThemeKey : _darkThemeKey),
+      legacyLight ? AppThemePreset.parchment : AppThemePreset.haven,
     );
   }
 
+  static AppThemePreset _loadLightTheme(SharedPreferences? prefs) {
+    final AppThemePreset value = enumByNameOr(
+      AppThemePreset.values,
+      prefs?.getString(_lightThemeKey),
+      AppThemePreset.parchment,
+    );
+    return value.isDark ? AppThemePreset.parchment : value;
+  }
+
+  static AppThemePreset _loadDarkTheme(SharedPreferences? prefs) {
+    final AppThemePreset value = enumByNameOr(
+      AppThemePreset.values,
+      prefs?.getString(_darkThemeKey),
+      AppThemePreset.haven,
+    );
+    return value.isDark ? value : AppThemePreset.haven;
+  }
+
+  Future<void> setUseDeviceTheme(bool value) async {
+    if (value == _useDeviceTheme) return;
+    _useDeviceTheme = value;
+    notifyListeners();
+    await _prefs?.setBool(_useDeviceThemeKey, value);
+  }
+
+  Future<void> setTheme(AppThemePreset value) async {
+    if (value == _theme) return;
+    _theme = value;
+    notifyListeners();
+    await _prefs?.setString(_themeKey, value.name);
+  }
+
   Future<void> setLightTheme(AppThemePreset value) async {
+    if (value.isDark) {
+      throw ArgumentError.value(value, 'value', 'Must be a light theme.');
+    }
     if (value == _lightTheme) return;
     _lightTheme = value;
     notifyListeners();
@@ -81,6 +109,9 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> setDarkTheme(AppThemePreset value) async {
+    if (!value.isDark) {
+      throw ArgumentError.value(value, 'value', 'Must be a dark theme.');
+    }
     if (value == _darkTheme) return;
     _darkTheme = value;
     notifyListeners();

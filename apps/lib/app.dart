@@ -21,7 +21,7 @@ class _AppScrollBehavior extends MaterialScrollBehavior {
 }
 
 /// Root widget. Wraps the app in a [ProviderScope] (set up in main.dart) and
-/// applies the dark theme.
+/// applies the configured theme.
 class App extends ConsumerStatefulWidget {
   const App({this.initialLocation, super.key});
 
@@ -63,14 +63,21 @@ class _AppState extends ConsumerState<App> {
   @override
   Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(appSettingsProvider);
+    final ThemeData selectedTheme = AppTheme.build(settings.theme);
     return MaterialApp.router(
       title: appName,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.build(settings.lightTheme),
-      darkTheme: AppTheme.build(settings.darkTheme),
-      themeMode: settings.themeSlot == AppThemeSlot.light
-          ? ThemeMode.light
-          : ThemeMode.dark,
+      theme: settings.useDeviceTheme
+          ? AppTheme.build(settings.lightTheme)
+          : selectedTheme,
+      darkTheme: settings.useDeviceTheme
+          ? AppTheme.build(settings.darkTheme)
+          : selectedTheme,
+      themeMode: settings.useDeviceTheme
+          ? ThemeMode.system
+          : settings.theme.isDark
+          ? ThemeMode.dark
+          : ThemeMode.light,
       themeAnimationDuration: const Duration(milliseconds: 320),
       themeAnimationCurve: Curves.easeOutCubic,
       scrollBehavior: _AppScrollBehavior(),

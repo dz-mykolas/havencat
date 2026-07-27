@@ -8,7 +8,10 @@ import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
 import 'package:app/data/services/auth/chatgpt_token_service.dart';
 import 'package:app/data/services/auth/secret_store.dart';
 import 'package:app/data/services/storage/account_store.dart';
+import 'package:app/data/services/storage/app_settings.dart';
+import 'package:app/domain/models/app_theme_preferences.dart';
 import 'package:app/domain/models/provider_account.dart';
+import 'package:app/providers.dart';
 import 'package:app/ui/pricing/pricing_viewmodel.dart';
 import 'package:app/ui/settings/settings_screen.dart';
 import 'package:app/ui/settings/settings_viewmodel.dart';
@@ -218,6 +221,62 @@ void main() {
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('appearance separates manual and device theme selection', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: SettingsScreen(initialSection: SettingsSection.appearance),
+        ),
+      ),
+    );
+
+    final AppSettings settings = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsScreen)),
+    ).read(appSettingsProvider);
+    expect(settings.useDeviceTheme, isFalse);
+    expect(find.text('Theme'), findsOneWidget);
+    expect(find.text('Light theme'), findsNothing);
+    expect(find.text('Dark theme'), findsNothing);
+
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+    expect(find.text('Parchment'), findsOneWidget);
+    expect(find.text('Midnight'), findsOneWidget);
+    await tester.tap(find.text('Coastal'));
+    await tester.pumpAndSettle();
+    expect(settings.theme, AppThemePreset.coastal);
+
+    await tester.tap(find.byKey(const ValueKey<String>('use-device-theme')));
+    await tester.pumpAndSettle();
+    expect(settings.useDeviceTheme, isTrue);
+    expect(find.text('Theme'), findsNothing);
+    expect(find.text('Light theme'), findsOneWidget);
+    expect(find.text('Dark theme'), findsOneWidget);
+
+    await tester.tap(find.text('Light theme'));
+    await tester.pumpAndSettle();
+    expect(find.text('Parchment'), findsWidgets);
+    expect(find.text('Midnight'), findsNothing);
+    await tester.tap(find.text('Sage'));
+    await tester.pumpAndSettle();
+    expect(settings.lightTheme, AppThemePreset.sage);
+
+    await tester.tap(find.text('Dark theme'));
+    await tester.pumpAndSettle();
+    expect(find.text('Parchment'), findsNothing);
+    expect(find.text('Midnight'), findsOneWidget);
+    await tester.tap(find.text('Evergreen'));
+    await tester.pumpAndSettle();
+    expect(settings.darkTheme, AppThemePreset.evergreen);
   });
 
   testWidgets('Accounts tab renders the seeded mock account', (

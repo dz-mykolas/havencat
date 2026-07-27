@@ -30,8 +30,9 @@ void main() {
     await tester.dragFrom(const Offset(195, 320), const Offset(170, 0));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('Use light theme'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+    expect(find.byIcon(Icons.light_mode_rounded), findsNothing);
+    expect(find.byIcon(Icons.dark_mode_rounded), findsNothing);
   });
 
   testWidgets('typing in the input enables sending a message', (
@@ -78,5 +79,34 @@ void main() {
     for (int i = 0; i < 80; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
+  });
+
+  testWidgets('opens the desktop tools popover without hiding tile ink', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const ProviderScope(child: App()));
+
+    await tester.tap(find.byTooltip('Tools'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add images'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('tolerates a transiently unusable browser viewport', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1, 1);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const ProviderScope(child: App()));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
   });
 }

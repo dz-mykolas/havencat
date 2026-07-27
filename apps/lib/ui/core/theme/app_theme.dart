@@ -93,6 +93,27 @@ abstract final class AppTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
       iconTheme: resolved.iconTheme.copyWith(color: appColors.textSecondary),
+      tooltipTheme: TooltipThemeData(
+        constraints: const BoxConstraints(maxWidth: 240),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        verticalOffset: 10,
+        preferBelow: false,
+        decoration: BoxDecoration(
+          color: appColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: appColors.outline.withValues(alpha: 0.45)),
+        ),
+        textStyle: resolved.textTheme.labelMedium?.copyWith(
+          color: appColors.textPrimary,
+          fontWeight: FontWeight.w500,
+          height: 1.25,
+        ),
+        textAlign: TextAlign.left,
+        waitDuration: const Duration(milliseconds: 250),
+        showDuration: const Duration(seconds: 4),
+        exitDuration: const Duration(milliseconds: 100),
+      ),
       snackBarTheme: resolved.snackBarTheme.copyWith(
         backgroundColor: resolved.colorScheme.inverseSurface,
         contentTextStyle: TextStyle(
@@ -196,14 +217,7 @@ extension AppThemePresetDefinition on AppThemePreset {
     AppThemePreset.evergreen => 'Forest black and soft lime',
   };
 
-  Brightness get brightness => switch (this) {
-    AppThemePreset.parchment ||
-    AppThemePreset.coastal ||
-    AppThemePreset.sage => Brightness.light,
-    AppThemePreset.haven ||
-    AppThemePreset.midnight ||
-    AppThemePreset.evergreen => Brightness.dark,
-  };
+  Brightness get brightness => isDark ? Brightness.dark : Brightness.light;
 
   Color get primary => switch (this) {
     AppThemePreset.parchment => const Color(0xFF765B32),
