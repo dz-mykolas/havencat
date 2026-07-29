@@ -101,9 +101,9 @@ void main() {
       );
 
       expect(adapter.lastSearchQuery, 'rust sqlite');
-      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+      final WebSearchResultPayload payload = WebSearchResultPayload.decode(
         result.content,
-      )!;
+      );
       expect(payload.query, 'rust sqlite');
       expect(payload.results.single.title, 'Rust SQLite');
       expect(payload.results.single.url, 'https://example.com/rust-sqlite');
@@ -129,9 +129,9 @@ void main() {
         adapter: adapter,
       );
 
-      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+      final WebSearchResultPayload payload = WebSearchResultPayload.decode(
         result.content,
-      )!;
+      );
       expect(payload.results.single.publishedAt, DateTime.utc(2024, 6, 15));
     });
 
@@ -144,9 +144,9 @@ void main() {
         adapter: adapter,
       );
 
-      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+      final WebSearchResultPayload payload = WebSearchResultPayload.decode(
         result.content,
-      )!;
+      );
       expect(payload.query, 'nothing');
       expect(payload.results, isEmpty);
     });
@@ -251,9 +251,9 @@ void main() {
         adapter: adapter,
       );
 
-      final WebSearchResultPayload payload = WebSearchResultPayload.tryDecode(
+      final WebSearchResultPayload payload = WebSearchResultPayload.decode(
         result.content,
-      )!;
+      );
       expect(payload.results, isEmpty);
       expect(payload.warnings, isNotEmpty);
     });

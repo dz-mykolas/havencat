@@ -12,20 +12,19 @@ class ModelCapabilities {
 
   factory ModelCapabilities.fromJson(Map<String, Object?> json) {
     Set<ContentModality> modalities(String key) {
-      final Object? raw = json[key];
-      if (raw is! List) return const <ContentModality>{};
-      return raw
-          .map(ContentModality.tryParse)
-          .whereType<ContentModality>()
+      return (json[key] as List)
+          .map(
+            (Object? value) => ContentModality.values.byName(value! as String),
+          )
           .toSet();
     }
 
     return ModelCapabilities(
       input: modalities('input'),
       output: modalities('output'),
-      reasoning: json['reasoning'] as bool? ?? false,
-      toolCalling: json['toolCalling'] as bool? ?? false,
-      attachments: json['attachments'] as bool? ?? false,
+      reasoning: json['reasoning']! as bool,
+      toolCalling: json['toolCalling']! as bool,
+      attachments: json['attachments']! as bool,
     );
   }
 

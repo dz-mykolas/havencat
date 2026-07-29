@@ -1,5 +1,7 @@
 import 'adapter_kind.dart';
 
+enum ProviderAuthMethod { apiKey, chatGptDeviceCode, poeOAuth }
+
 /// A catalog entry describing a provider the user can add an account for.
 ///
 /// Think of this as the "menu" the settings UI shows: "Add OpenAI-compatible",
@@ -13,8 +15,7 @@ class ProviderDefinition {
     required this.displayName,
     required this.description,
     this.configTemplate = const <String, Object?>{},
-    this.requiresApiKey = false,
-    this.requiresOAuth = false,
+    this.authMethod = ProviderAuthMethod.apiKey,
     this.apiKeyUrl,
     this.modelsDevId,
   });
@@ -33,11 +34,14 @@ class ProviderDefinition {
   /// Default non-secret config values to prefill when adding an account.
   final Map<String, Object?> configTemplate;
 
-  /// True if the user must paste an API key to use this provider.
-  final bool requiresApiKey;
+  final ProviderAuthMethod authMethod;
 
-  /// True if the user must complete an OAuth flow (browser sign-in) instead.
-  final bool requiresOAuth;
+  bool get requiresApiKey => authMethod == ProviderAuthMethod.apiKey;
+
+  bool get requiresOAuth => switch (authMethod) {
+    ProviderAuthMethod.chatGptDeviceCode || ProviderAuthMethod.poeOAuth => true,
+    ProviderAuthMethod.apiKey => false,
+  };
 
   /// Link to the provider's "get an API key" page, surfaced as a "Get an API
   /// key" action in the Quick-Add dialog. Optional — some definitions (e.g.
@@ -63,17 +67,18 @@ class ProviderCatalog {
   static const List<ProviderDefinition> subscription = <ProviderDefinition>[
     ProviderDefinition(
       id: 'chatgpt_subscription',
-      kind: AdapterKind.subscription,
+      kind: AdapterKind.chatGptCodex,
       displayName: 'ChatGPT',
       description: 'Sign in with your ChatGPT Free/Plus/Pro account.',
-      requiresOAuth: true,
+      authMethod: ProviderAuthMethod.chatGptDeviceCode,
     ),
     ProviderDefinition(
       id: 'poe_subscription',
-      kind: AdapterKind.subscription,
+      kind: AdapterKind.openaiCompatible,
       displayName: 'Poe',
       description: 'Sign in with your Poe account (uses subscription points).',
-      requiresOAuth: true,
+      configTemplate: <String, Object?>{'baseUrl': 'https://api.poe.com/v1'},
+      authMethod: ProviderAuthMethod.poeOAuth,
     ),
   ];
 
@@ -86,8 +91,8 @@ class ProviderCatalog {
       configTemplate: <String, Object?>{
         'baseUrl': 'https://api.openai.com/v1',
         'model': 'gpt-4o-mini',
+        'enabledModels': <String>['gpt-4o-mini'],
       },
-      requiresApiKey: true,
       // Generic fallback — `modelsDevId` is intentionally null; the resolver
       // in `quick_add_resolver.dart` picks this definition for any OpenAI-
       // compatible provider and overrides `baseUrl` from the group's `api` URL.
@@ -101,8 +106,8 @@ class ProviderCatalog {
       configTemplate: <String, Object?>{
         'baseUrl': 'https://api.anthropic.com',
         'model': 'claude-3-5-sonnet-latest',
+        'enabledModels': <String>['claude-3-5-sonnet-latest'],
       },
-      requiresApiKey: true,
       apiKeyUrl: 'https://console.anthropic.com/settings/keys',
       modelsDevId: 'anthropic',
     ),
@@ -111,8 +116,10 @@ class ProviderCatalog {
       kind: AdapterKind.geminiNative,
       displayName: 'Gemini',
       description: 'Google Gemini API (generativelanguage.googleapis.com).',
-      configTemplate: <String, Object?>{'model': 'gemini-1.5-flash'},
-      requiresApiKey: true,
+      configTemplate: <String, Object?>{
+        'model': 'gemini-1.5-flash',
+        'enabledModels': <String>['gemini-1.5-flash'],
+      },
       apiKeyUrl: 'https://aistudio.google.com/app/apikey',
       modelsDevId: 'google',
     ),

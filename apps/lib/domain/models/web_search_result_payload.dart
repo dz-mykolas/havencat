@@ -24,30 +24,33 @@ class WebSearchResultPayload {
     if (warnings.isNotEmpty) 'warnings': warnings,
   });
 
-  static WebSearchResultPayload? tryDecode(String source) {
-    try {
-      final Object? decoded = jsonDecode(source);
-      if (decoded is! Map || decoded['type'] != type) return null;
-      final Object? rawResults = decoded['results'];
-      if (rawResults is! List) return null;
-      return WebSearchResultPayload(
-        query: decoded['query'] as String? ?? '',
-        results: rawResults
-            .map(
-              (Object? value) => WebSearchResultItem.fromJson(
-                Map<String, Object?>.from(value! as Map),
-              ),
-            )
-            .toList(),
-        warnings:
-            (decoded['warnings'] as List?)?.whereType<String>().toList(
-              growable: false,
-            ) ??
-            const <String>[],
-      );
-    } on Object {
-      return null;
+  static WebSearchResultPayload decode(String source) {
+    final Object? decoded = jsonDecode(source);
+    if (decoded is! Map ||
+        decoded['type'] != type ||
+        decoded['version'] != version) {
+      throw const FormatException('Invalid web-search result payload.');
     }
+    final List<dynamic> rawResults = decoded['results'] as List<dynamic>;
+    final Object? rawWarnings = decoded['warnings'];
+    if (rawWarnings != null &&
+        (rawWarnings is! List ||
+            rawWarnings.any((Object? value) => value is! String))) {
+      throw const FormatException('Invalid web-search warnings.');
+    }
+    return WebSearchResultPayload(
+      query: decoded['query'] as String,
+      results: rawResults
+          .map(
+            (Object? value) => WebSearchResultItem.fromJson(
+              Map<String, Object?>.from(value! as Map),
+            ),
+          )
+          .toList(),
+      warnings: rawWarnings == null
+          ? const <String>[]
+          : List<String>.unmodifiable((rawWarnings as List).cast<String>()),
+    );
   }
 }
 
@@ -79,8 +82,10 @@ class WebSearchResultItem {
       title: json['title'] as String,
       url: json['url'] as String,
       snippet: json['snippet'] as String,
-      provider: json['provider'] as String? ?? '',
-      publishedAt: DateTime.tryParse(json['published_at'] as String? ?? ''),
+      provider: json['provider'] as String,
+      publishedAt: json['published_at'] == null
+          ? null
+          : DateTime.parse(json['published_at'] as String),
     );
   }
 }

@@ -1,13 +1,23 @@
+import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/model_pricing.dart';
 import '../../domain/models/provider_definition.dart';
 
 /// The outcome of resolving a models.dev provider to one of our adapters.
 ///
-/// The Discover panel's "Add API key" button uses this to decide whether to
-/// show an enabled button ([supported]), a disabled button with a tooltip
-/// explaining why ([uncertain]), or no button at all ([unsupported]).
+/// The account connection flow uses this to decide whether a catalog provider
+/// can be configured safely.
 sealed class ResolveResult {
   const ResolveResult();
+}
+
+ProviderDefinition? connectableApiDefinitionFor(ProviderModels provider) {
+  final ResolveResult result = resolveDefinitionFor(provider);
+  if (result case Supported(
+    :final definition,
+  ) when definition.kind == AdapterKind.openaiCompatible) {
+    return definition;
+  }
+  return null;
 }
 
 /// The provider maps to a known adapter with a known base URL and key URL.
@@ -33,9 +43,8 @@ class Unsupported extends ResolveResult {
   const Unsupported();
 }
 
-/// Maps a models.dev [ProviderModels] group (the Providers-scope grouping the
-/// Discover panel already caches) to the internal [ProviderDefinition] the
-/// Quick-Add flow should prefill when the user taps "Add API key".
+/// Maps a models.dev [ProviderModels] group to the internal
+/// [ProviderDefinition] the API-key form should prefill.
 ///
 /// Routing is **evidence-based**: we only route to an adapter when we have
 /// positive evidence the provider speaks that adapter's wire protocol. The
@@ -237,8 +246,7 @@ ProviderDefinition _override(
     displayName: base.displayName,
     description: base.description,
     configTemplate: template,
-    requiresApiKey: base.requiresApiKey,
-    requiresOAuth: base.requiresOAuth,
+    authMethod: base.authMethod,
     apiKeyUrl: apiKeyUrl,
     modelsDevId: provider.id,
   );

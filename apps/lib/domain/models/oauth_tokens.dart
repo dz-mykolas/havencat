@@ -56,29 +56,43 @@ class OAuthTokens {
 
   factory OAuthTokens.fromJson(Map<String, Object?> json) {
     final Object? exp = json['expiresAt'];
+    DateTime? expiresAt;
+    if (exp != null) {
+      if (exp is! String) {
+        throw const FormatException('OAuth token expiry is invalid.');
+      }
+      expiresAt = DateTime.tryParse(exp);
+      if (expiresAt == null) {
+        throw const FormatException('OAuth token expiry is invalid.');
+      }
+    }
+    final String accessToken = json['accessToken'] as String;
+    if (accessToken.isEmpty) {
+      throw const FormatException('OAuth access token is empty.');
+    }
     return OAuthTokens(
-      accessToken: json['accessToken'] as String,
+      accessToken: accessToken,
       refreshToken: json['refreshToken'] as String?,
-      expiresAt: exp is String ? DateTime.tryParse(exp) : null,
+      expiresAt: expiresAt,
     );
   }
 
   /// Encode for storage in `SecretStore` (one JSON string per account).
   String encode() => jsonEncode(toJson());
 
-  /// Decode a stored bundle. Returns null if [raw] isn't a valid bundle —
-  /// e.g. legacy accounts that stored a bare access-token string.
-  static OAuthTokens? tryDecode(String? raw) {
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final Object? parsed = jsonDecode(raw);
-      if (parsed is Map<String, Object?> && parsed['accessToken'] is String) {
-        return OAuthTokens.fromJson(parsed);
-      }
-    } on FormatException {
-      // Not JSON — fall through to the bare-token compatibility path.
+  /// Decodes a stored bundle. Null means no bundle is stored; malformed
+  /// persisted data throws instead of being interpreted as a token.
+  static OAuthTokens? decode(String? raw) {
+    if (raw == null) return null;
+    if (raw.isEmpty) {
+      throw const FormatException('Stored OAuth token bundle is empty.');
     }
-    // Backwards compatibility: a previously stored bare access token.
-    return OAuthTokens(accessToken: raw);
+    final Object? parsed = jsonDecode(raw);
+    if (parsed is! Map) {
+      throw const FormatException(
+        'Stored OAuth token bundle is not an object.',
+      );
+    }
+    return OAuthTokens.fromJson(Map<String, Object?>.from(parsed));
   }
 }

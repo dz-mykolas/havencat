@@ -13,9 +13,6 @@ AppConfig loadAppConfig() {
     rustLog: const String.fromEnvironment('RUST_LOG', defaultValue: 'info'),
     llmProxy: const String.fromEnvironment('LLM_PROXY', defaultValue: '/proxy'),
     appName: const String.fromEnvironment('APP_NAME', defaultValue: 'HavenCat'),
-    codexClientVersion: const String.fromEnvironment(
-      'CODEX_CLIENT_VERSION',
-      defaultValue: '0.141.0',
-    ),
+    poeClientId: const String.fromEnvironment('POE_CLIENT_ID'),
   );
 }

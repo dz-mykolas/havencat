@@ -10,8 +10,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 // These functions are ignored because they are not marked as `pub`: `build_fetch_slot`, `build_search_slot`, `db`, `fetch_slots`, `search_slots`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
-/// Initialize the web-retrieval subsystem: open the DB at `db_path`, run
-/// migrations, and register the given search + fetch providers.
+/// Initialize the web-retrieval subsystem and register the configured search
+/// and fetch providers.
 ///
 /// `db_path` of empty string opens an in-memory database.
 Future<void> configureWebRetrieval({

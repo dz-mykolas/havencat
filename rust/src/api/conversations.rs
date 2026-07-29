@@ -39,8 +39,8 @@ impl DbIdentity {
     }
 }
 
-/// Initialize the conversations database: open the DB at `db_path`, run
-/// migrations. `db_path` of empty string opens an in-memory database.
+/// Initialize the conversations database. `db_path` of empty string opens an
+/// in-memory database.
 #[flutter_rust_bridge::frb]
 pub async fn configure_conversations(db_path: String) -> Result<()> {
     let identity = if db_path.is_empty() {

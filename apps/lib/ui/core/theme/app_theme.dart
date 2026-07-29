@@ -2,25 +2,49 @@ import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
 
 import '../../../domain/models/app_theme_preferences.dart';
+import 'card_visual_theme.dart';
 
 abstract final class AppTheme {
   static const double contentMaxWidth = 768;
   static const double panelMaxWidth = 760;
   static const double wideBreakpoint = 720;
 
-  static final Map<AppThemePreset, ThemeData> _cache =
+  static final Map<AppThemePreset, ThemeData> _presetCache =
       <AppThemePreset, ThemeData>{};
+  static final Map<AppThemePreset, (int, ThemeData)> _gradientCache =
+      <AppThemePreset, (int, ThemeData)>{};
 
-  static ThemeData build(AppThemePreset preset) =>
-      _cache.putIfAbsent(preset, () => _build(preset));
+  static ThemeData build(
+    AppThemePreset preset, {
+    int gradientHue = defaultGradientThemeHue,
+  }) {
+    if (!preset.isGradient) {
+      return _presetCache.putIfAbsent(
+        preset,
+        () => _build(preset, defaultGradientThemeHue),
+      );
+    }
+    if (gradientHue < 0 || gradientHue >= 360) {
+      throw RangeError.range(gradientHue, 0, 359, 'gradientHue');
+    }
+    final int resolvedHue = gradientHue;
+    final (int, ThemeData)? cached = _gradientCache[preset];
+    if (cached != null && cached.$1 == resolvedHue) return cached.$2;
+    final ThemeData theme = _build(preset, resolvedHue);
+    _gradientCache[preset] = (resolvedHue, theme);
+    return theme;
+  }
 
-  static ThemeData _build(AppThemePreset preset) {
+  static ThemeData _build(AppThemePreset preset, int gradientHue) {
     final Brightness brightness = preset.brightness;
     final bool exactHaven = preset == AppThemePreset.haven;
+    final List<Color>? gradientPalette = preset.isGradient
+        ? GradientThemePalette.colors(gradientHue, brightness)
+        : null;
     final FlexSchemeColor colors = FlexSchemeColor.from(
-      primary: preset.primary,
-      secondary: preset.secondary,
-      tertiary: preset.tertiary,
+      primary: gradientPalette?[0] ?? preset.primary,
+      secondary: gradientPalette?[1] ?? preset.secondary,
+      tertiary: gradientPalette?[2] ?? preset.tertiary,
       brightness: brightness,
     );
     final ThemeData base = brightness == Brightness.dark
@@ -47,10 +71,14 @@ abstract final class AppTheme {
     final AppThemeColors appColors = AppThemeColors.fromScheme(
       resolved.colorScheme,
     );
+    final AppCardVisualTheme cardVisuals = AppCardVisualTheme.fromPreset(
+      preset,
+      resolved.colorScheme,
+    );
     return resolved.copyWith(
       scaffoldBackgroundColor: appColors.background,
       canvasColor: appColors.background,
-      extensions: <ThemeExtension<dynamic>>[appColors],
+      extensions: <ThemeExtension<dynamic>>[appColors, cardVisuals],
       appBarTheme: resolved.appBarTheme.copyWith(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
@@ -198,23 +226,52 @@ abstract final class AppTheme {
   );
 }
 
+abstract final class GradientThemePalette {
+  static Color preview(int hue) =>
+      HSLColor.fromAHSL(1, hue.toDouble(), 0.78, 0.54).toColor();
+
+  static List<Color> colors(int hue, Brightness brightness) {
+    final bool dark = brightness == Brightness.dark;
+    final double resolvedHue = hue.toDouble();
+    return <Color>[
+      HSLColor.fromAHSL(1, resolvedHue, 0.76, dark ? 0.7 : 0.43).toColor(),
+      HSLColor.fromAHSL(
+        1,
+        (resolvedHue + 45) % 360,
+        0.8,
+        dark ? 0.68 : 0.45,
+      ).toColor(),
+      HSLColor.fromAHSL(
+        1,
+        (resolvedHue + 315) % 360,
+        0.74,
+        dark ? 0.72 : 0.41,
+      ).toColor(),
+    ];
+  }
+}
+
 extension AppThemePresetDefinition on AppThemePreset {
   String get label => switch (this) {
     AppThemePreset.parchment => 'Parchment',
     AppThemePreset.coastal => 'Coastal',
     AppThemePreset.sage => 'Sage',
+    AppThemePreset.gradientLight => 'Gradient Light',
     AppThemePreset.haven => 'Haven',
     AppThemePreset.midnight => 'Midnight',
     AppThemePreset.evergreen => 'Evergreen',
+    AppThemePreset.gradientDark => 'Gradient Dark',
   };
 
   String get description => switch (this) {
     AppThemePreset.parchment => 'Warm paper and bronze',
     AppThemePreset.coastal => 'Cool mist and ocean blue',
     AppThemePreset.sage => 'Soft stone and muted green',
+    AppThemePreset.gradientLight => 'Violet, pink and cyan glow',
     AppThemePreset.haven => 'Warm charcoal and amber',
     AppThemePreset.midnight => 'Deep navy and electric blue',
     AppThemePreset.evergreen => 'Forest black and soft lime',
+    AppThemePreset.gradientDark => 'Neon ribbons on deep charcoal',
   };
 
   Brightness get brightness => isDark ? Brightness.dark : Brightness.light;
@@ -223,27 +280,33 @@ extension AppThemePresetDefinition on AppThemePreset {
     AppThemePreset.parchment => const Color(0xFF765B32),
     AppThemePreset.coastal => const Color(0xFF286783),
     AppThemePreset.sage => const Color(0xFF4F6F52),
+    AppThemePreset.gradientLight => const Color(0xFF5B5BD6),
     AppThemePreset.haven => const Color(0xFFC7AB77),
     AppThemePreset.midnight => const Color(0xFF8FB8FF),
     AppThemePreset.evergreen => const Color(0xFF91C788),
+    AppThemePreset.gradientDark => const Color(0xFF9D8CFF),
   };
 
   Color get secondary => switch (this) {
     AppThemePreset.parchment => const Color(0xFF9A4F40),
     AppThemePreset.coastal => const Color(0xFF476A91),
     AppThemePreset.sage => const Color(0xFF80664D),
+    AppThemePreset.gradientLight => const Color(0xFFC43E87),
     AppThemePreset.haven => const Color(0xFFE34747),
     AppThemePreset.midnight => const Color(0xFFC5A7FF),
     AppThemePreset.evergreen => const Color(0xFFE0B86A),
+    AppThemePreset.gradientDark => const Color(0xFFFF78B7),
   };
 
   Color get tertiary => switch (this) {
     AppThemePreset.parchment => const Color(0xFF66733C),
     AppThemePreset.coastal => const Color(0xFF7A5C8E),
     AppThemePreset.sage => const Color(0xFF64758B),
+    AppThemePreset.gradientLight => const Color(0xFF168BA3),
     AppThemePreset.haven => const Color(0xFFD5D36F),
     AppThemePreset.midnight => const Color(0xFF68D5CF),
     AppThemePreset.evergreen => const Color(0xFF75C9B7),
+    AppThemePreset.gradientDark => const Color(0xFF53D8E8),
   };
 }
 

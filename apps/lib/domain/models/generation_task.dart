@@ -76,7 +76,7 @@ class GenerationRequestSnapshot {
                 ChatMessage.fromJson(Map<String, dynamic>.from(value! as Map)),
           )
           .toList(growable: false),
-      toolsEnabled: json['toolsEnabled'] as bool? ?? false,
+      toolsEnabled: json['toolsEnabled']! as bool,
       contextWindow: json['contextWindow']! as int,
       modelCapabilities: json['modelCapabilities'] is Map
           ? ModelCapabilities.fromJson(

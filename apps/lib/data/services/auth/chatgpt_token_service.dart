@@ -55,7 +55,7 @@ class ChatGptTokenService {
   /// stored one is expired (or about to). Returns null if the account has no
   /// stored tokens at all (i.e. signed out).
   Future<String?> validAccessToken(String accountId) async {
-    final OAuthTokens? tokens = OAuthTokens.tryDecode(
+    final OAuthTokens? tokens = OAuthTokens.decode(
       await _secrets.read(accountId),
     );
     if (tokens == null) return null;
@@ -75,7 +75,7 @@ class ChatGptTokenService {
       final DateTime deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
-        final OAuthTokens? latest = OAuthTokens.tryDecode(
+        final OAuthTokens? latest = OAuthTokens.decode(
           await _secrets.read(accountId),
         );
         if (latest != null && !latest.isExpired()) return latest.accessToken;
@@ -121,7 +121,7 @@ class ChatGptTokenService {
 
   /// Server-side revoke of the stored tokens, used on sign-out.
   Future<void> revoke(String accountId) async {
-    final OAuthTokens? tokens = OAuthTokens.tryDecode(
+    final OAuthTokens? tokens = OAuthTokens.decode(
       await _secrets.read(accountId),
     );
     if (tokens == null) return;

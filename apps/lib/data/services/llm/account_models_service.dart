@@ -265,7 +265,7 @@ class AccountModelsService extends ChangeNotifier {
         return LlmModel(
           id: m['id'] as String,
           displayName: m['displayName'] as String?,
-          hidden: (m['hidden'] as bool?) ?? false,
+          hidden: m['hidden']! as bool,
           contextWindow: (m['contextWindow'] as num?)?.toInt(),
           capabilities: m['capabilities'] is Map
               ? ModelCapabilities.fromJson(
@@ -322,7 +322,7 @@ class AccountModelsService extends ChangeNotifier {
     ModelsCatalog catalog,
     ProviderAccount account,
   ) {
-    if (account.kind == AdapterKind.subscription) return 'openai';
+    if (account.kind == AdapterKind.chatGptCodex) return 'openai';
     final String baseUrl = (account.config['baseUrl'] as String?) ?? '';
     if (baseUrl.isEmpty) return null;
     final String host = Uri.tryParse(baseUrl)?.host ?? '';

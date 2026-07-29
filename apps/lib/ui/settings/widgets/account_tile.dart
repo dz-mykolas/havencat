@@ -41,7 +41,7 @@ class AccountTile extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Icon(
-              _iconFor(account.kind),
+              _iconFor(account),
               size: 16,
               color: context.appColors.brandViolet,
             ),
@@ -63,7 +63,7 @@ class AccountTile extends StatelessWidget {
                 ),
                 SizedBox(height: 1),
                 Text(
-                  _labelFor(account.kind),
+                  _labelFor(account),
                   style: TextStyle(
                     color: context.appColors.textSecondary,
                     fontSize: 10.5,
@@ -101,9 +101,12 @@ class AccountTile extends StatelessWidget {
     );
   }
 
-  static IconData _iconFor(AdapterKind kind) {
-    switch (kind) {
-      case AdapterKind.subscription:
+  static IconData _iconFor(ProviderAccount account) {
+    if (account.config['definitionId'] == 'poe_subscription') {
+      return Icons.workspace_premium_outlined;
+    }
+    switch (account.kind) {
+      case AdapterKind.chatGptCodex:
         return Icons.workspace_premium_outlined;
       case AdapterKind.openaiCompatible:
       case AdapterKind.anthropic:
@@ -116,9 +119,16 @@ class AccountTile extends StatelessWidget {
     }
   }
 
-  static String _labelFor(AdapterKind kind) {
-    switch (kind) {
-      case AdapterKind.subscription:
+  static String _labelFor(ProviderAccount account) {
+    if (account.config['definitionId'] == 'poe_subscription') {
+      return 'Poe · Subscription';
+    }
+    final Object? providerName = account.config['providerName'];
+    if (providerName is String && providerName.isNotEmpty) {
+      return '$providerName · API key';
+    }
+    switch (account.kind) {
+      case AdapterKind.chatGptCodex:
         return 'Subscription';
       case AdapterKind.openaiCompatible:
         return 'OpenAI-compatible · API key';

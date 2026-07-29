@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:app/app.dart';
 import 'package:app/app_router.dart';
 import 'package:app/data/services/storage/conversation_store.dart';
+import 'package:app/data/services/pricing/models_dev_service.dart';
 import 'package:app/domain/errors/app_failure.dart';
 import 'package:app/domain/models/conversation.dart';
+import 'package:app/domain/models/model_pricing.dart';
 import 'package:app/providers.dart';
 import 'package:app/ui/chat/chat_screen.dart';
+import 'package:app/ui/pricing/pricing_viewmodel.dart';
+import 'package:app/ui/settings/poe_oauth_callback_screen.dart';
 import 'package:app/ui/settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,10 +21,34 @@ void main() {
   test('settings sections have stable, reversible route segments', () {
     for (final SettingsSection section in SettingsSection.values) {
       expect(settingsSectionFromRoute(section.routeSegment), section);
-      expect(settingsRouteFor(section), '/settings/${section.routeSegment}');
+      expect(
+        settingsRouteFor(section),
+        section == SettingsSection.models
+            ? '/settings/models/providers'
+            : '/settings/${section.routeSegment}',
+      );
     }
     expect(settingsRouteFor(null), settingsRoute);
     expect(settingsSectionFromRoute('unknown'), isNull);
+  });
+
+  test('catalog routes preserve tabs, groups, and namespaced model ids', () {
+    for (final PricingScope scope in PricingScope.values) {
+      expect(pricingScopeFromRoute(pricingScopeRouteSegment(scope)), scope);
+    }
+    expect(pricingScopeFromRoute('unknown'), isNull);
+    expect(
+      modelsCatalogRouteFor(PricingScope.providers),
+      '/settings/models/providers',
+    );
+    expect(
+      modelsCatalogRouteFor(PricingScope.providers, groupId: 'open router'),
+      '/settings/models/providers/open%20router',
+    );
+    expect(
+      modelsCatalogRouteFor(PricingScope.models, modelId: 'openai/gpt-5.5'),
+      '/settings/models/models/model?id=openai%2Fgpt-5.5',
+    );
   });
 
   test(
@@ -107,7 +137,7 @@ void main() {
     expect(find.text('Models & providers'), findsOneWidget);
   });
 
-  testWidgets('direct and invalid settings routes resolve correctly', (
+  testWidgets('direct settings routes resolve and invalid ones show an error', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -130,8 +160,172 @@ void main() {
     router.go('/settings/not-a-section');
     await tester.pumpAndSettle();
 
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      '/settings/not-a-section',
+    );
+    expect(find.textContaining('Unknown settings section'), findsOneWidget);
+  });
+
+  testWidgets('catalog navigation and details stay synchronized with routes', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = createAppRouter(
+      initialLocation: modelsCatalogRouteFor(PricingScope.models),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          modelsDevServiceProvider.overrideWithValue(_FakeModelsDevService()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(find.text('Canonical Model'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      router.state.uri.toString(),
+      '/settings/models/models/model?id=test-lab%2Fcanonical-model',
+    );
+    expect(find.text('Pricing'), findsOneWidget);
+
+    router.pop();
+    await tester.pump();
+    expect(router.state.uri.path, '/settings/models/models');
+
+    await tester.tap(find.text('API providers'));
+    await tester.pump();
+    expect(router.state.uri.path, '/settings/models/providers');
+
+    unawaited(router.push('/settings/models/providers/test-provider'));
+    await tester.pump();
+    expect(
+      ProviderScope.containerOf(
+        tester.element(find.byType(SettingsScreen)),
+      ).read(pricingViewModelProvider).selectedGroupId,
+      'test-provider',
+    );
+
+    router.pop();
+    await tester.pump();
+    expect(router.state.uri.path, '/settings/models/providers');
+    expect(
+      ProviderScope.containerOf(
+        tester.element(find.byType(SettingsScreen)),
+      ).read(pricingViewModelProvider).selectedGroupId,
+      isNull,
+    );
+
+    await tester.tap(find.text('Model catalog'));
+    await tester.pumpAndSettle();
+    expect(router.state.uri.path, '/settings/models/models');
+  });
+
+  testWidgets('desktop settings root routes catalog tabs', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = createAppRouter(initialLocation: settingsRoute);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          modelsDevServiceProvider.overrideWithValue(_FakeModelsDevService()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
     expect(router.state.uri.path, settingsRoute);
-    expect(find.text('Models & providers'), findsOneWidget);
+    await tester.tap(find.text('Model catalog'));
+    await tester.pumpAndSettle();
+    expect(router.state.uri.path, '/settings/models/models');
+  });
+
+  testWidgets('a direct model route restores the mobile detail sheet', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = createAppRouter(
+      initialLocation: modelsCatalogRouteFor(
+        PricingScope.models,
+        modelId: 'test-lab/canonical-model',
+      ),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          modelsDevServiceProvider.overrideWithValue(_FakeModelsDevService()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('Canonical Model'), findsWidgets);
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    router.pop();
+    await tester.pump();
+    expect(router.state.uri.path, '/settings/models/models');
+  });
+
+  testWidgets('Poe callback errors return to the canonical accounts route', (
+    WidgetTester tester,
+  ) async {
+    final String accountsRoute = modelsCatalogRouteFor(PricingScope.accounts);
+    final GoRouter router = GoRouter(
+      initialLocation: poeOAuthCallbackRoute,
+      routes: <RouteBase>[
+        GoRoute(
+          path: poeOAuthCallbackRoute,
+          builder: (BuildContext context, GoRouterState state) =>
+              PoeOAuthCallbackScreen(
+                callbackUri: state.uri,
+                accountsRoute: accountsRoute,
+              ),
+        ),
+        GoRoute(
+          path: accountsRoute,
+          builder: (BuildContext context, GoRouterState state) =>
+              const Text('Accounts destination'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(child: MaterialApp.router(routerConfig: router)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Back to accounts'));
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, accountsRoute);
+    expect(find.text('Accounts destination'), findsOneWidget);
   });
 
   testWidgets('desktop section back returns to settings, not chat', (
@@ -375,6 +569,27 @@ void main() {
     );
     expect(find.byType(SettingsScreen), findsOneWidget);
   });
+}
+
+class _FakeModelsDevService extends ModelsDevService {
+  _FakeModelsDevService()
+    : _catalog = ModelsCatalog.fromCatalogJson(<String, Object?>{
+        'models': <String, Object?>{
+          'test-lab/canonical-model': <String, Object?>{
+            'id': 'test-lab/canonical-model',
+            'name': 'Canonical Model',
+          },
+        },
+        'providers': <String, Object?>{},
+      }, fetchedAt: DateTime(2026));
+
+  final ModelsCatalog _catalog;
+
+  @override
+  Future<ModelsCatalog> load({bool forceRefresh = false}) async => _catalog;
+
+  @override
+  Future<ModelsCatalog> refresh() async => _catalog;
 }
 
 class _SeededConversationStore implements ConversationStore {

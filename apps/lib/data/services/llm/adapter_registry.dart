@@ -12,7 +12,7 @@ class AdapterRegistry {
   AdapterRegistry() {
     _adapters[AdapterKind.mock] = MockLlmAdapter();
     _adapters[AdapterKind.openaiCompatible] = OpenAiCompatibleAdapter();
-    _adapters[AdapterKind.subscription] = ChatGptSubscriptionAdapter();
+    _adapters[AdapterKind.chatGptCodex] = ChatGptSubscriptionAdapter();
   }
 
   final Map<AdapterKind, LlmAdapter> _adapters = <AdapterKind, LlmAdapter>{};

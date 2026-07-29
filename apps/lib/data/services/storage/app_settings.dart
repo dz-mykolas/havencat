@@ -23,7 +23,9 @@ class AppSettings extends ChangeNotifier {
       _useDeviceTheme = prefs?.getBool(_useDeviceThemeKey) ?? false,
       _theme = _loadManualTheme(prefs),
       _lightTheme = _loadLightTheme(prefs),
-      _darkTheme = _loadDarkTheme(prefs);
+      _darkTheme = _loadDarkTheme(prefs),
+      _gradientLightHue = _loadGradientHue(prefs, _gradientLightHueKey),
+      _gradientDarkHue = _loadGradientHue(prefs, _gradientDarkHueKey);
 
   final SharedPreferences? _prefs;
 
@@ -37,51 +39,104 @@ class AppSettings extends ChangeNotifier {
       'compaction.abort_on_summary_failure::v1';
   static const String _autoFocusTopicKey = 'compaction.auto_focus_topic::v1';
   static const String _toolsEnabledKey = 'chat.tools_enabled::v1';
-  static const String _legacyThemeSlotKey = 'appearance.theme_slot::v1';
   static const String _useDeviceThemeKey = 'appearance.use_device_theme::v2';
   static const String _themeKey = 'appearance.theme::v2';
   static const String _lightThemeKey = 'appearance.light_theme::v1';
   static const String _darkThemeKey = 'appearance.dark_theme::v1';
+  static const String _gradientLightHueKey =
+      'appearance.gradient_light_hue::v2';
+  static const String _gradientDarkHueKey = 'appearance.gradient_dark_hue::v2';
 
   bool _useDeviceTheme;
   AppThemePreset _theme;
   AppThemePreset _lightTheme;
   AppThemePreset _darkTheme;
+  int _gradientLightHue;
+  int _gradientDarkHue;
 
   bool get useDeviceTheme => _useDeviceTheme;
   AppThemePreset get theme => _theme;
   AppThemePreset get lightTheme => _lightTheme;
   AppThemePreset get darkTheme => _darkTheme;
+  int get gradientLightHue => _gradientLightHue;
+  int get gradientDarkHue => _gradientDarkHue;
 
   static AppThemePreset _loadManualTheme(SharedPreferences? prefs) {
-    final String? stored = prefs?.getString(_themeKey);
-    if (stored != null) {
-      return enumByNameOr(AppThemePreset.values, stored, AppThemePreset.haven);
-    }
-    final bool legacyLight = prefs?.getString(_legacyThemeSlotKey) == 'light';
-    return enumByNameOr(
+    return enumByNameOrDefault(
       AppThemePreset.values,
-      prefs?.getString(legacyLight ? _lightThemeKey : _darkThemeKey),
-      legacyLight ? AppThemePreset.parchment : AppThemePreset.haven,
+      prefs?.getString(_themeKey),
+      AppThemePreset.haven,
     );
   }
 
   static AppThemePreset _loadLightTheme(SharedPreferences? prefs) {
-    final AppThemePreset value = enumByNameOr(
+    final AppThemePreset value = enumByNameOrDefault(
       AppThemePreset.values,
       prefs?.getString(_lightThemeKey),
       AppThemePreset.parchment,
     );
-    return value.isDark ? AppThemePreset.parchment : value;
+    if (value.isDark) {
+      throw const FormatException('Stored light theme is a dark theme.');
+    }
+    return value;
   }
 
   static AppThemePreset _loadDarkTheme(SharedPreferences? prefs) {
-    final AppThemePreset value = enumByNameOr(
+    final AppThemePreset value = enumByNameOrDefault(
       AppThemePreset.values,
       prefs?.getString(_darkThemeKey),
       AppThemePreset.haven,
     );
-    return value.isDark ? value : AppThemePreset.haven;
+    if (!value.isDark) {
+      throw const FormatException('Stored dark theme is a light theme.');
+    }
+    return value;
+  }
+
+  static int _loadGradientHue(SharedPreferences? prefs, String hueKey) {
+    final int? stored = prefs?.getInt(hueKey);
+    if (stored == null) return defaultGradientThemeHue;
+    if (stored < 0 || stored >= 360) {
+      throw RangeError.range(stored, 0, 359, hueKey);
+    }
+    return stored;
+  }
+
+  int gradientHueFor(AppThemePreset preset) {
+    if (!preset.isGradient) {
+      throw ArgumentError.value(preset, 'preset', 'Must be a gradient theme.');
+    }
+    return preset.isDark ? _gradientDarkHue : _gradientLightHue;
+  }
+
+  void previewGradientHue(AppThemePreset preset, int value) {
+    _validateGradientHue(preset, value);
+    if (preset.isDark) {
+      if (value == _gradientDarkHue) return;
+      _gradientDarkHue = value;
+    } else {
+      if (value == _gradientLightHue) return;
+      _gradientLightHue = value;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setGradientHue(AppThemePreset preset, int value) async {
+    _validateGradientHue(preset, value);
+    previewGradientHue(preset, value);
+    await _prefs?.setInt(
+      preset.isDark ? _gradientDarkHueKey : _gradientLightHueKey,
+      value,
+    );
+  }
+
+  static void _validateGradientHue(AppThemePreset preset, int value) {
+    if (!preset.isGradient) {
+      throw ArgumentError.value(preset, 'preset', 'Must be a gradient theme.');
+    }
+    if (value < 0 || value >= 360) {
+      throw RangeError.range(value, 0, 359, 'value');
+    }
   }
 
   Future<void> setUseDeviceTheme(bool value) async {

@@ -11,6 +11,7 @@ FLUTTER := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/flutter
 DART := $(HOME)/fvm/versions/$(FVM_VERSION)/bin/dart
 
 RUN_ARGS := -d $(DEVICE)
+DART_DEFINES :=
 
 # Load `.env` (if present) into the make environment so targets like `server`
 # and `run` pick up PORT/LOG_LEVEL/etc. Shell env vars still
@@ -18,6 +19,13 @@ RUN_ARGS := -d $(DEVICE)
 -include .env
 # Export so subprocesses (dart run, flutter run) inherit them as shell env vars.
 export PORT HOST LOG_LEVEL RUST_LOG
+
+ifdef APP_NAME
+DART_DEFINES += --dart-define=APP_NAME=$(APP_NAME)
+endif
+ifdef POE_CLIENT_ID
+DART_DEFINES += --dart-define=POE_CLIENT_ID=$(POE_CLIENT_ID)
+endif
 
 ifeq ($(DEVICE),web-server)
 RUN_ARGS += --web-hostname $(WEB_HOST) --web-port $(WEB_PORT)
@@ -30,13 +38,8 @@ RUN_ARGS += --dart-define=LLM_PROXY=http://localhost:$(SERVE_PORT)/proxy
 ifdef LOG_LEVEL
 RUN_ARGS += --dart-define=LOG_LEVEL=$(LOG_LEVEL)
 endif
-ifdef APP_NAME
-RUN_ARGS += --dart-define=APP_NAME=$(APP_NAME)
 endif
-ifdef CODEX_CLIENT_VERSION
-RUN_ARGS += --dart-define=CODEX_CLIENT_VERSION=$(CODEX_CLIENT_VERSION)
-endif
-endif
+RUN_ARGS += $(DART_DEFINES)
 
 .PHONY: install run run-profile run-release server rust check format build-play build-apk build-apk-arm64 build-apk-all build-ios build-desktop clean
 
@@ -69,25 +72,25 @@ format:
 
 # Build an Android App Bundle for Google Play.
 build-play:
-	cd $(APP) && $(FLUTTER) build appbundle --release
+	cd $(APP) && $(FLUTTER) build appbundle --release $(DART_DEFINES)
 	mkdir -p $(ANDROID_DIST)
 	cp $(APP)/build/app/outputs/bundle/release/app-release.aab $(ANDROID_DIST)/
 
 # Build one universal APK that supports every Flutter Android architecture.
 build-apk:
-	cd $(APP) && $(FLUTTER) build apk --release
+	cd $(APP) && $(FLUTTER) build apk --release $(DART_DEFINES)
 	mkdir -p $(ANDROID_DIST)
 	cp $(APP)/build/app/outputs/flutter-apk/app-release.apk $(ANDROID_DIST)/
 
 # Build one smaller ARM64 APK for modern physical Android phones.
 build-apk-arm64:
-	cd $(APP) && $(FLUTTER) build apk --release --target-platform android-arm64 --split-per-abi
+	cd $(APP) && $(FLUTTER) build apk --release --target-platform android-arm64 --split-per-abi $(DART_DEFINES)
 	mkdir -p $(ANDROID_DIST)
 	cp $(APP)/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk $(ANDROID_DIST)/
 
 # Build smaller APKs for every supported Android architecture in one pass.
 build-apk-all:
-	cd $(APP) && $(FLUTTER) build apk --release --split-per-abi
+	cd $(APP) && $(FLUTTER) build apk --release --split-per-abi $(DART_DEFINES)
 	mkdir -p $(ANDROID_DIST)
 	cp $(APP)/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk $(ANDROID_DIST)/
 	cp $(APP)/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk $(ANDROID_DIST)/
@@ -95,7 +98,7 @@ build-apk-all:
 
 # Build iOS IPA. Run on macOS only.
 build-ios:
-	cd $(APP) && $(FLUTTER) build ipa
+	cd $(APP) && $(FLUTTER) build ipa $(DART_DEFINES)
 
 # Build the Rust crate (cdylib) that the server + native apps load via FFI.
 # `dart run` and `flutter run` don't trigger Cargokit for the server path,
@@ -112,9 +115,9 @@ server: rust
 # Build desktop app for the current OS.
 build-desktop:
 	cd $(APP) && \
-	if [ "$$(uname)" = "Darwin" ]; then $(FLUTTER) build macos; \
-	elif [ "$$(uname)" = "Linux" ]; then $(FLUTTER) build linux; \
-	else $(FLUTTER) build windows; fi
+	if [ "$$(uname)" = "Darwin" ]; then $(FLUTTER) build macos $(DART_DEFINES); \
+	elif [ "$$(uname)" = "Linux" ]; then $(FLUTTER) build linux $(DART_DEFINES); \
+	else $(FLUTTER) build windows $(DART_DEFINES); fi
 
 # Remove Flutter build outputs.
 clean:

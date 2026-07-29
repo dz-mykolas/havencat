@@ -23,7 +23,7 @@ class AppConfig {
     required this.rustLog,
     required this.llmProxy,
     required this.appName,
-    required this.codexClientVersion,
+    required this.poeClientId,
   });
 
   /// Loads config from the appropriate source for the current platform.
@@ -48,6 +48,6 @@ class AppConfig {
   /// App brand name.
   final String appName;
 
-  /// Codex protocol client version fallback.
-  final String codexClientVersion;
+  /// Public OAuth client identifier registered for HavenCat with Poe.
+  final String poeClientId;
 }

@@ -5,7 +5,7 @@
 -- ---------------------------------------------------------------------------
 -- Fetched pages (URL -> content cache)
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS web_pages (
+CREATE TABLE web_pages (
     url            TEXT PRIMARY KEY,
     title          TEXT NOT NULL DEFAULT '',
     content        TEXT NOT NULL DEFAULT '',
@@ -15,24 +15,24 @@ CREATE TABLE IF NOT EXISTS web_pages (
     fetched_at     INTEGER NOT NULL
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS web_pages_fts USING fts5(
+CREATE VIRTUAL TABLE web_pages_fts USING fts5(
     url, title, content,
     tokenize = 'unicode61',
     content = 'web_pages',
     content_rowid = 'rowid'
 );
 
-CREATE TRIGGER IF NOT EXISTS web_pages_ai AFTER INSERT ON web_pages BEGIN
+CREATE TRIGGER web_pages_ai AFTER INSERT ON web_pages BEGIN
     INSERT INTO web_pages_fts(rowid, url, title, content)
     VALUES (new.rowid, new.url, new.title, new.content);
 END;
 
-CREATE TRIGGER IF NOT EXISTS web_pages_ad AFTER DELETE ON web_pages BEGIN
+CREATE TRIGGER web_pages_ad AFTER DELETE ON web_pages BEGIN
     INSERT INTO web_pages_fts(web_pages_fts, rowid, url, title, content)
     VALUES ('delete', old.rowid, old.url, old.title, old.content);
 END;
 
-CREATE TRIGGER IF NOT EXISTS web_pages_au AFTER UPDATE ON web_pages BEGIN
+CREATE TRIGGER web_pages_au AFTER UPDATE ON web_pages BEGIN
     INSERT INTO web_pages_fts(web_pages_fts, rowid, url, title, content)
     VALUES ('delete', old.rowid, old.url, old.title, old.content);
     INSERT INTO web_pages_fts(rowid, url, title, content)
@@ -42,7 +42,7 @@ END;
 -- ---------------------------------------------------------------------------
 -- Search results cache (query + provider -> results)
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS web_searches (
+CREATE TABLE web_searches (
     query          TEXT NOT NULL,
     provider       TEXT NOT NULL,
     results_json   TEXT NOT NULL,
@@ -53,14 +53,8 @@ CREATE TABLE IF NOT EXISTS web_searches (
 -- ---------------------------------------------------------------------------
 -- Provider quota tracking (rate-limit awareness)
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS web_provider_quota (
+CREATE TABLE web_provider_quota (
     provider     TEXT PRIMARY KEY,
     used_today   INTEGER NOT NULL DEFAULT 0,
     reset_at     INTEGER
 );
-
--- Schema version marker.
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER NOT NULL
-);
-INSERT OR IGNORE INTO schema_version (version) VALUES (1);

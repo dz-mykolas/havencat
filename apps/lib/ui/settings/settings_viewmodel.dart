@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/provider_account_repository.dart';
 import '../../data/services/auth/chatgpt_oauth_flow.dart';
 import '../../data/services/auth/chatgpt_token_service.dart';
+import '../../data/services/auth/poe_oauth_flow.dart';
 import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/oauth_tokens.dart';
 import '../../domain/models/provider_account.dart';
@@ -21,13 +22,19 @@ import '../../providers.dart';
 /// [ProviderAccount]s directly: [ProviderAccount] has no mutable collections,
 /// so there is nothing to protect the view from.
 class SettingsViewModel extends ChangeNotifier {
-  SettingsViewModel(this._providers, this._chatGptOAuth, this._chatGptTokens) {
+  SettingsViewModel(
+    this._providers,
+    this._chatGptOAuth,
+    this._chatGptTokens,
+    this._poeOAuth,
+  ) {
     _providers.addListener(_relay);
   }
 
   final ProviderAccountRepository _providers;
   final ChatGptOAuthFlow _chatGptOAuth;
   final ChatGptTokenService _chatGptTokens;
+  final PoeOAuthFlow _poeOAuth;
 
   /// All configured accounts (read-only view of the repository's list).
   List<ProviderAccount> get accounts => _providers.accounts;
@@ -38,33 +45,9 @@ class SettingsViewModel extends ChangeNotifier {
   /// The active account, or null if none configured.
   ProviderAccount? get activeAccount => _providers.activeAccount;
 
-  /// Provider definitions the user can add an API-key account for.
-  List<ProviderDefinition> get apiKeyCatalog => ProviderCatalog.apiKey;
-
   /// Provider definitions the user can add a subscription (OAuth) account for.
   List<ProviderDefinition> get subscriptionCatalog =>
       ProviderCatalog.subscription;
-
-  /// All addable providers, subscription section first (matches the UI layout).
-  List<ProviderDefinition> get catalog => ProviderCatalog.all;
-
-  /// Whether the user already has an account for [definitionId]. Backs the
-  /// "grey out duplicate subscriptions" UX in the provider picker — a
-  /// subscription provider (ChatGPT, Poe) can only be connected once.
-  bool hasAccountForDefinition(String definitionId) =>
-      _providers.hasAccountForDefinition(definitionId);
-
-  /// API-key definitions keyed by their [ProviderDefinition.modelsDevId],
-  /// for quick lookup from the Discover panel's Quick-Add flow. Definitions
-  /// with a null `modelsDevId` (e.g. `openai_compatible`) are absent — the
-  /// resolver falls back to them separately.
-  Map<String, ProviderDefinition> get apiKeyCatalogByModelsDevId {
-    final Map<String, ProviderDefinition> out = <String, ProviderDefinition>{};
-    for (final ProviderDefinition d in ProviderCatalog.apiKey) {
-      if (d.modelsDevId != null) out[d.modelsDevId!] = d;
-    }
-    return out;
-  }
 
   Future<ProviderAccount> addApiKeyAccount({
     required String definitionId,
@@ -82,7 +65,7 @@ class SettingsViewModel extends ChangeNotifier {
           };
     return _providers.addApiKeyAccount(
       definitionId: definitionId,
-      displayName: displayName,
+      displayName: _uniqueAccountName(displayName),
       apiKey: apiKey,
       config: merged,
     );
@@ -120,12 +103,12 @@ class SettingsViewModel extends ChangeNotifier {
       shouldCancel: shouldCancel,
       waitForNextPoll: waitForNextPoll,
     );
-    final String displayName = result.planType != null
+    final String baseDisplayName = result.planType != null
         ? 'ChatGPT (${result.planType})'
         : 'ChatGPT';
     return _providers.addSubscriptionAccount(
       definitionId: 'chatgpt_subscription',
-      displayName: displayName,
+      displayName: _uniqueAccountName(baseDisplayName),
       tokens: OAuthTokens(
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
@@ -136,6 +119,38 @@ class SettingsViewModel extends ChangeNotifier {
         if (result.planType != null) 'planType': result.planType,
       },
     );
+  }
+
+  bool get isPoeLoginConfigured => _poeOAuth.isConfigured;
+
+  Future<Uri> startPoeLogin(Uri redirectUri) => _poeOAuth.begin(redirectUri);
+
+  Future<ProviderAccount> completePoeLogin(Uri callbackUri) async {
+    final PoeOAuthResult result = await _poeOAuth.complete(callbackUri);
+    return _providers.addApiKeyAccount(
+      definitionId: 'poe_subscription',
+      displayName: _uniqueAccountName('Poe'),
+      apiKey: result.apiKey,
+      config: <String, Object?>{
+        if (result.expiresAt != null)
+          'credentialExpiresAt': result.expiresAt!.toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> cancelPoeLogin() => _poeOAuth.cancel();
+
+  String _uniqueAccountName(String requestedName) {
+    final String base = requestedName.trim();
+    final Set<String> names = _providers.accounts
+        .map((ProviderAccount account) => account.displayName)
+        .toSet();
+    if (!names.contains(base)) return base;
+    int suffix = 2;
+    while (names.contains('$base $suffix')) {
+      suffix++;
+    }
+    return '$base $suffix';
   }
 
   void setActive(String accountId) => _providers.setActive(accountId);
@@ -150,7 +165,7 @@ class SettingsViewModel extends ChangeNotifier {
         break;
       }
     }
-    if (account != null && account.kind == AdapterKind.subscription) {
+    if (account != null && account.kind == AdapterKind.chatGptCodex) {
       await _chatGptTokens.revoke(accountId);
     }
     await _providers.remove(accountId);
@@ -175,5 +190,6 @@ final settingsViewModelProvider = ChangeNotifierProvider<SettingsViewModel>((
     ref.read(providerAccountRepositoryProvider),
     ref.read(chatGptOAuthFlowProvider),
     ref.read(chatGptTokenServiceProvider),
+    ref.read(poeOAuthFlowProvider),
   );
 });

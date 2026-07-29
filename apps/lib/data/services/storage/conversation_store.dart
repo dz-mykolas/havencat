@@ -16,7 +16,7 @@ import '../../../src/rust/conversations/db.dart' as rust_types;
 /// Persists conversations to SQLite (via Rust on native, via HTTP on web).
 ///
 /// Native: calls Rust directly through FRB FFI. The Rust side owns the SQLite
-/// database file and handles schema migrations, upsert, delete, and load.
+/// database file and handles schema initialization, upsert, delete, and load.
 ///
 /// Web: calls the local server's `/api/conversations/*` JSON routes, which
 /// in turn call the same Rust functions server-side.
@@ -55,7 +55,7 @@ class RustConversationStore implements ConversationStore {
       title: s.title,
       messages: messages,
       providerAccountId: s.providerAccount,
-      createdAt: DateTime.tryParse(s.createdAt),
+      createdAt: DateTime.parse(s.createdAt),
       isPinned: s.isPinned,
     )..currentLeafId = s.currentLeafId;
     return conv;
@@ -76,7 +76,7 @@ class RustConversationStore implements ConversationStore {
         id: m.id,
         role: MessageRole.values.byName(m.role),
         text: m.text,
-        createdAt: DateTime.tryParse(m.createdAt),
+        createdAt: DateTime.parse(m.createdAt),
         toolCalls: toolCalls,
         toolCallId: m.toolCallId,
         parentId: m.parentId,
@@ -127,7 +127,11 @@ class RustConversationStore implements ConversationStore {
       title: c.title,
       providerAccount: c.providerAccountId,
       createdAt:
-          c.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+          (c.createdAt ??
+                  (throw StateError(
+                    'Conversation "${c.id}" has no creation time.',
+                  )))
+              .toIso8601String(),
       currentLeafId: c.currentLeafId,
       isPinned: c.isPinned,
       updatedAt: (platform.isWeb ? BigInt.zero : 0) as PlatformInt64,
@@ -154,7 +158,9 @@ class RustConversationStore implements ConversationStore {
           ? jsonEncode(m.toolCalls.map((tc) => tc.toJson()).toList())
           : null,
       createdAt:
-          m.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
+          (m.createdAt ??
+                  (throw StateError('Message "${m.id}" has no creation time.')))
+              .toIso8601String(),
       cleared: m.cleared,
       clearedSummary: m.clearedSummary,
       refetchArgs: m.refetchArgs != null ? jsonEncode(m.refetchArgs) : null,
@@ -175,11 +181,7 @@ class RustConversationStore implements ConversationStore {
   }
 
   static MessageGenerationStatus _generationStatus(String value) {
-    for (final MessageGenerationStatus status
-        in MessageGenerationStatus.values) {
-      if (status.name == value) return status;
-    }
-    return MessageGenerationStatus.none;
+    return MessageGenerationStatus.values.byName(value);
   }
 }
 

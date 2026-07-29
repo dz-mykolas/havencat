@@ -19,13 +19,9 @@ import 'package:app/domain/models/provider_account.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('conversation pin state round-trips and defaults to unpinned', () {
+  test('conversation pin state round-trips', () {
     final Conversation pinned = Conversation(id: 'pinned', isPinned: true);
     expect(Conversation.fromJson(pinned.toJson()).isPinned, isTrue);
-    expect(
-      Conversation.fromJson(<String, dynamic>{'id': 'legacy'}).isPinned,
-      isFalse,
-    );
   });
 
   group('OAuthTokens', () {
@@ -35,17 +31,18 @@ void main() {
         refreshToken: 'rt',
         expiresAt: DateTime.utc(2030, 1, 2, 3, 4, 5),
       );
-      final OAuthTokens? decoded = OAuthTokens.tryDecode(tokens.encode());
+      final OAuthTokens? decoded = OAuthTokens.decode(tokens.encode());
       expect(decoded, isNotNull);
       expect(decoded!.accessToken, 'at');
       expect(decoded.refreshToken, 'rt');
       expect(decoded.expiresAt, DateTime.utc(2030, 1, 2, 3, 4, 5));
     });
 
-    test('tryDecode treats a bare token string as a legacy access token', () {
-      final OAuthTokens? decoded = OAuthTokens.tryDecode('legacy-access-token');
-      expect(decoded!.accessToken, 'legacy-access-token');
-      expect(decoded.canRefresh, isFalse);
+    test('decode rejects malformed stored credentials', () {
+      expect(
+        () => OAuthTokens.decode('not-a-token-bundle'),
+        throwsFormatException,
+      );
     });
 
     test('isExpired honors the leeway window', () {
@@ -126,15 +123,54 @@ void main() {
       final ProviderAccount restored = repo2.accounts.firstWhere(
         (a) => a.id == account.id,
       );
-      expect(restored.kind, AdapterKind.subscription);
+      expect(restored.kind, AdapterKind.chatGptCodex);
       expect(restored.config['planType'], 'plus');
       // The secret bundle survives and never leaked into plaintext config.
       expect(restored.config.containsKey('refreshToken'), isFalse);
-      final OAuthTokens? bundle = OAuthTokens.tryDecode(
+      final OAuthTokens? bundle = OAuthTokens.decode(
         await secrets.read(account.id),
       );
       expect(bundle!.accessToken, 'access-1');
       expect(bundle.refreshToken, 'refresh-1');
+    });
+
+    test('keeps credentials separate for repeated subscriptions', () async {
+      final SecretStore secrets = SecretStore();
+      final ProviderAccountRepository repository = ProviderAccountRepository(
+        accountStore: AccountStore(),
+        secretStore: secrets,
+      );
+      await repository.load();
+
+      final ProviderAccount first = await repository.addSubscriptionAccount(
+        definitionId: 'chatgpt_subscription',
+        displayName: 'ChatGPT',
+        tokens: const OAuthTokens(accessToken: 'first'),
+      );
+      final ProviderAccount second = await repository.addSubscriptionAccount(
+        definitionId: 'chatgpt_subscription',
+        displayName: 'ChatGPT 2',
+        tokens: const OAuthTokens(accessToken: 'second'),
+      );
+
+      expect(first.id, isNot(second.id));
+      expect(
+        repository.accounts
+            .where(
+              (ProviderAccount account) =>
+                  account.config['definitionId'] == 'chatgpt_subscription',
+            )
+            .length,
+        2,
+      );
+      expect(
+        OAuthTokens.decode(await secrets.read(first.id))!.accessToken,
+        'first',
+      );
+      expect(
+        OAuthTokens.decode(await secrets.read(second.id))!.accessToken,
+        'second',
+      );
     });
   });
 
@@ -188,7 +224,7 @@ void main() {
 
       expect(await svc.validAccessToken('acct'), 'new-access');
 
-      final OAuthTokens? stored = OAuthTokens.tryDecode(
+      final OAuthTokens? stored = OAuthTokens.decode(
         await secrets.read('acct'),
       );
       expect(stored!.accessToken, 'new-access');

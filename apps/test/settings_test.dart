@@ -6,6 +6,7 @@ import 'package:app/app.dart';
 import 'package:app/data/repositories/provider_account_repository.dart';
 import 'package:app/data/services/auth/chatgpt_oauth_flow.dart';
 import 'package:app/data/services/auth/chatgpt_token_service.dart';
+import 'package:app/data/services/auth/poe_oauth_flow.dart';
 import 'package:app/data/services/auth/secret_store.dart';
 import 'package:app/data/services/storage/account_store.dart';
 import 'package:app/data/services/storage/app_settings.dart';
@@ -251,6 +252,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Parchment'), findsOneWidget);
     expect(find.text('Midnight'), findsOneWidget);
+    expect(find.text('Gradient Light'), findsOneWidget);
+    expect(find.text('Gradient Dark'), findsOneWidget);
     await tester.tap(find.text('Coastal'));
     await tester.pumpAndSettle();
     expect(settings.theme, AppThemePreset.coastal);
@@ -266,33 +269,99 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Parchment'), findsWidgets);
     expect(find.text('Midnight'), findsNothing);
-    await tester.tap(find.text('Sage'));
+    expect(find.text('Gradient Light'), findsOneWidget);
+    expect(find.text('Gradient Dark'), findsNothing);
+    await tester.tap(find.text('Gradient Light'));
     await tester.pumpAndSettle();
-    expect(settings.lightTheme, AppThemePreset.sage);
+    expect(settings.lightTheme, AppThemePreset.gradientLight);
+    expect(
+      find.byKey(const ValueKey<String>('gradient-hue-selector-gradientLight')),
+      findsOneWidget,
+    );
+    final Slider hueSlider = tester.widget<Slider>(
+      find.byKey(const ValueKey<String>('gradient-hue-gradientLight')),
+    );
+    hueSlider.onChanged!(220);
+    await tester.pump();
+    expect(settings.gradientLightHue, 220);
 
     await tester.tap(find.text('Dark theme'));
     await tester.pumpAndSettle();
     expect(find.text('Parchment'), findsNothing);
     expect(find.text('Midnight'), findsOneWidget);
+    expect(find.text('Gradient Light'), findsOneWidget);
+    expect(find.text('Gradient Dark'), findsOneWidget);
     await tester.tap(find.text('Evergreen'));
     await tester.pumpAndSettle();
     expect(settings.darkTheme, AppThemePreset.evergreen);
   });
 
-  testWidgets('Accounts tab renders the seeded mock account', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const ProviderScope(child: App()));
-    await tester.dragFrom(const Offset(400, 300), const Offset(260, 0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SettingsScreen), findsOneWidget);
+  testWidgets(
+    'Accounts has one connection flow for subscriptions and API providers',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(const ProviderScope(child: App()));
+      await tester.dragFrom(const Offset(400, 300), const Offset(260, 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
 
-    await tester.tap(find.text('Accounts'));
-    await tester.pumpAndSettle();
-    expect(find.text('Mock'), findsOneWidget);
-  });
+      await tester.tap(find.text('Accounts'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mock'), findsOneWidget);
+      expect(find.text('Connect account'), findsOneWidget);
+      expect(find.text('Accounts'), findsWidgets);
+      expect(find.byTooltip('Add account'), findsNothing);
+
+      await tester.tap(find.text('Connect account'));
+      await tester.pumpAndSettle();
+      expect(find.text('ChatGPT'), findsOneWidget);
+      expect(find.text('Poe'), findsOneWidget);
+      expect(find.text('API provider'), findsOneWidget);
+      expect(find.text('Custom endpoint'), findsOneWidget);
+      expect(
+        find.text('You can connect the same service more than once.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Custom endpoint'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Display name'),
+        'Private model',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Base URL'),
+        'http://api.example.com/v1',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Model'),
+        'private-model',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'API key (optional)'),
+        'secret',
+      );
+      await tester.pump();
+      expect(find.text('Public endpoints require HTTPS.'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Connect'))
+            .onPressed,
+        isNull,
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Base URL'),
+        'http://192.168.1.10:11434/v1',
+      );
+      await tester.pump();
+      expect(
+        find.text('API keys require HTTPS outside this device.'),
+        findsOneWidget,
+      );
+    },
+  );
 
   test('credential cleanup failure aborts account removal', () async {
     final AccountStore store = AccountStore();
@@ -335,7 +404,12 @@ void main() {
         secretStore: secrets,
         oauthFlow: oauth,
       );
-      vm = SettingsViewModel(providers, oauth, tokens);
+      vm = SettingsViewModel(
+        providers,
+        oauth,
+        tokens,
+        PoeOAuthFlow(credentialStore: secrets, clientId: 'poe-client'),
+      );
     });
 
     test('writes the enabledModels list into account config', () async {
@@ -375,19 +449,43 @@ void main() {
       },
     );
 
+    test('provider defaults use the current enabled-models shape', () async {
+      final account = await vm.addApiKeyAccount(
+        definitionId: 'anthropic',
+        displayName: 'Anthropic',
+        apiKey: 'sk-ant',
+      );
+      expect(account.config['enabledModels'], <String>[
+        'claude-3-5-sonnet-latest',
+      ]);
+      expect(account.enabledModels, <String>['claude-3-5-sonnet-latest']);
+    });
+
     test(
-      'enabledModels null leaves the legacy `model`-only config intact',
+      'allows repeated API providers and distinguishes their names',
       () async {
-        // Existing callers that don't pass enabledModels must keep working.
-        final account = await vm.addApiKeyAccount(
-          definitionId: 'anthropic',
-          displayName: 'Anthropic',
-          apiKey: 'sk-ant',
+        final ProviderAccount first = await vm.addApiKeyAccount(
+          definitionId: 'openai_compatible',
+          displayName: 'OpenRouter',
+          apiKey: 'sk-first',
         );
-        expect(account.config['enabledModels'], isNull);
-        // Still model-enabled via the legacy single-model field: the accessor
-        // falls back to `[model]` when `enabledModels` is absent.
-        expect(account.enabledModels, <String>['claude-3-5-sonnet-latest']);
+        final ProviderAccount second = await vm.addApiKeyAccount(
+          definitionId: 'openai_compatible',
+          displayName: 'OpenRouter',
+          apiKey: 'sk-second',
+        );
+
+        expect(first.displayName, 'OpenRouter');
+        expect(second.displayName, 'OpenRouter 2');
+        expect(
+          vm.accounts
+              .where(
+                (ProviderAccount account) =>
+                    account.config['definitionId'] == 'openai_compatible',
+              )
+              .length,
+          2,
+        );
       },
     );
   });

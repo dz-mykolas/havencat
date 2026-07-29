@@ -99,6 +99,14 @@ listens on `http://localhost:8088` by default.
 Provider credentials belong to the provider that issued them. HavenCat does
 not create, resell, or proxy provider accounts.
 
+### Poe sign-in
+
+Create an OAuth client at [poe.com/api/clients](https://poe.com/api/clients),
+then set `POE_CLIENT_ID` in `.env` before running or building HavenCat. Native
+builds use a temporary localhost callback and need no registered development
+redirect. For a deployed web build, register
+`https://<your-host>/oauth/poe/callback` in the Poe client.
+
 ## 🔒 Data and privacy
 
 - Conversations and attachments are saved locally in SQLite.

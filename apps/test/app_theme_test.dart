@@ -8,6 +8,7 @@ import 'package:app/data/services/storage/app_settings.dart';
 import 'package:app/domain/models/app_theme_preferences.dart';
 import 'package:app/providers.dart';
 import 'package:app/ui/core/theme/app_theme.dart';
+import 'package:app/ui/core/theme/card_visual_theme.dart';
 
 void main() {
   test('manual and device theme selections persist independently', () async {
@@ -18,29 +19,26 @@ void main() {
     await settings.setTheme(AppThemePreset.midnight);
     await settings.setLightTheme(AppThemePreset.coastal);
     await settings.setDarkTheme(AppThemePreset.evergreen);
+    await settings.setGradientHue(AppThemePreset.gradientLight, 185);
+    await settings.setGradientHue(AppThemePreset.gradientDark, 338);
     await settings.setUseDeviceTheme(true);
 
     final AppSettings restored = AppSettings(prefs: prefs);
     expect(restored.theme, AppThemePreset.midnight);
     expect(restored.lightTheme, AppThemePreset.coastal);
     expect(restored.darkTheme, AppThemePreset.evergreen);
+    expect(restored.gradientLightHue, 185);
+    expect(restored.gradientDarkHue, 338);
     expect(restored.useDeviceTheme, isTrue);
   });
 
-  test('legacy slots migrate to the previously visible theme', () async {
+  test('invalid persisted themes fail instead of being replaced', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
-      'appearance.theme_slot::v1': 'light',
-      'appearance.light_theme::v1': 'sage',
-      'appearance.dark_theme::v1': 'midnight',
+      'appearance.theme::v2': 'removed-theme',
     });
     final SharedPreferences prefs = await SharedPreferences.getInstance();
 
-    final AppSettings restored = AppSettings(prefs: prefs);
-
-    expect(restored.useDeviceTheme, isFalse);
-    expect(restored.theme, AppThemePreset.sage);
-    expect(restored.lightTheme, AppThemePreset.sage);
-    expect(restored.darkTheme, AppThemePreset.midnight);
+    expect(() => AppSettings(prefs: prefs), throwsFormatException);
   });
 
   test('device theme slots enforce matching brightness', () async {
@@ -70,9 +68,39 @@ void main() {
   test('presets expose their intended brightness', () {
     expect(AppTheme.build(AppThemePreset.midnight).brightness, Brightness.dark);
     expect(
+      AppTheme.build(AppThemePreset.gradientDark).brightness,
+      Brightness.dark,
+    );
+    expect(
       AppTheme.build(AppThemePreset.parchment).brightness,
       Brightness.light,
     );
+    expect(
+      AppTheme.build(AppThemePreset.gradientLight).brightness,
+      Brightness.light,
+    );
+  });
+
+  test('gradient colors customize only gradient presets', () {
+    final ThemeData violet = AppTheme.build(
+      AppThemePreset.gradientDark,
+      gradientHue: 265,
+    );
+    final ThemeData amber = AppTheme.build(
+      AppThemePreset.gradientDark,
+      gradientHue: 36,
+    );
+    final ThemeData havenViolet = AppTheme.build(
+      AppThemePreset.haven,
+      gradientHue: 265,
+    );
+    final ThemeData havenAmber = AppTheme.build(
+      AppThemePreset.haven,
+      gradientHue: 36,
+    );
+
+    expect(violet.colorScheme.primary, isNot(amber.colorScheme.primary));
+    expect(havenViolet, same(havenAmber));
   });
 
   test('Haven preserves the original app palette exactly', () {
@@ -96,6 +124,11 @@ void main() {
     for (final AppThemePreset preset in AppThemePreset.values) {
       final ThemeData theme = AppTheme.build(preset);
       expect(theme.extension<AppThemeColors>(), isNotNull);
+      final AppCardVisualTheme? cardVisuals = theme
+          .extension<AppCardVisualTheme>();
+      expect(cardVisuals, isNotNull);
+      expect(cardVisuals!.modelDetail.colors, hasLength(3));
+      expect(cardVisuals.modelDetail.showFlow, preset.isGradient);
       expect(theme.dialogTheme.backgroundColor, isNotNull);
       expect(theme.bottomSheetTheme.modalBackgroundColor, isNotNull);
       expect(theme.cardTheme.elevation, 0);

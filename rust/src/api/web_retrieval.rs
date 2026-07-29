@@ -36,8 +36,8 @@ pub struct ProviderConfig {
     pub endpoint: Option<String>,
 }
 
-/// Initialize the web-retrieval subsystem: open the DB at `db_path`, run
-/// migrations, and register the given search + fetch providers.
+/// Initialize the web-retrieval subsystem and register the configured search
+/// and fetch providers.
 ///
 /// `db_path` of empty string opens an in-memory database.
 #[flutter_rust_bridge::frb]
@@ -52,8 +52,6 @@ pub async fn configure_web_retrieval(
         } else {
             Db::open(&db_path).await?
         };
-        db.configure_pragmas().await?;
-        db.migrate().await?;
         let _ = DB.set(Arc::new(db));
     }
 

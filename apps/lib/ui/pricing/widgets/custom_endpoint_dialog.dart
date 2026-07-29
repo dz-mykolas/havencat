@@ -1,22 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../domain/models/adapter_kind.dart';
-import '../../../domain/models/provider_definition.dart';
+import '../../../data/services/web_retrieval/web_retrieval_endpoint_policy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_scroll_view.dart';
 import '../../core/widgets/credential_security_button.dart';
 import '../../settings/settings_viewmodel.dart';
 
-/// Dialog for adding a custom provider endpoint — any OpenAI-compatible,
-/// Anthropic, or Gemini API the user wants to wire up by hand (e.g. a
-/// self-hosted vLLM server, a proxy, a regional Anthropic endpoint).
-///
-/// Unlike [AddAccountDialog] (which starts from a known [ProviderDefinition]
-/// and prefills its config template), this dialog lets the user pick the
-/// adapter family first, then fills in display name / base URL / API key /
-/// model from scratch. On submit it calls
-/// [SettingsViewModel.addApiKeyAccount] with the matching definition id
-/// (`openai_compatible`, `anthropic`, or `gemini_native`).
 class CustomEndpointDialog extends StatefulWidget {
   const CustomEndpointDialog({super.key, required this.viewModel});
 
@@ -27,38 +16,6 @@ class CustomEndpointDialog extends StatefulWidget {
 }
 
 class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
-  /// The three adapter families a custom endpoint can target. Ordered to
-  /// match [ProviderCatalog.apiKey] minus the generic fallback ordering —
-  /// OpenAI-compatible first because it's by far the most common case
-  /// (Ollama, vLLM, OpenRouter, custom proxies…).
-  static const List<_AdapterOption> _adapters = <_AdapterOption>[
-    _AdapterOption(
-      definitionId: 'openai_compatible',
-      label: 'OpenAI-compatible',
-      hint: 'Any /v1/chat/completions endpoint (OpenAI, Ollama, vLLM…)',
-      defaultBaseUrl: 'https://api.openai.com/v1',
-      defaultModel: 'gpt-4o-mini',
-      showBaseUrl: true,
-    ),
-    _AdapterOption(
-      definitionId: 'anthropic',
-      label: 'Anthropic',
-      hint: 'Claude Messages API (api.anthropic.com)',
-      defaultBaseUrl: 'https://api.anthropic.com',
-      defaultModel: 'claude-3-5-sonnet-latest',
-      showBaseUrl: true,
-    ),
-    _AdapterOption(
-      definitionId: 'gemini_native',
-      label: 'Gemini',
-      hint: 'Google Gemini native API',
-      defaultBaseUrl: '',
-      defaultModel: 'gemini-1.5-flash',
-      showBaseUrl: false,
-    ),
-  ];
-
-  _AdapterOption _adapter = _adapters.first;
   final TextEditingController _name = TextEditingController();
   final TextEditingController _baseUrl = TextEditingController();
   final TextEditingController _key = TextEditingController();
@@ -70,33 +27,53 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
   void initState() {
     super.initState();
     _name.addListener(_onChanged);
+    _baseUrl.addListener(_onChanged);
     _key.addListener(_onChanged);
-    _applyAdapterDefaults();
-  }
-
-  void _applyAdapterDefaults() {
-    _baseUrl.text = _adapter.defaultBaseUrl;
-    _model.text = _adapter.defaultModel;
-  }
-
-  void _onAdapterChanged(_AdapterOption? next) {
-    if (next == null) return;
-    setState(() {
-      _adapter = next;
-      _error = null;
-      _applyAdapterDefaults();
-    });
+    _model.addListener(_onChanged);
   }
 
   void _onChanged() {
     if (mounted) setState(() {});
   }
 
-  bool get _canSubmit {
-    if (_saving) return false;
-    if (_name.text.trim().isEmpty || _key.text.trim().isEmpty) return false;
-    if (_adapter.showBaseUrl && _baseUrl.text.trim().isEmpty) return false;
-    return true;
+  bool get _canSubmit =>
+      !_saving &&
+      _name.text.trim().isNotEmpty &&
+      _baseUrl.text.trim().isNotEmpty &&
+      _model.text.trim().isNotEmpty &&
+      _baseUrlError == null;
+
+  String? get _baseUrlError {
+    final String value = _baseUrl.text.trim();
+    if (value.isEmpty) return null;
+    final Uri? uri = Uri.tryParse(value);
+    if (uri == null ||
+        !uri.hasAuthority ||
+        !(uri.isScheme('https') || uri.isScheme('http'))) {
+      return 'Enter a full HTTP or HTTPS URL.';
+    }
+    final WebEndpointScope scope = WebRetrievalEndpointPolicy.classifyHost(
+      uri.host,
+    );
+    if (scope == WebEndpointScope.invalid) {
+      return 'Enter a valid endpoint URL.';
+    }
+    if (uri.isScheme('https')) return null;
+    if (scope == WebEndpointScope.publicNetwork) {
+      return 'Public endpoints require HTTPS.';
+    }
+    if (_key.text.trim().isNotEmpty && scope != WebEndpointScope.loopback) {
+      return 'API keys require HTTPS outside this device.';
+    }
+    return null;
+  }
+
+  bool get _showLocalHttpWarning {
+    if (_baseUrlError != null) return false;
+    final Uri? uri = Uri.tryParse(_baseUrl.text.trim());
+    if (uri == null || !uri.isScheme('http')) return false;
+    return WebRetrievalEndpointPolicy.classifyHost(uri.host) ==
+        WebEndpointScope.privateNetwork;
   }
 
   Future<void> _submit() async {
@@ -106,18 +83,16 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
       _error = null;
     });
     try {
-      final Map<String, Object?> config = <String, Object?>{};
-      if (_adapter.showBaseUrl) {
-        final String url = _baseUrl.text.trim();
-        if (url.isNotEmpty) config['baseUrl'] = url;
-      }
-      final String model = _model.text.trim();
-      if (model.isNotEmpty) config['model'] = model;
       await widget.viewModel.addApiKeyAccount(
-        definitionId: _adapter.definitionId,
+        definitionId: 'openai_compatible',
         displayName: _name.text.trim(),
         apiKey: _key.text.trim(),
-        config: config.isEmpty ? null : config,
+        config: <String, Object?>{
+          'baseUrl': _baseUrl.text.trim(),
+          'model': _model.text.trim(),
+          'providerName': 'Custom endpoint',
+          'enabledModels': <String>[_model.text.trim()],
+        },
       );
       if (mounted) Navigator.of(context).pop();
     } on Object catch (error) {
@@ -151,38 +126,51 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  DropdownButtonFormField<_AdapterOption>(
-                    initialValue: _adapter,
-                    decoration: InputDecoration(
-                      labelText: 'Adapter',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _adapters
-                        .map(
-                          (_AdapterOption a) =>
-                              DropdownMenuItem<_AdapterOption>(
-                                value: a,
-                                child: Text(a.label),
-                              ),
-                        )
-                        .toList(),
-                    onChanged: _saving ? null : _onAdapterChanged,
-                  ),
-                  Padding(
-                    padding: EdgeInsets.only(top: 6, left: 4),
-                    child: Text(
-                      _adapter.hint,
-                      style: TextStyle(
-                        color: context.appColors.textSecondary,
-                        fontSize: 12,
-                      ),
+                  Text(
+                    'Connect an OpenAI-compatible hosted or local endpoint.',
+                    style: TextStyle(
+                      color: context.appColors.textSecondary,
+                      fontSize: 12,
                     ),
                   ),
-                  SizedBox(height: 12),
+                  SizedBox(height: 14),
                   TextField(
                     controller: _name,
                     decoration: InputDecoration(
                       labelText: 'Display name',
+                      hintText: 'Local Ollama',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _baseUrl,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: 'Base URL',
+                      hintText: 'http://localhost:11434/v1',
+                      errorText: _baseUrlError,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (_showLocalHttpWarning) ...<Widget>[
+                    SizedBox(height: 5),
+                    Text(
+                      'Local HTTP traffic is unencrypted and may be visible '
+                      'to others on this network.',
+                      style: TextStyle(
+                        color: context.appColors.textSecondary,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: 12),
+                  TextField(
+                    controller: _model,
+                    decoration: InputDecoration(
+                      labelText: 'Model',
+                      hintText: 'llama3.2',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -193,29 +181,9 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: InputDecoration(
-                      labelText: 'API key',
+                      labelText: 'API key (optional)',
                       border: OutlineInputBorder(),
                       suffixIcon: CredentialSecurityButton(),
-                    ),
-                  ),
-                  if (_adapter.showBaseUrl) ...<Widget>[
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: _baseUrl,
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      decoration: InputDecoration(
-                        labelText: 'Base URL',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                  SizedBox(height: 12),
-                  TextField(
-                    controller: _model,
-                    decoration: InputDecoration(
-                      labelText: 'Default model',
-                      border: OutlineInputBorder(),
                     ),
                   ),
                   if (_error != null) ...<Widget>[
@@ -242,32 +210,13 @@ class _CustomEndpointDialogState extends State<CustomEndpointDialog> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : Text('Add'),
+              : Text('Connect'),
         ),
       ],
     );
   }
 }
 
-class _AdapterOption {
-  const _AdapterOption({
-    required this.definitionId,
-    required this.label,
-    required this.hint,
-    required this.defaultBaseUrl,
-    required this.defaultModel,
-    required this.showBaseUrl,
-  });
-
-  final String definitionId;
-  final String label;
-  final String hint;
-  final String defaultBaseUrl;
-  final String defaultModel;
-  final bool showBaseUrl;
-}
-
-/// Convenience for callers that just want to pop the dialog up.
 Future<void> showCustomEndpointDialog(
   BuildContext context,
   SettingsViewModel viewModel,
@@ -277,22 +226,4 @@ Future<void> showCustomEndpointDialog(
     builder: (BuildContext context) =>
         CustomEndpointDialog(viewModel: viewModel),
   );
-}
-
-/// The [AdapterKind] a custom endpoint maps to, for callers that want to
-/// label chips or group accounts. Resolved from the definition id.
-AdapterKind adapterKindForDefinitionId(String id) {
-  switch (id) {
-    case 'openai_compatible':
-      return AdapterKind.openaiCompatible;
-    case 'anthropic':
-      return AdapterKind.anthropic;
-    case 'gemini_native':
-      return AdapterKind.geminiNative;
-    case 'chatgpt_subscription':
-    case 'poe_subscription':
-      return AdapterKind.subscription;
-    default:
-      return AdapterKind.openaiCompatible;
-  }
 }

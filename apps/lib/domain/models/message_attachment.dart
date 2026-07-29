@@ -116,8 +116,7 @@ class MessageAttachment {
   factory MessageAttachment.fromJson(Map<String, Object?> json) {
     return MessageAttachment(
       id: json['id'] as String,
-      modality:
-          ContentModality.tryParse(json['modality']) ?? ContentModality.image,
+      modality: ContentModality.values.byName(json['modality'] as String),
       mimeType: json['mimeType'] as String,
       source: AttachmentSource.values.byName(json['source'] as String),
       data: json['data'] as String,

@@ -33,8 +33,7 @@ class ProviderAccount {
   /// headers, etc.). Secret material lives in secure storage, not here.
   ///
   /// Two config keys drive model selection:
-  ///   * `'model'` — the legacy single-selected model id (still written for
-  ///     back-compat; the chat reads it as the active model).
+  ///   * `'model'` — the currently selected model id.
   ///   * `'enabledModels'` — a `List<String>` of model ids the user has opted
   ///     into using for this provider. Defaults to empty (the Quick-Add flow
   ///     writes the user's checkbox selection here). When empty the chat header
@@ -43,23 +42,23 @@ class ProviderAccount {
 
   DateTime? createdAt;
 
-  /// The set of model ids the user has enabled for this provider. Reads
-  /// `config['enabledModels']` (a `List<String>`); falls back to a single-
-  /// element list of the legacy `config['model']` value if `enabledModels` is
-  /// absent — that mirrors the migration in
-  /// `ProviderAccountRepository.load`, so a freshly-loaded legacy account
-  /// appears enabled even before the migration has run (e.g. in tests that
-  /// build an account directly).
+  /// The set of model ids the user has enabled for this provider.
   List<String> get enabledModels {
-    final Object? v = config['enabledModels'];
-    if (v is List) {
-      return v.whereType<String>().toList(growable: false);
+    final Object? value = config['enabledModels'];
+    if (value == null) return const <String>[];
+    if (value is! List) {
+      throw const FormatException('enabledModels must be a list.');
     }
-    final Object? legacy = config['model'];
-    if (legacy is String && legacy.isNotEmpty) {
-      return <String>[legacy];
+    final List<String> models = <String>[];
+    for (final Object? model in value) {
+      if (model is! String || model.isEmpty) {
+        throw const FormatException(
+          'enabledModels must contain non-empty strings.',
+        );
+      }
+      models.add(model);
     }
-    return const <String>[];
+    return List<String>.unmodifiable(models);
   }
 
   /// Non-secret JSON for persistence. Secrets (API keys, OAuth tokens) are
@@ -74,14 +73,22 @@ class ProviderAccount {
 
   factory ProviderAccount.fromJson(Map<String, Object?> json) {
     final Object? created = json['createdAt'];
+    DateTime? createdAt;
+    if (created != null) {
+      if (created is! String) {
+        throw const FormatException('Provider account createdAt is invalid.');
+      }
+      createdAt = DateTime.tryParse(created);
+      if (createdAt == null) {
+        throw const FormatException('Provider account createdAt is invalid.');
+      }
+    }
     return ProviderAccount(
       id: json['id'] as String,
       kind: AdapterKind.values.byName(json['kind'] as String),
       displayName: json['displayName'] as String,
-      config: Map<String, Object?>.from(
-        (json['config'] as Map?) ?? const <String, Object?>{},
-      ),
-      createdAt: created is String ? DateTime.tryParse(created) : null,
+      config: Map<String, Object?>.from(json['config'] as Map),
+      createdAt: createdAt,
     );
   }
 }

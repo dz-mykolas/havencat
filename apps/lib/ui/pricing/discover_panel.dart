@@ -3,19 +3,21 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
+import '../core/navigation/app_route_observer.dart';
 import '../core/widgets/app_scroll_view.dart';
 import '../../domain/models/adapter_kind.dart';
 import '../../domain/models/model_pricing.dart';
 import '../../domain/models/provider_account.dart';
+import '../../domain/models/provider_definition.dart';
 import '../chat/model_selector_viewmodel.dart';
 import '../settings/settings_viewmodel.dart';
 import '../settings/widgets/account_tile.dart';
 import '../settings/widgets/manage_models_sheet.dart';
-import '../settings/widgets/provider_picker.dart' show showProviderPicker;
+import '../settings/widgets/provider_picker.dart'
+    show showAccountConnectionPicker;
 import 'pricing_viewmodel.dart';
 import 'pricing_format.dart';
 import 'quick_add_resolver.dart';
-import 'widgets/custom_endpoint_dialog.dart';
 import 'widgets/model_card.dart';
 import 'widgets/model_detail_sheet.dart';
 import 'widgets/provider_grid.dart';
@@ -37,19 +39,72 @@ extension on PricingScope {
   };
 }
 
+class DiscoverRouting {
+  const DiscoverRouting({
+    required this.scope,
+    required this.onSelectScope,
+    required this.onOpenGroup,
+    required this.onCloseGroup,
+    required this.onOpenModel,
+    this.groupId,
+  });
+
+  final PricingScope scope;
+  final String? groupId;
+  final ValueChanged<PricingScope> onSelectScope;
+  final void Function(PricingScope scope, String groupId) onOpenGroup;
+  final VoidCallback onCloseGroup;
+  final void Function(PricingScope scope, String? groupId, PricedModel model)
+  onOpenModel;
+}
+
 class DiscoverPanel extends ConsumerStatefulWidget {
-  const DiscoverPanel({super.key});
+  const DiscoverPanel({this.routing, super.key});
+
+  final DiscoverRouting? routing;
 
   @override
   ConsumerState<DiscoverPanel> createState() => _DiscoverPanelState();
 }
 
-class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
+class _DiscoverPanelState extends ConsumerState<DiscoverPanel> with RouteAware {
   final TextEditingController _search = TextEditingController();
   bool _searchExpanded = false;
+  ModalRoute<dynamic>? _route;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncLocation();
+  }
+
+  @override
+  void didUpdateWidget(covariant DiscoverPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.routing?.scope != widget.routing?.scope ||
+        oldWidget.routing?.groupId != widget.routing?.groupId) {
+      _syncLocation();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ModalRoute<dynamic>? route = ModalRoute.of(context);
+    if (_route == route) return;
+    if (_route != null) appRouteObserver.unsubscribe(this);
+    _route = route;
+    if (route != null) appRouteObserver.subscribe(this, route);
+  }
+
+  @override
+  void didPopNext() {
+    _syncLocation();
+  }
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _search.dispose();
     super.dispose();
   }
@@ -77,6 +132,7 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
         final bool wide = constraints.maxWidth >= 680;
         final Widget workspace = _CatalogWorkspace(
           vm: vm,
+          routing: widget.routing,
           searchController: _search,
           searchHint: _searchHint(vm),
           searchExpanded: _searchExpanded,
@@ -123,7 +179,23 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
 
   void _selectScope(PricingViewModel vm, PricingScope scope) {
     vm.setScope(scope);
+    widget.routing?.onSelectScope(scope);
     if (_searchExpanded) setState(() => _searchExpanded = false);
+  }
+
+  void _syncLocation() {
+    final DiscoverRouting? routing = widget.routing;
+    if (routing == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.routing?.scope != routing.scope ||
+          widget.routing?.groupId != routing.groupId) {
+        return;
+      }
+      ref
+          .read(pricingViewModelProvider)
+          .syncLocation(routing.scope, groupId: routing.groupId);
+    });
   }
 
   String _searchHint(PricingViewModel vm) {
@@ -137,8 +209,6 @@ class _DiscoverPanelState extends ConsumerState<DiscoverPanel> {
         return 'Search $what';
       case PricingView.provider:
         return 'Search in ${vm.selectedGroup?.name ?? "this group"}';
-      case PricingView.all:
-        return 'Search all models';
     }
   }
 }
@@ -433,6 +503,7 @@ class _CompactNavigationItem extends StatelessWidget {
 class _CatalogWorkspace extends StatelessWidget {
   const _CatalogWorkspace({
     required this.vm,
+    required this.routing,
     required this.searchController,
     required this.searchHint,
     required this.searchExpanded,
@@ -442,6 +513,7 @@ class _CatalogWorkspace extends StatelessWidget {
   });
 
   final PricingViewModel vm;
+  final DiscoverRouting? routing;
   final TextEditingController searchController;
   final String searchHint;
   final bool searchExpanded;
@@ -454,15 +526,22 @@ class _CatalogWorkspace extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _WorkspaceToolbar(
-          vm: vm,
-          searchController: searchController,
-          searchHint: searchHint,
-          searchExpanded: searchExpanded,
-          onExpandSearch: onExpandSearch,
-          onCollapseSearch: onCollapseSearch,
-          onClearSearch: onClearSearch,
-        ),
+        if (vm.scope != PricingScope.accounts)
+          _WorkspaceToolbar(
+            vm: vm,
+            onBack: routing == null
+                ? vm.backToOverview
+                : () {
+                    vm.backToOverview();
+                    routing!.onCloseGroup();
+                  },
+            searchController: searchController,
+            searchHint: searchHint,
+            searchExpanded: searchExpanded,
+            onExpandSearch: onExpandSearch,
+            onCollapseSearch: onCollapseSearch,
+            onClearSearch: onClearSearch,
+          ),
         Expanded(child: _buildBody(context)),
       ],
     );
@@ -481,23 +560,38 @@ class _CatalogWorkspace extends StatelessWidget {
     if (vm.isFlatModelView) {
       return _ModelList(
         vm: vm,
-        onOpenModel: (PricedModel model) =>
-            showModelDetailSheet(context, model),
+        onOpenModel: (PricedModel model) => _openModel(context, model),
       );
     }
     if (vm.view == PricingView.overview) {
-      return _Overview(vm: vm, onOpenGroup: vm.openProvider);
+      return _Overview(
+        vm: vm,
+        onOpenGroup: (String groupId) {
+          vm.openProvider(groupId);
+          routing?.onOpenGroup(vm.scope, groupId);
+        },
+      );
     }
     return _ModelList(
       vm: vm,
-      onOpenModel: (PricedModel model) => showModelDetailSheet(context, model),
+      onOpenModel: (PricedModel model) => _openModel(context, model),
     );
+  }
+
+  void _openModel(BuildContext context, PricedModel model) {
+    final DiscoverRouting? routing = this.routing;
+    if (routing == null) {
+      showModelDetailSheet(context, model);
+      return;
+    }
+    routing.onOpenModel(vm.scope, vm.selectedGroupId, model);
   }
 }
 
 class _WorkspaceToolbar extends StatelessWidget {
   const _WorkspaceToolbar({
     required this.vm,
+    required this.onBack,
     required this.searchController,
     required this.searchHint,
     required this.searchExpanded,
@@ -507,6 +601,7 @@ class _WorkspaceToolbar extends StatelessWidget {
   });
 
   final PricingViewModel vm;
+  final VoidCallback onBack;
   final TextEditingController searchController;
   final String searchHint;
   final bool searchExpanded;
@@ -524,44 +619,28 @@ class _WorkspaceToolbar extends StatelessWidget {
           if (group != null)
             IconButton(
               tooltip: 'Back',
-              onPressed: vm.backToOverview,
+              onPressed: onBack,
               icon: Icon(Icons.arrow_back_rounded),
               color: context.appColors.textSecondary,
             )
           else
             SizedBox(width: 6),
           Expanded(
-            child: vm.scope == PricingScope.accounts
-                ? SizedBox.shrink()
-                : _AnimatedSearchControl(
-                    controller: searchController,
-                    hint: searchHint,
-                    expanded: searchExpanded,
-                    onExpand: onExpandSearch,
-                    onCollapse: onCollapseSearch,
-                    onChanged: vm.setQuery,
-                    onClear: onClearSearch,
-                  ),
-          ),
-          if (vm.scope == PricingScope.accounts)
-            Consumer(
-              builder: (BuildContext context, WidgetRef ref, _) {
-                final SettingsViewModel settings = ref.read(
-                  settingsViewModelProvider,
-                );
-                return IconButton.filledTonal(
-                  tooltip: 'Add account',
-                  onPressed: () => showProviderPicker(context, settings),
-                  icon: Icon(Icons.add_rounded),
-                );
-              },
-            )
-          else
-            _AnimatedRefreshSlot(
-              visible: !searchExpanded,
-              refreshing: vm.refreshing,
-              onRefresh: vm.refresh,
+            child: _AnimatedSearchControl(
+              controller: searchController,
+              hint: searchHint,
+              expanded: searchExpanded,
+              onExpand: onExpandSearch,
+              onCollapse: onCollapseSearch,
+              onChanged: vm.setQuery,
+              onClear: onClearSearch,
             ),
+          ),
+          _AnimatedRefreshSlot(
+            visible: !searchExpanded,
+            refreshing: vm.refreshing,
+            onRefresh: vm.refresh,
+          ),
         ],
       ),
     );
@@ -888,25 +967,10 @@ class _Overview extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: ProviderGrid(
-            providers: groups,
-            onTap: onOpenGroup,
-            // The custom-endpoint affordance only makes sense on the
-            // Providers tab — Labs are orgs, not user-configurable endpoints.
-            showCustomCard: isProviders,
-            onAddCustom: () => _openCustomEndpoint(context),
-          ),
+          child: ProviderGrid(providers: groups, onTap: onOpenGroup),
         ),
       ],
     );
-  }
-
-  void _openCustomEndpoint(BuildContext context) {
-    final SettingsViewModel settings = ProviderScope.containerOf(
-      context,
-      listen: false,
-    ).read(settingsViewModelProvider);
-    showCustomEndpointDialog(context, settings);
   }
 }
 
@@ -927,19 +991,12 @@ class _ModelListState extends State<_ModelList> {
   Widget build(BuildContext context) {
     final PricingViewModel vm = widget.vm;
     final List<PricedModel> results = vm.results;
-    final ProviderModels? selectedGroup = vm.selectedGroup;
-    // Show the Quick Add CTA only in the Providers-scope drill-in. The
-    // resolver returns one of:
-    //   - Supported  -> enabled button, opens Quick Add
-    //   - Uncertain  -> disabled button with a tooltip (recognised package but
-    //                  models.dev doesn't give us enough to route safely)
-    //   - Unsupported -> no button (labs scope, unknown npm)
-    final ResolveResult? quickAdd =
-        (vm.scope == PricingScope.providers &&
-            vm.view == PricingView.provider &&
-            selectedGroup != null)
-        ? resolveDefinitionFor(selectedGroup)
+    final ProviderModels? selectedProvider = vm.scope == PricingScope.providers
+        ? vm.selectedGroup
         : null;
+    final ProviderDefinition? connectableDefinition = selectedProvider == null
+        ? null
+        : connectableApiDefinitionFor(selectedProvider);
     return Column(
       children: <Widget>[
         Padding(
@@ -955,11 +1012,9 @@ class _ModelListState extends State<_ModelList> {
                   ),
                 ),
               ),
-              if (selectedGroup != null && quickAdd != null)
-                _AddApiKeyButton(
-                  label: selectedGroup.name,
-                  result: quickAdd,
-                  onTap: () {
+              if (selectedProvider != null && connectableDefinition != null)
+                TextButton.icon(
+                  onPressed: () {
                     final SettingsViewModel settings =
                         ProviderScope.containerOf(
                           context,
@@ -968,10 +1023,16 @@ class _ModelListState extends State<_ModelList> {
                     showQuickAdd(
                       context,
                       settings,
-                      selectedGroup,
-                      (quickAdd as Supported).definition,
+                      selectedProvider,
+                      connectableDefinition,
                     );
                   },
+                  icon: Icon(Icons.add_rounded, size: 17),
+                  label: Text('Add account'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                  ),
                 ),
               IconButton(
                 tooltip: _filtersExpanded ? 'Hide filters' : 'Filter models',
@@ -1178,7 +1239,7 @@ class _ResultsGrid extends StatelessWidget {
                   crossAxisCount: columns,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
-                  mainAxisExtent: columns == 1 ? 86 : 96,
+                  mainAxisExtent: 96,
                 ),
                 itemBuilder: (BuildContext context, int index) {
                   final PricedModel model = results[index];
@@ -1187,76 +1248,6 @@ class _ResultsGrid extends StatelessWidget {
               ),
         );
       },
-    );
-  }
-}
-
-/// "Add API key" CTA in the model list header. Opens the Quick Add flow for
-/// the currently drilled-in provider.
-///
-/// Renders enabled when [result] is [Supported]; grayed out and non-tappable
-/// when [Uncertain] (with a tooltip explaining why and linking the provider's
-/// docs).
-class _AddApiKeyButton extends StatelessWidget {
-  const _AddApiKeyButton({
-    required this.label,
-    required this.result,
-    required this.onTap,
-  });
-
-  final String label;
-  final ResolveResult result;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final ResolveResult r = result;
-    final bool enabled = r is Supported;
-    String? tooltip;
-    String? docsUrl;
-    if (r is Uncertain) {
-      tooltip = r.reason;
-      docsUrl = r.docsUrl;
-    }
-    return Tooltip(
-      message: tooltip ?? '',
-      waitDuration: Duration(milliseconds: 500),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: enabled ? onTap : null,
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: enabled
-                ? context.appColors.brandViolet.withValues(alpha: 0.14)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                docsUrl != null ? Icons.help_outline : Icons.vpn_key_outlined,
-                size: 14,
-                color: enabled
-                    ? context.appColors.brandViolet
-                    : context.appColors.textSecondary,
-              ),
-              SizedBox(width: 6),
-              Text(
-                enabled ? 'Add API key' : 'Add API key',
-                style: TextStyle(
-                  color: enabled
-                      ? context.appColors.brandViolet
-                      : context.appColors.textSecondary,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1439,13 +1430,6 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-/// The Accounts tab body: lists configured accounts (reusing [AccountTile]
-/// from settings), with an "Add account" affordance at the bottom that opens
-/// the provider picker (subscriptions + API keys + custom endpoint).
-///
-/// This is the same data the Settings screen used to show in its "Accounts"
-/// section, now consolidated into Discover so all account management lives
-/// in one place.
 class _AccountsView extends StatelessWidget {
   const _AccountsView();
 
@@ -1455,66 +1439,95 @@ class _AccountsView extends StatelessWidget {
       builder: (BuildContext context, WidgetRef ref, _) {
         final SettingsViewModel settings = ref.watch(settingsViewModelProvider);
         final List<ProviderAccount> accounts = settings.accounts;
-        if (accounts.isEmpty) {
-          return _EmptyAccounts(onAdd: () => _addAccount(context, settings));
-        }
         return AppScrollView(
           builder: (BuildContext context, AppScrollController controller) =>
               ListView(
                 controller: controller,
-                padding: EdgeInsets.fromLTRB(12, 2, 12, 12),
+                padding: EdgeInsets.fromLTRB(12, 12, 12, 16),
                 children: <Widget>[
-                  Material(
-                    color: context.appColors.surface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: <Widget>[
-                        for (
-                          int index = 0;
-                          index < accounts.length;
-                          index++
-                        ) ...[
-                          AccountTile(
-                            account: accounts[index],
-                            onDelete: () => _confirmDelete(
-                              context,
-                              settings,
-                              accounts[index],
-                            ),
-                            onManageModels:
-                                accounts[index].kind == AdapterKind.mock
-                                ? null
-                                : () {
-                                    final ModelSelectorViewModel selector =
-                                        ProviderScope.containerOf(
-                                          context,
-                                          listen: false,
-                                        ).read(modelSelectorViewModelProvider);
-                                    showManageModels(
-                                      context,
-                                      settings,
-                                      selector,
-                                      accounts[index],
-                                    );
-                                  },
-                          ),
-                          if (index != accounts.length - 1) SizedBox(height: 2),
-                        ],
-                      ],
+                  _AccountConnectCard(
+                    onConnect: () => showAccountConnectionPicker(
+                      context,
+                      settings,
+                      ref.read(pricingViewModelProvider),
                     ),
                   ),
+                  SizedBox(height: 18),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          'Accounts',
+                          style: TextStyle(
+                            color: context.appColors.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${accounts.length}',
+                        style: TextStyle(
+                          color: context.appColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  if (accounts.isEmpty)
+                    _EmptyAccounts()
+                  else
+                    Material(
+                      color: context.appColors.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: <Widget>[
+                          for (
+                            int index = 0;
+                            index < accounts.length;
+                            index++
+                          ) ...[
+                            AccountTile(
+                              account: accounts[index],
+                              onDelete: () => _confirmDelete(
+                                context,
+                                settings,
+                                accounts[index],
+                              ),
+                              onManageModels:
+                                  accounts[index].kind == AdapterKind.mock
+                                  ? null
+                                  : () {
+                                      final ModelSelectorViewModel selector =
+                                          ProviderScope.containerOf(
+                                            context,
+                                            listen: false,
+                                          ).read(
+                                            modelSelectorViewModelProvider,
+                                          );
+                                      showManageModels(
+                                        context,
+                                        settings,
+                                        selector,
+                                        accounts[index],
+                                      );
+                                    },
+                            ),
+                            if (index != accounts.length - 1)
+                              SizedBox(height: 2),
+                          ],
+                        ],
+                      ),
+                    ),
                 ],
               ),
         );
       },
     );
-  }
-
-  void _addAccount(BuildContext context, SettingsViewModel settings) {
-    showProviderPicker(context, settings);
   }
 
   Future<void> _confirmDelete(
@@ -1528,7 +1541,7 @@ class _AccountsView extends StatelessWidget {
         return AlertDialog(
           title: Text('Remove account?'),
           content: Text(
-            'Remove "${account.displayName}" and its stored API key? '
+            'Remove "${account.displayName}" and its stored credentials? '
             'This cannot be undone.',
           ),
           actions: <Widget>[
@@ -1550,46 +1563,110 @@ class _AccountsView extends StatelessWidget {
   }
 }
 
-class _EmptyAccounts extends StatelessWidget {
-  const _EmptyAccounts({required this.onAdd});
+class _AccountConnectCard extends StatelessWidget {
+  const _AccountConnectCard({required this.onConnect});
 
-  final VoidCallback onAdd;
+  final VoidCallback onConnect;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Material(
+      color: context.appColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onConnect,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(14, 12, 10, 12),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: context.appColors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.link_rounded,
+                  size: 19,
+                  color: context.appColors.brandViolet,
+                ),
+              ),
+              SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Connect account',
+                      style: TextStyle(
+                        color: context.appColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Subscription, API provider, or custom endpoint',
+                      style: TextStyle(
+                        color: context.appColors.textSecondary,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: context.appColors.textSecondary,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyAccounts extends StatelessWidget {
+  const _EmptyAccounts();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.appColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: EdgeInsets.symmetric(horizontal: 18, vertical: 22),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(
-              Icons.cloud_off_outlined,
-              size: 48,
+              Icons.account_circle_outlined,
+              size: 32,
               color: context.appColors.textSecondary,
             ),
-            SizedBox(height: 16),
+            SizedBox(height: 10),
             Text(
-              'No provider accounts yet',
+              'No accounts connected',
               style: TextStyle(
                 color: context.appColors.textPrimary,
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            SizedBox(height: 8),
+            SizedBox(height: 5),
             Text(
-              'Add an API key or sign in to start chatting.',
+              'Connect a subscription, API provider, or local endpoint above.',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: context.appColors.textSecondary,
-                fontSize: 14,
+                fontSize: 12,
               ),
-            ),
-            SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onAdd,
-              icon: Icon(Icons.add),
-              label: Text('Add account'),
             ),
           ],
         ),

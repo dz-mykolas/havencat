@@ -46,7 +46,9 @@ void main() {
           id: 'a',
           kind: AdapterKind.openaiCompatible,
           displayName: 'OpenAI',
-          config: const <String, Object?>{},
+          config: const <String, Object?>{
+            'baseUrl': 'https://api.openai.com/v1',
+          },
         ),
         secret: 'sk-test',
       );
@@ -123,7 +125,7 @@ void main() {
             LlmModel(id: 'hidden-1', hidden: true),
             LlmModel(id: 'visible-1'),
           ],
-          // visible-1 first so the legacy `model` fallback lands on it.
+          // visible-1 first so it becomes the selected model.
           enabled: const <String>['visible-1', 'hidden-1'],
         );
         await Future<void>.delayed(Duration.zero); // let the microtask run
@@ -253,13 +255,14 @@ void main() {
         accountStore: AccountStore(),
         secretStore: secrets,
       );
-      // Legacy single-`model` config (no `enabledModels` key) — the accessor
-      // falls back to `[model]`, so this account should be selectable too.
       await providers.addApiKeyAccount(
         definitionId: 'openai_compatible',
-        displayName: 'Legacy Single',
-        apiKey: 'sk-legacy',
-        config: const <String, Object?>{'model': 'gpt-5.5'},
+        displayName: 'Configured account',
+        apiKey: 'sk-current',
+        config: const <String, Object?>{
+          'model': 'gpt-5.5',
+          'enabledModels': <String>['gpt-5.5'],
+        },
       );
 
       final AccountModelsService accountModels = AccountModelsService(
@@ -298,7 +301,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final Finder row = find.ancestor(
-        of: find.text('Legacy Single'),
+        of: find.text('Configured account'),
         matching: find.byType(ListTile),
       );
       expect(row, findsOneWidget);

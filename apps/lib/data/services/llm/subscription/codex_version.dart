@@ -1,16 +1,13 @@
 import 'package:dio/dio.dart';
 
 import '../llm_endpoint.dart';
-import 'codex_protocol.dart';
 
 /// Resolves a current `@openai/codex` release to advertise as `client_version`
 /// to the version-gated Codex models endpoint.
 ///
 /// Reporting a stale version makes `/codex/models` return an old, smaller model
 /// set (missing e.g. `gpt-5.5`), so we look up the latest published version from
-/// the npm registry once per session and cache it. Any failure (offline,
-/// registry hiccup) falls back to [CodexProtocol.defaultClientVersion] without
-/// caching, so a later call can try again.
+/// the npm registry once per session and cache it.
 class CodexVersionResolver {
   CodexVersionResolver({required this._dio, required this._endpoint});
 
@@ -32,12 +29,10 @@ class CodexVersionResolver {
     return _inflight ??= _fetch()
         .then((String version) {
           _cached = version;
-          _inflight = null;
           return version;
         })
-        .catchError((Object _) {
+        .whenComplete(() {
           _inflight = null;
-          return CodexProtocol.defaultClientVersion;
         });
   }
 

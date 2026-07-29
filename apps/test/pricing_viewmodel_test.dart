@@ -6,7 +6,7 @@ import 'package:app/ui/pricing/pricing_viewmodel.dart';
 import 'package:app/ui/pricing/quick_add_resolver.dart';
 
 /// Unit tests for [PricingViewModel]'s multi-step Discover state: provider
-/// drill-in, "browse all", search, and sort. The catalog is built directly from
+/// drill-in, model browsing, search, and sort. The catalog is built directly from
 /// a hand-rolled `api.json`-shaped payload, so these never touch the network.
 void main() {
   test('missing pricing is not classified as free', () {
@@ -48,14 +48,14 @@ void main() {
 
     expect(vm.view, PricingView.overview);
     expect(
-      vm.providers.map((ProviderModels p) => p.name),
+      vm.groups.map((ProviderModels p) => p.name),
       containsAll(<String>['Anthropic', 'OpenAI']),
     );
-    expect(vm.selectedProvider, isNull);
+    expect(vm.selectedGroup, isNull);
 
     vm.openProvider('anthropic');
     expect(vm.view, PricingView.provider);
-    expect(vm.selectedProvider?.name, 'Anthropic');
+    expect(vm.selectedGroup?.name, 'Anthropic');
     // Drilling into a provider shows that provider's models only.
     expect(vm.results.map((PricedModel m) => m.providerId).toSet(), <String>{
       'anthropic',
@@ -63,7 +63,7 @@ void main() {
 
     vm.backToOverview();
     expect(vm.view, PricingView.overview);
-    expect(vm.selectedProvider, isNull);
+    expect(vm.selectedGroup, isNull);
     // In overview there's no model list to render.
     expect(vm.results, isEmpty);
   });
@@ -73,8 +73,7 @@ void main() {
     () async {
       final PricingViewModel vm = await _vm();
 
-      vm.showAll();
-      expect(vm.view, PricingView.all);
+      vm.setScope(PricingScope.models);
       // The Models tab mirrors models.dev's canonical registry: one entry per
       // underlying model, regardless of how many providers serve it. The test
       // payload has two canonical models (`anthropic/claude-opus-4-5` and
@@ -103,17 +102,18 @@ void main() {
 
   test('opening a provider clears any prior search query', () async {
     final PricingViewModel vm = await _vm();
-    vm.showAll();
+    vm.setScope(PricingScope.models);
     vm.setQuery('gpt');
     expect(vm.query, 'gpt');
 
+    vm.setScope(PricingScope.providers);
     vm.openProvider('anthropic');
     expect(vm.query, '');
   });
 
   test('sort by price low ranks cheaper output first', () async {
     final PricingViewModel vm = await _vm();
-    vm.showAll();
+    vm.setScope(PricingScope.models);
     vm.setSort(PricingSort.priceLow);
 
     final List<double?> outs = vm.results
@@ -240,6 +240,7 @@ void main() {
       expect(def.configTemplate['baseUrl'], 'https://api.anthropic.com');
       expect(def.apiKeyUrl, 'https://console.anthropic.com/settings/keys');
       expect(def.modelsDevId, 'anthropic');
+      expect(connectableApiDefinitionFor(group), isNull);
     });
 
     test(
@@ -260,6 +261,7 @@ void main() {
         // apiKeyUrl derived from the doc URL's origin.
         expect(def.apiKeyUrl, 'https://openrouter.ai');
         expect(def.modelsDevId, 'openrouter');
+        expect(connectableApiDefinitionFor(group)?.id, 'openai_compatible');
       },
     );
 

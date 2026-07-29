@@ -63,12 +63,8 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
   final CodexVersionResolver _version;
   static const ProviderFailureMapper _failureMapper = ProviderFailureMapper();
 
-  /// Last-resort model when the account has none selected yet. The model
-  /// selector normally fills this in from the live [listModels] result.
-  static const String _fallbackModel = 'gpt-5.2';
-
   @override
-  AdapterKind get kind => AdapterKind.subscription;
+  AdapterKind get kind => AdapterKind.chatGptCodex;
 
   @override
   Stream<LlmEvent> stream({
@@ -217,7 +213,9 @@ class ChatGptSubscriptionAdapter implements LlmAdapter {
   String _resolveModel(ProviderAccount account) {
     final Object? configured = account.config['model'];
     if (configured is String && configured.isNotEmpty) return configured;
-    return _fallbackModel;
+    throw StateError(
+      'No model is selected for provider account "${account.displayName}".',
+    );
   }
 
   Map<String, String> _codexHeaders(String secret) {

@@ -11,8 +11,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ConfiguredDb`, `DbIdentity`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `eq`, `fmt`
 
-/// Initialize the conversations database: open the DB at `db_path`, run
-/// migrations. `db_path` of empty string opens an in-memory database.
+/// Initialize the conversations database. `db_path` of empty string opens an
+/// in-memory database.
 Future<void> configureConversations({required String dbPath}) => RustLib
     .instance
     .api

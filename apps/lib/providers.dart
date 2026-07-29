@@ -7,6 +7,7 @@ import 'data/repositories/provider_account_repository.dart';
 import 'data/services/auth/chatgpt_oauth_flow.dart';
 import 'data/services/auth/chatgpt_token_service.dart';
 import 'data/services/auth/credential_resolver.dart';
+import 'data/services/auth/poe_oauth_flow.dart';
 import 'data/services/auth/secret_store.dart';
 import 'data/services/background/generation_background_service.dart';
 import 'data/services/generation/generation_host.dart';
@@ -82,6 +83,13 @@ final modelsDevServiceProvider = Provider<ModelsDevService>((ref) {
 /// ChatGPT OAuth device-code flow. One instance for the whole app.
 final chatGptOAuthFlowProvider = Provider<ChatGptOAuthFlow>((ref) {
   return ChatGptOAuthFlow();
+});
+
+final poeOAuthFlowProvider = Provider<PoeOAuthFlow>((ref) {
+  return PoeOAuthFlow(
+    credentialStore: ref.watch(secretStoreProvider),
+    clientId: AppConfig.load().poeClientId,
+  );
 });
 
 /// Manages the ChatGPT subscription token lifecycle (refresh + revoke).

@@ -19,9 +19,11 @@ import 'server/app_config.dart';
 import 'server/logging.dart';
 import 'src/rust/api/conversations.dart' as rust_conversations;
 import 'src/rust/frb_generated.dart';
+import 'ui/core/widgets/card_visual.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await precacheCardVisualShaders();
   usePathUrlStrategy();
   final AppConfig config = AppConfig.load();
   initLogging(level: config.logLevel);

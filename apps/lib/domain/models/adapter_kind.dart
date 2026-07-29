@@ -1,9 +1,8 @@
-/// High-level family an [LlmAdapter] belongs to. Drives UI grouping (the
-/// "Subscription logins" section vs the "API keys" section) and which factory
-/// the registry uses to build the adapter.
+/// Wire protocol an [LlmAdapter] implements. Authentication and UI grouping
+/// are defined separately by each provider.
 enum AdapterKind {
-  /// Uses a user's existing subscription via OAuth (e.g. ChatGPT, Poe).
-  subscription,
+  /// ChatGPT's Codex Responses protocol, authenticated with ChatGPT OAuth.
+  chatGptCodex,
 
   /// Generic OpenAI-compatible `/v1/chat/completions` endpoint with an API
   /// key. Covers OpenAI API, Qwen, OpenRouter, Groq, Together, DeepSeek,

@@ -7,7 +7,9 @@ use tokio_rusqlite::rusqlite::{self, OptionalExtension, Transaction, Transaction
 use tokio_rusqlite::Connection;
 
 use super::error::{ConversationsError, Result};
-use super::migrations;
+
+const SCHEMA_SQL: &str = include_str!("schema.sql");
+const SCHEMA_VERSION: i64 = 1;
 
 /// A handle to the conversations SQLite database. Cheap to clone.
 #[derive(Clone)]
@@ -16,12 +18,12 @@ pub struct ConversationsDb {
 }
 
 impl ConversationsDb {
-    /// Open (or create) the database at `path`, run migrations, set PRAGMAs.
+    /// Open or create the current database schema at `path`.
     pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path.as_ref()).await?;
         let db = Self { conn };
         db.configure_pragmas().await?;
-        db.migrate().await?;
+        db.initialize_schema().await?;
         Ok(db)
     }
 
@@ -30,7 +32,7 @@ impl ConversationsDb {
         let conn = Connection::open_in_memory().await?;
         let db = Self { conn };
         db.configure_pragmas().await?;
-        db.migrate().await?;
+        db.initialize_schema().await?;
         Ok(db)
     }
 
@@ -49,9 +51,9 @@ impl ConversationsDb {
         Ok(())
     }
 
-    pub async fn migrate(&self) -> Result<()> {
+    pub async fn initialize_schema(&self) -> Result<()> {
         self.conn
-            .call(|c| -> std::result::Result<(), rusqlite::Error> { migrations::migrate(c) })
+            .call(initialize_schema)
             .await
             .map_err(|e| ConversationsError::Database(e.to_string()))?;
         Ok(())
@@ -1426,8 +1428,9 @@ mod tests {
     use tokio_rusqlite::rusqlite;
 
     use super::{
-        ConversationsDb, GenerationCheckpoint, GenerationFinish, NewGenerationCommand,
-        NewGenerationTask, ProviderCall, StoredConversation, StoredMessage, ToolExecution,
+        initialize_schema, ConversationsDb, GenerationCheckpoint, GenerationFinish,
+        NewGenerationCommand, NewGenerationTask, ProviderCall, StoredConversation, StoredMessage,
+        ToolExecution, SCHEMA_VERSION,
     };
 
     fn conversation(id: &str, is_pinned: bool) -> StoredConversation {
@@ -1765,14 +1768,9 @@ mod tests {
     }
 
     #[test]
-    fn versioned_migration_upgrades_a_v1_database() {
+    fn current_schema_initializes_once() {
         let mut connection = tokio_rusqlite::rusqlite::Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(include_str!("schema.sql"))
-            .unwrap();
-        connection.pragma_update(None, "user_version", 1).unwrap();
-
-        crate::conversations::migrations::migrate(&mut connection).unwrap();
+        initialize_schema(&mut connection).unwrap();
 
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -1785,10 +1783,46 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(
-            version,
-            crate::conversations::migrations::LATEST_SCHEMA_VERSION
-        );
+        assert_eq!(version, SCHEMA_VERSION);
         assert_eq!(generation_table, "generation_tasks");
+        initialize_schema(&mut connection).unwrap();
     }
+
+    #[test]
+    fn outdated_schema_is_rejected() {
+        let mut connection = tokio_rusqlite::rusqlite::Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE old_data (id INTEGER PRIMARY KEY);")
+            .unwrap();
+
+        let error = initialize_schema(&mut connection).unwrap_err();
+        assert!(error.to_string().contains("clear the database"));
+    }
+}
+
+fn initialize_schema(connection: &mut rusqlite::Connection) -> rusqlite::Result<()> {
+    let version = connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))?;
+    if version == SCHEMA_VERSION {
+        return Ok(());
+    }
+    if version != 0 {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "unsupported conversations schema version {version}; clear the database"
+        )));
+    }
+    let table_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_count != 0 {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "unversioned conversations schema; clear the database".to_string(),
+        ));
+    }
+
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA_SQL)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    transaction.commit()
 }

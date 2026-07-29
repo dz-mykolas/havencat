@@ -22,18 +22,6 @@ import '../llm_event.dart';
 class CodexProtocol {
   const CodexProtocol._();
 
-  /// Fallback Codex CLI version when the live one can't be resolved.
-  ///
-  /// `client_version` matters more than it looks: `/codex/models` is
-  /// **version-gated** — an old value makes the backend serve an old, smaller
-  /// model set (e.g. no `gpt-5.5`). [CodexVersionResolver] resolves the current
-  /// version at runtime; this is only the offline fallback. Override the
-  /// fallback with `--dart-define=CODEX_CLIENT_VERSION=<x.y.z>`.
-  static const String defaultClientVersion = String.fromEnvironment(
-    'CODEX_CLIENT_VERSION',
-    defaultValue: '0.141.0',
-  );
-
   static const String responsesPath = '/codex/responses';
 
   /// Path of the version-gated models catalog for the given [clientVersion].

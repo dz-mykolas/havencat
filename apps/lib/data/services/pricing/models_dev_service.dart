@@ -28,22 +28,14 @@ class ModelsDevService {
   /// Returns the catalog, using the in-memory copy if available and only
   /// going to the network on first call or [forceRefresh].
   ///
-  /// Throws if there is no usable cache *and* the network request fails, so
-  /// the UI can show an error + retry. If a stale cache exists but the
-  /// refresh fails, the stale cache is returned (better than nothing / offline).
+  /// Throws when the network request fails so refresh failures remain visible.
   Future<ModelsCatalog> load({bool forceRefresh = false}) async {
     final ModelsCatalog? cached = _memory;
 
     if (cached != null && !forceRefresh) {
       return cached;
     }
-
-    try {
-      return await _fetch();
-    } catch (_) {
-      if (cached != null) return cached;
-      rethrow;
-    }
+    return _fetch();
   }
 
   Future<ModelsCatalog> refresh() => load(forceRefresh: true);

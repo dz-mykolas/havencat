@@ -1,20 +1,41 @@
-enum AppThemePreset { parchment, coastal, sage, haven, midnight, evergreen }
+enum AppThemePreset {
+  parchment,
+  coastal,
+  sage,
+  gradientLight,
+  haven,
+  midnight,
+  evergreen,
+  gradientDark,
+}
+
+const int defaultGradientThemeHue = 265;
 
 extension AppThemePresetKind on AppThemePreset {
   bool get isDark => switch (this) {
     AppThemePreset.parchment ||
     AppThemePreset.coastal ||
-    AppThemePreset.sage => false,
+    AppThemePreset.sage ||
+    AppThemePreset.gradientLight => false,
     AppThemePreset.haven ||
     AppThemePreset.midnight ||
-    AppThemePreset.evergreen => true,
+    AppThemePreset.evergreen ||
+    AppThemePreset.gradientDark => true,
   };
+
+  bool get isGradient =>
+      this == AppThemePreset.gradientLight ||
+      this == AppThemePreset.gradientDark;
 }
 
-T enumByNameOr<T extends Enum>(Iterable<T> values, String? name, T fallback) {
-  if (name == null) return fallback;
+T enumByNameOrDefault<T extends Enum>(
+  Iterable<T> values,
+  String? name,
+  T defaultValue,
+) {
+  if (name == null) return defaultValue;
   for (final T value in values) {
     if (value.name == name) return value;
   }
-  return fallback;
+  throw FormatException('Unknown ${T.toString()} value "$name".');
 }

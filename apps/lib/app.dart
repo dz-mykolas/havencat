@@ -63,15 +63,22 @@ class _AppState extends ConsumerState<App> {
   @override
   Widget build(BuildContext context) {
     final AppSettings settings = ref.watch(appSettingsProvider);
-    final ThemeData selectedTheme = AppTheme.build(settings.theme);
+    ThemeData themeFor(AppThemePreset preset) => AppTheme.build(
+      preset,
+      gradientHue: preset.isGradient
+          ? settings.gradientHueFor(preset)
+          : defaultGradientThemeHue,
+    );
+
+    final ThemeData selectedTheme = themeFor(settings.theme);
     return MaterialApp.router(
       title: appName,
       debugShowCheckedModeBanner: false,
       theme: settings.useDeviceTheme
-          ? AppTheme.build(settings.lightTheme)
+          ? themeFor(settings.lightTheme)
           : selectedTheme,
       darkTheme: settings.useDeviceTheme
-          ? AppTheme.build(settings.darkTheme)
+          ? themeFor(settings.darkTheme)
           : selectedTheme,
       themeMode: settings.useDeviceTheme
           ? ThemeMode.system

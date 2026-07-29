@@ -920,7 +920,7 @@ class _ToolCallRowState extends State<_ToolCallRow> {
         : _toolCallPendingLabel(widget.call);
     final WebSearchResultPayload? searchResults =
         done && !failed && widget.call.name == 'web_search'
-        ? WebSearchResultPayload.tryDecode(widget.result!.text)
+        ? WebSearchResultPayload.decode(widget.result!.text)
         : null;
 
     return Column(

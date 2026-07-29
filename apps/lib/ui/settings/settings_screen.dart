@@ -43,12 +43,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
     this.initialSection,
     this.onSectionChanged,
     this.onConfigureWebSearchProvider,
+    this.discoverRouting,
     super.key,
   });
 
   final SettingsSection? initialSection;
   final ValueChanged<SettingsSection?>? onSectionChanged;
   final WebSearchProviderRouteCallback? onConfigureWebSearchProvider;
+  final DiscoverRouting? discoverRouting;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -118,6 +120,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: _CategoryContent(
                               category: _category,
                               settings: settings,
+                              discoverRouting: widget.discoverRouting,
                               onConfigureWebSearchProvider:
                                   widget.onConfigureWebSearchProvider,
                             ),
@@ -132,6 +135,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: _CategoryContent(
                         category: _mobileCategory!,
                         settings: settings,
+                        discoverRouting: widget.discoverRouting,
                         onConfigureWebSearchProvider:
                             widget.onConfigureWebSearchProvider,
                       ),
@@ -358,11 +362,13 @@ class _CategoryContent extends StatelessWidget {
   const _CategoryContent({
     required this.category,
     required this.settings,
+    required this.discoverRouting,
     required this.onConfigureWebSearchProvider,
   });
 
   final SettingsSection category;
   final AppSettings settings;
+  final DiscoverRouting? discoverRouting;
   final WebSearchProviderRouteCallback? onConfigureWebSearchProvider;
 
   @override
@@ -386,6 +392,7 @@ class _CategoryContent extends StatelessWidget {
       child: switch (category) {
         SettingsSection.models => _ModelsCategory(
           key: ValueKey<SettingsSection>(SettingsSection.models),
+          routing: discoverRouting,
         ),
         SettingsSection.webSearch => WebSearchSettingsPanel(
           key: ValueKey<SettingsSection>(SettingsSection.webSearch),
@@ -444,11 +451,13 @@ class _Card extends StatelessWidget {
 }
 
 class _ModelsCategory extends StatelessWidget {
-  const _ModelsCategory({super.key});
+  const _ModelsCategory({this.routing, super.key});
+
+  final DiscoverRouting? routing;
 
   @override
   Widget build(BuildContext context) {
-    return DiscoverPanel();
+    return DiscoverPanel(routing: routing);
   }
 }
 
@@ -493,7 +502,8 @@ class _AppearanceCard extends StatelessWidget {
           ),
           _SettingsDivider(),
           if (settings.useDeviceTheme) ...<Widget>[
-            _ThemePreferenceTile(
+            _ThemePreferenceGroup(
+              settings: settings,
               icon: Icons.light_mode_rounded,
               label: 'Light theme',
               preset: settings.lightTheme,
@@ -508,7 +518,8 @@ class _AppearanceCard extends StatelessWidget {
               ),
             ),
             _SettingsDivider(),
-            _ThemePreferenceTile(
+            _ThemePreferenceGroup(
+              settings: settings,
               icon: Icons.dark_mode_rounded,
               label: 'Dark theme',
               preset: settings.darkTheme,
@@ -523,7 +534,8 @@ class _AppearanceCard extends StatelessWidget {
               ),
             ),
           ] else
-            _ThemePreferenceTile(
+            _ThemePreferenceGroup(
+              settings: settings,
               icon: Icons.palette_outlined,
               label: 'Theme',
               preset: settings.theme,
@@ -541,18 +553,61 @@ class _AppearanceCard extends StatelessWidget {
   }
 }
 
-class _ThemePreferenceTile extends StatelessWidget {
-  const _ThemePreferenceTile({
+class _ThemePreferenceGroup extends StatelessWidget {
+  const _ThemePreferenceGroup({
+    required this.settings,
     required this.icon,
     required this.label,
     required this.preset,
     required this.onTap,
   });
 
+  final AppSettings settings;
   final IconData icon;
   final String label;
   final AppThemePreset preset;
   final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final int? gradientHue = preset.isGradient
+        ? settings.gradientHueFor(preset)
+        : null;
+    return Column(
+      children: <Widget>[
+        _ThemePreferenceTile(
+          icon: icon,
+          label: label,
+          preset: preset,
+          gradientHue: gradientHue,
+          onTap: onTap,
+        ),
+        if (gradientHue != null)
+          _GradientHueSelector(
+            preset: preset,
+            hue: gradientHue,
+            onChanged: (int hue) => settings.previewGradientHue(preset, hue),
+            onChangeEnd: (int hue) => settings.setGradientHue(preset, hue),
+          ),
+      ],
+    );
+  }
+}
+
+class _ThemePreferenceTile extends StatelessWidget {
+  const _ThemePreferenceTile({
+    required this.icon,
+    required this.label,
+    required this.preset,
+    required this.onTap,
+    this.gradientHue,
+  });
+
+  final IconData icon;
+  final String label;
+  final AppThemePreset preset;
+  final VoidCallback onTap;
+  final int? gradientHue;
 
   @override
   Widget build(BuildContext context) {
@@ -574,7 +629,7 @@ class _ThemePreferenceTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          _ThemeSwatches(preset: preset),
+          _ThemeSwatches(preset: preset, gradientHue: gradientHue),
           SizedBox(width: 8),
           Icon(
             Icons.chevron_right_rounded,
@@ -588,23 +643,114 @@ class _ThemePreferenceTile extends StatelessWidget {
   }
 }
 
-class _ThemeSwatches extends StatelessWidget {
-  const _ThemeSwatches({required this.preset});
+class _GradientHueSelector extends StatelessWidget {
+  const _GradientHueSelector({
+    required this.preset,
+    required this.hue,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
 
   final AppThemePreset preset;
+  final int hue;
+  final ValueChanged<int> onChanged;
+  final ValueChanged<int> onChangeEnd;
 
   @override
   Widget build(BuildContext context) {
+    return Padding(
+      key: ValueKey<String>('gradient-hue-selector-${preset.name}'),
+      padding: const EdgeInsets.fromLTRB(52, 0, 12, 10),
+      child: SizedBox(
+        height: 38,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            Positioned(
+              left: 10,
+              right: 10,
+              child: Container(
+                height: 12,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(99),
+                  gradient: LinearGradient(
+                    colors: <Color>[
+                      for (int value = 0; value <= 360; value += 30)
+                        HSVColor.fromAHSV(
+                          1,
+                          value == 360 ? 0 : value.toDouble(),
+                          0.78,
+                          0.95,
+                        ).toColor(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 12,
+                activeTrackColor: Colors.transparent,
+                inactiveTrackColor: Colors.transparent,
+                disabledActiveTrackColor: Colors.transparent,
+                disabledInactiveTrackColor: Colors.transparent,
+                thumbColor: GradientThemePalette.preview(hue),
+                overlayColor: GradientThemePalette.preview(
+                  hue,
+                ).withValues(alpha: 0.16),
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 10,
+                  elevation: 0,
+                  pressedElevation: 0,
+                ),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+                valueIndicatorColor: context.appColors.surfaceHigh,
+                valueIndicatorTextStyle: TextStyle(
+                  color: context.appColors.textPrimary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              child: Slider(
+                key: ValueKey<String>('gradient-hue-${preset.name}'),
+                value: hue.toDouble(),
+                min: 0,
+                max: 359,
+                divisions: 359,
+                label: '$hue°',
+                semanticFormatterCallback: (double value) =>
+                    'Hue ${value.round()} degrees',
+                onChanged: (double value) => onChanged(value.round()),
+                onChangeEnd: (double value) => onChangeEnd(value.round()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeSwatches extends StatelessWidget {
+  const _ThemeSwatches({required this.preset, this.gradientHue});
+
+  final AppThemePreset preset;
+  final int? gradientHue;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Color> palette = preset.isGradient
+        ? GradientThemePalette.colors(
+            gradientHue ?? defaultGradientThemeHue,
+            preset.brightness,
+          )
+        : <Color>[preset.primary, preset.secondary, preset.tertiary];
     return SizedBox(
       width: 42,
       height: 18,
       child: Stack(
         children: <Widget>[
-          for (final (int index, Color color) in <Color>[
-            preset.primary,
-            preset.secondary,
-            preset.tertiary,
-          ].indexed)
+          for (final (int index, Color color) in palette.indexed)
             Positioned(
               left: index * 12,
               child: Container(

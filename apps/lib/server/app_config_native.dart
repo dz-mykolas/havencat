@@ -22,7 +22,8 @@ AppConfig loadAppConfig() {
   final String rustLog = read('RUST_LOG', 'info');
   final String llmProxy = read('LLM_PROXY', '/proxy');
   final String appName = read('APP_NAME', 'HavenCat');
-  final String codexClientVersion = read('CODEX_CLIENT_VERSION', '0.141.0');
+  const String compiledPoeClientId = String.fromEnvironment('POE_CLIENT_ID');
+  final String poeClientId = read('POE_CLIENT_ID', compiledPoeClientId);
 
   return AppConfig(
     port: port,
@@ -31,6 +32,6 @@ AppConfig loadAppConfig() {
     rustLog: rustLog,
     llmProxy: llmProxy,
     appName: appName,
-    codexClientVersion: codexClientVersion,
+    poeClientId: poeClientId,
   );
 }

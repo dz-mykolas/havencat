@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../domain/models/adapter_kind.dart';
+import '../../../data/services/web_retrieval/web_retrieval_endpoint_policy.dart';
 import '../../../domain/models/model_pricing.dart';
 import '../../../domain/models/provider_definition.dart';
 import '../../core/theme/app_theme.dart';
@@ -10,53 +10,44 @@ import '../../core/widgets/credential_security_button.dart';
 import '../../settings/settings_viewmodel.dart';
 import '../pricing_format.dart';
 
-/// Opens the Quick Add flow for [group] (a models.dev provider) using the
-/// resolved [definition] from `quick_add_resolver.dart`.
-///
-/// Picks dialog vs drawer by viewport width:
-///   * wide (>= [AppTheme.wideBreakpoint]): a centered [Dialog],
-///   * narrow: a drag-handle [showModalBottomSheet] (drawer-style).
-///
-/// The body is shared (`_QuickAddContent`) so both presenters behave the same.
-/// On successful submit the sheet is popped and the new account is persisted
-/// (with its enabled-models list via [SettingsViewModel.addApiKeyAccount]).
 Future<void> showQuickAdd(
   BuildContext context,
   SettingsViewModel vm,
   ProviderModels group,
   ProviderDefinition definition,
 ) async {
+  Future<void> submit({
+    required String displayName,
+    required String apiKey,
+    required String? baseUrl,
+    required List<String> enabledModels,
+  }) {
+    return vm.addApiKeyAccount(
+      definitionId: definition.id,
+      displayName: displayName,
+      apiKey: apiKey,
+      config: <String, Object?>{
+        'catalogProviderId': group.id,
+        'providerName': group.name,
+        'baseUrl': ?baseUrl,
+      },
+      enabledModels: enabledModels,
+    );
+  }
+
   final bool wide = MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint;
   if (wide) {
     await showDialog<void>(
       context: context,
-      builder: (BuildContext ctx) => Dialog(
+      builder: (BuildContext dialogContext) => Dialog(
+        clipBehavior: Clip.antiAlias,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: 520, maxHeight: 680),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: _QuickAddContent(
-              group: group,
-              definition: definition,
-              onSubmit:
-                  ({
-                    required String displayName,
-                    required String apiKey,
-                    required String? baseUrl,
-                    required List<String> enabledModels,
-                  }) async {
-                    await vm.addApiKeyAccount(
-                      definitionId: definition.id,
-                      displayName: displayName,
-                      apiKey: apiKey,
-                      config: baseUrl == null
-                          ? null
-                          : <String, Object?>{'baseUrl': baseUrl},
-                      enabledModels: enabledModels,
-                    );
-                  },
-              onDone: () => Navigator.of(ctx).maybePop(),
-            ),
+          constraints: BoxConstraints(maxWidth: 560, maxHeight: 720),
+          child: _QuickAddContent(
+            group: group,
+            definition: definition,
+            onSubmit: submit,
+            onDone: () => Navigator.of(dialogContext).maybePop(),
           ),
         ),
       ),
@@ -67,39 +58,22 @@ Future<void> showQuickAdd(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (BuildContext ctx) {
-      // Pad for the on-screen keyboard when the API key field is focused.
-      final double viewInsets = MediaQuery.of(ctx).viewInsets.bottom;
+    builder: (BuildContext sheetContext) {
+      final MediaQueryData media = MediaQuery.of(sheetContext);
       return Padding(
-        padding: EdgeInsets.only(bottom: viewInsets),
+        padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
         child: SafeArea(
           top: false,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: _QuickAddContent(
-                group: group,
-                definition: definition,
-                onSubmit:
-                    ({
-                      required String displayName,
-                      required String apiKey,
-                      required String? baseUrl,
-                      required List<String> enabledModels,
-                    }) async {
-                      await vm.addApiKeyAccount(
-                        definitionId: definition.id,
-                        displayName: displayName,
-                        apiKey: apiKey,
-                        config: baseUrl == null
-                            ? null
-                            : <String, Object?>{'baseUrl': baseUrl},
-                        enabledModels: enabledModels,
-                      );
-                    },
-                onDone: () => Navigator.of(ctx).maybePop(),
-              ),
+            constraints: BoxConstraints(
+              maxWidth: 560,
+              maxHeight: (media.size.height - media.viewInsets.bottom) * 0.90,
+            ),
+            child: _QuickAddContent(
+              group: group,
+              definition: definition,
+              onSubmit: submit,
+              onDone: () => Navigator.of(sheetContext).maybePop(),
             ),
           ),
         ),
@@ -108,8 +82,6 @@ Future<void> showQuickAdd(
   );
 }
 
-/// Shared form: identity + key + optional base URL + scrollable model
-/// checkboxes (all start unchecked), then a submit row.
 class _QuickAddContent extends StatefulWidget {
   const _QuickAddContent({
     required this.group,
@@ -120,9 +92,6 @@ class _QuickAddContent extends StatefulWidget {
 
   final ProviderModels group;
   final ProviderDefinition definition;
-
-  /// Persists the new account. Throws on failure; the caller shows the error
-  /// inline rather than dismissing the sheet.
   final Future<void> Function({
     required String displayName,
     required String apiKey,
@@ -130,8 +99,6 @@ class _QuickAddContent extends StatefulWidget {
     required List<String> enabledModels,
   })
   onSubmit;
-
-  /// Called after a successful submit; dismisses the dialog/drawer.
   final VoidCallback onDone;
 
   @override
@@ -139,17 +106,13 @@ class _QuickAddContent extends StatefulWidget {
 }
 
 class _QuickAddContentState extends State<_QuickAddContent> {
-  /// Hard cap on how many models a single account can enable. Keeps the chat
-  /// picker usable for router accounts (OpenRouter serves 300+). First-party
-  /// labs never hit it. TODO: drop to 20 once capability filtering lands in
-  /// OpenAiCompatibleAdapter.listModels (it currently returns embeddings /
-  /// whisper / tts / dall-e entries alongside chat models).
   static const int maxEnabled = 50;
 
   late final TextEditingController _name;
   late final TextEditingController _key;
   late final TextEditingController _baseUrl;
   final Set<String> _selected = <String>{};
+  bool _showEndpoint = false;
   bool _saving = false;
   String? _error;
 
@@ -161,6 +124,9 @@ class _QuickAddContentState extends State<_QuickAddContent> {
     _name = TextEditingController(text: widget.group.name);
     _key = TextEditingController();
     _baseUrl = TextEditingController(text: templateBaseUrl ?? '');
+    _name.addListener(_onFieldChanged);
+    _key.addListener(_onFieldChanged);
+    _baseUrl.addListener(_onFieldChanged);
   }
 
   @override
@@ -171,18 +137,46 @@ class _QuickAddContentState extends State<_QuickAddContent> {
     super.dispose();
   }
 
-  /// Subscription providers (ChatGPT, Poe) skip the model-pick requirement —
-  /// their model list comes from the OAuth backend, not the catalog, and is
-  /// auto-enabled on first fetch. Every other kind must pick at least one.
-  bool get _requiresModelPick =>
-      widget.definition.kind != AdapterKind.subscription;
+  void _onFieldChanged() {
+    if (mounted) setState(() => _error = null);
+  }
+
+  bool get _requiresModelPick => !widget.definition.requiresOAuth;
 
   bool get _atCap => _selected.length >= maxEnabled;
+
+  bool get _hasUrlField =>
+      widget.definition.configTemplate['baseUrl'] is String;
+
+  String? get _endpointError {
+    if (!_hasUrlField) return null;
+    final Uri? uri = Uri.tryParse(_baseUrl.text.trim());
+    if (uri == null ||
+        !uri.hasAuthority ||
+        !(uri.isScheme('https') || uri.isScheme('http'))) {
+      return 'Enter a full HTTP or HTTPS URL.';
+    }
+    final WebEndpointScope scope = WebRetrievalEndpointPolicy.classifyHost(
+      uri.host,
+    );
+    if (scope == WebEndpointScope.invalid) {
+      return 'Enter a valid endpoint URL.';
+    }
+    if (uri.isScheme('https')) return null;
+    if (scope == WebEndpointScope.publicNetwork) {
+      return 'Public endpoints require HTTPS.';
+    }
+    if (_key.text.trim().isNotEmpty && scope != WebEndpointScope.loopback) {
+      return 'API keys require HTTPS outside this device.';
+    }
+    return null;
+  }
 
   bool get _canSubmit =>
       _name.text.trim().isNotEmpty &&
       _key.text.trim().isNotEmpty &&
       !_saving &&
+      _endpointError == null &&
       (!_requiresModelPick || _selected.isNotEmpty);
 
   Future<void> _submit() async {
@@ -192,421 +186,612 @@ class _QuickAddContentState extends State<_QuickAddContent> {
       _error = null;
     });
     try {
-      final String? templateBaseUrl =
-          widget.definition.configTemplate['baseUrl'] as String?;
-      final bool hasUrlField = templateBaseUrl != null;
       await widget.onSubmit(
         displayName: _name.text.trim(),
         apiKey: _key.text.trim(),
-        baseUrl: hasUrlField ? _baseUrl.text.trim() : null,
+        baseUrl: _hasUrlField ? _baseUrl.text.trim() : null,
         enabledModels: _selected.toList(growable: false),
       );
-      widget.onDone();
-    } catch (error) {
-      setState(() {
-        _error = 'Failed to save: $error';
-      });
-    } finally {
+      if (mounted) widget.onDone();
+    } on Object catch (error) {
       if (mounted) {
-        setState(() => _saving = false);
+        setState(() => _error = 'Could not add account: $error');
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _toggle(PricedModel model) {
+    setState(() {
+      if (!_selected.add(model.id)) _selected.remove(model.id);
+    });
+  }
+
+  void _toggleAll() {
+    final List<String> selectable = widget.group.models
+        .take(maxEnabled)
+        .map((PricedModel model) => model.id)
+        .toList(growable: false);
+    final bool allSelected =
+        selectable.isNotEmpty && selectable.every(_selected.contains);
+    setState(() {
+      if (allSelected) {
+        _selected.clear();
+      } else {
+        _selected
+          ..clear()
+          ..addAll(selectable);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final String? templateBaseUrl =
-        widget.definition.configTemplate['baseUrl'] as String?;
-    final bool hasUrlField = templateBaseUrl != null;
-    final String? apiKeyUrl = widget.definition.apiKeyUrl;
-
-    return AppScrollView(
-      builder: (BuildContext context, AppScrollController controller) =>
-          SingleChildScrollView(
-            controller: controller,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _Header(
-                  title: 'Add ${widget.group.name}',
-                  apiKeyUrl: apiKeyUrl,
-                ),
-                SizedBox(height: 14),
-                _LabeledField(
-                  label: 'Display name',
-                  child: TextField(
-                    controller: _name,
-                    style: TextStyle(
-                      color: context.appColors.textPrimary,
-                      fontSize: 14,
-                    ),
-                    decoration: _FieldDecoration(),
-                  ),
-                ),
-                SizedBox(height: 12),
-                _LabeledField(
-                  label: 'API key',
-                  child: TextField(
-                    controller: _key,
-                    obscureText: true,
-                    style: TextStyle(
-                      color: context.appColors.textPrimary,
-                      fontSize: 14,
-                    ),
-                    decoration: _FieldDecoration(
-                      hintText: 'Paste your API key',
-                      suffixIcon: CredentialSecurityButton(),
-                    ),
-                  ),
-                ),
-                if (hasUrlField) ...<Widget>[
-                  SizedBox(height: 12),
-                  _LabeledField(
-                    label: 'Base URL',
-                    child: TextField(
-                      controller: _baseUrl,
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      style: TextStyle(
-                        color: context.appColors.textPrimary,
-                        fontSize: 14,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _ProviderHero(
+          group: widget.group,
+          apiKeyUrl: widget.definition.apiKeyUrl,
+        ),
+        Expanded(
+          child: AppScrollView(
+            builder: (BuildContext context, AppScrollController controller) {
+              return CustomScrollView(
+                controller: controller,
+                slivers: <Widget>[
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(18, 16, 18, 8),
+                    sliver: SliverToBoxAdapter(
+                      child: _CredentialFields(
+                        name: _name,
+                        apiKey: _key,
+                        baseUrl: _baseUrl,
+                        hasUrlField: _hasUrlField,
+                        showEndpoint: _showEndpoint,
+                        endpointError: _endpointError,
+                        onToggleEndpoint: () =>
+                            setState(() => _showEndpoint = !_showEndpoint),
                       ),
-                      decoration: _FieldDecoration(),
                     ),
                   ),
-                ],
-                SizedBox(height: 14),
-                _ModelSection(
-                  models: widget.group.models,
-                  selected: _selected,
-                  maxEnabled: maxEnabled,
-                  atCap: _atCap,
-                  requiresPick: _requiresModelPick,
-                  onToggle: (PricedModel m) {
-                    setState(() {
-                      if (!_selected.add(m.id)) {
-                        _selected.remove(m.id);
-                      }
-                    });
-                  },
-                  onSelectAll: () {
-                    setState(() {
-                      final List<String> selectableIds = widget.group.models
-                          .take(maxEnabled)
-                          .map((PricedModel model) => model.id)
-                          .toList(growable: false);
-                      final bool allSelected =
-                          selectableIds.isNotEmpty &&
-                          selectableIds.every(_selected.contains);
-                      if (allSelected) {
-                        _selected.clear();
-                      } else {
-                        _selected
-                          ..clear()
-                          ..addAll(selectableIds);
-                      }
-                    });
-                  },
-                ),
-                if (_error != null) ...<Widget>[
-                  SizedBox(height: 10),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: context.appColors.brandPink,
-                      fontSize: 12.5,
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(18, 8, 18, 7),
+                    sliver: SliverToBoxAdapter(
+                      child: _ModelSelectionHeader(
+                        total: widget.group.models.length,
+                        selected: _selected.length,
+                        atCap: _atCap,
+                        maxEnabled: maxEnabled,
+                        requiresPick: _requiresModelPick,
+                        allSelected:
+                            widget.group.models.isNotEmpty &&
+                            widget.group.models
+                                .take(maxEnabled)
+                                .every(
+                                  (PricedModel model) =>
+                                      _selected.contains(model.id),
+                                ),
+                        onToggleAll: _toggleAll,
+                      ),
                     ),
                   ),
+                  if (widget.group.models.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _EmptyModels(),
+                    )
+                  else
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(14, 0, 14, 16),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate((
+                          BuildContext context,
+                          int index,
+                        ) {
+                          final PricedModel model = widget.group.models[index];
+                          final bool selected = _selected.contains(model.id);
+                          final bool disabled = !selected && _atCap;
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 6),
+                            child: _SelectableModel(
+                              model: model,
+                              selected: selected,
+                              enabled: !disabled,
+                              onTap: () => _toggle(model),
+                            ),
+                          );
+                        }, childCount: widget.group.models.length),
+                      ),
+                    ),
                 ],
-                SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: <Widget>[
-                    TextButton(
-                      onPressed: _saving ? null : widget.onDone,
-                      child: Text('Cancel'),
-                    ),
-                    SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: _canSubmit ? _submit : null,
-                      child: _saving
-                          ? SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text('Save'),
-                    ),
-                  ],
-                ),
-              ],
+              );
+            },
+          ),
+        ),
+        if (_error != null)
+          Padding(
+            padding: EdgeInsets.fromLTRB(18, 8, 18, 0),
+            child: Text(
+              _error!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
           ),
+        _ActionBar(
+          selectedCount: _selected.length,
+          saving: _saving,
+          canSubmit: _canSubmit,
+          onCancel: widget.onDone,
+          onSubmit: _submit,
+        ),
+      ],
     );
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.title, required this.apiKeyUrl});
+class _ProviderHero extends StatelessWidget {
+  const _ProviderHero({required this.group, required this.apiKeyUrl});
 
-  final String title;
+  final ProviderModels group;
   final String? apiKeyUrl;
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final BorderRadius borderRadius = BorderRadius.only(
+      topLeft: Radius.circular(24),
+      topRight: Radius.circular(24),
+      bottomLeft: Radius.circular(24),
+      bottomRight: Radius.circular(10),
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, 14, 14, 0),
+      child: Material(
+        color: colors.surfaceContainerLow,
+        borderRadius: borderRadius,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 15, 12, 15),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: colors.primary,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.key_rounded,
+                  color: colors.onPrimary,
+                  size: 22,
+                ),
+              ),
+              SizedBox(width: 13),
+              Expanded(
+                child: Text(
+                  'Connect ${group.name}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+              if (apiKeyUrl != null) ...<Widget>[
+                SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Get an API key',
+                  onPressed: () => launchUrl(Uri.parse(apiKeyUrl!)),
+                  icon: Icon(Icons.key_rounded, size: 18),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CredentialFields extends StatelessWidget {
+  const _CredentialFields({
+    required this.name,
+    required this.apiKey,
+    required this.baseUrl,
+    required this.hasUrlField,
+    required this.showEndpoint,
+    required this.endpointError,
+    required this.onToggleEndpoint,
+  });
+
+  final TextEditingController name;
+  final TextEditingController apiKey;
+  final TextEditingController baseUrl;
+  final bool hasUrlField;
+  final bool showEndpoint;
+  final String? endpointError;
+  final VoidCallback onToggleEndpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        TextField(
+          controller: name,
+          textInputAction: TextInputAction.next,
+          decoration: InputDecoration(
+            labelText: 'Account name',
+            prefixIcon: Icon(Icons.badge_outlined, size: 19),
+          ),
+        ),
+        SizedBox(height: 10),
+        TextField(
+          controller: apiKey,
+          obscureText: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            labelText: 'API key',
+            prefixIcon: Icon(Icons.password_rounded, size: 19),
+            suffixIcon: CredentialSecurityButton(),
+          ),
+        ),
+        if (hasUrlField) ...<Widget>[
+          SizedBox(height: 5),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(left: 4),
+                  child: Text(
+                    _endpointSummary(baseUrl.text),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onToggleEndpoint,
+                icon: Icon(
+                  showEndpoint ? Icons.expand_less_rounded : Icons.tune_rounded,
+                  size: 17,
+                ),
+                label: Text(showEndpoint ? 'Hide endpoint' : 'Edit endpoint'),
+              ),
+            ],
+          ),
+          AnimatedSize(
+            duration: Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: showEndpoint
+                ? Padding(
+                    padding: EdgeInsets.only(top: 5),
+                    child: TextField(
+                      controller: baseUrl,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: InputDecoration(
+                        labelText: 'Base URL',
+                        errorText: endpointError,
+                        prefixIcon: Icon(Icons.link_rounded, size: 19),
+                      ),
+                    ),
+                  )
+                : SizedBox.shrink(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _endpointSummary(String value) {
+    final Uri? uri = Uri.tryParse(value.trim());
+    final String host = uri?.host ?? '';
+    return host.isEmpty ? 'Default endpoint' : 'Endpoint · $host';
+  }
+}
+
+class _ModelSelectionHeader extends StatelessWidget {
+  const _ModelSelectionHeader({
+    required this.total,
+    required this.selected,
+    required this.atCap,
+    required this.maxEnabled,
+    required this.requiresPick,
+    required this.allSelected,
+    required this.onToggleAll,
+  });
+
+  final int total;
+  final int selected;
+  final bool atCap;
+  final int maxEnabled;
+  final bool requiresPick;
+  final bool allSelected;
+  final VoidCallback onToggleAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool showStatus = (requiresPick && selected == 0) || atCap;
     return Row(
       children: <Widget>[
         Expanded(
-          child: Text(
-            title,
-            style: TextStyle(
-              color: context.appColors.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        if (apiKeyUrl != null)
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => launchUrl(Uri.parse(apiKeyUrl!)),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
                 children: <Widget>[
-                  Icon(
-                    Icons.vpn_key_outlined,
-                    size: 14,
-                    color: context.appColors.brandBlue,
-                  ),
-                  SizedBox(width: 4),
-                  Text(
-                    'Get an API key',
-                    style: TextStyle(
-                      color: context.appColors.brandBlue,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
+                  Text('Models', style: theme.textTheme.titleMedium),
+                  SizedBox(width: 8),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: ShapeDecoration(
+                      color: selected == 0
+                          ? theme.colorScheme.surfaceContainerHigh
+                          : theme.colorScheme.primary,
+                      shape: StadiumBorder(),
+                    ),
+                    child: Text(
+                      '$selected/$total',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: selected == 0
+                            ? theme.colorScheme.onSurfaceVariant
+                            : theme.colorScheme.onPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _LabeledField extends StatelessWidget {
-  const _LabeledField({required this.label, required this.child});
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          label,
-          style: TextStyle(
-            color: context.appColors.textSecondary,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        SizedBox(height: 6),
-        child,
-      ],
-    );
-  }
-}
-
-class _FieldDecoration extends InputDecoration {
-  const _FieldDecoration({super.hintText, super.suffixIcon});
-}
-
-class _ModelSection extends StatelessWidget {
-  const _ModelSection({
-    required this.models,
-    required this.selected,
-    required this.maxEnabled,
-    required this.atCap,
-    required this.requiresPick,
-    required this.onToggle,
-    required this.onSelectAll,
-  });
-
-  final List<PricedModel> models;
-  final Set<String> selected;
-  final int maxEnabled;
-  final bool atCap;
-  final bool requiresPick;
-  final ValueChanged<PricedModel> onToggle;
-  final VoidCallback onSelectAll;
-
-  @override
-  Widget build(BuildContext context) {
-    final Iterable<String> selectableIds = models
-        .take(maxEnabled)
-        .map((PricedModel model) => model.id);
-    final bool allSelected =
-        selectableIds.isNotEmpty && selectableIds.every(selected.contains);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                requiresPick && selected.isEmpty
-                    ? 'Pick at least one model (${models.length} available)'
-                    : 'Models (${selected.length}/${models.length} selected'
-                          '${atCap ? ' · cap $maxEnabled' : ''})',
-                style: TextStyle(
-                  color: requiresPick && selected.isEmpty
-                      ? context.appColors.brandPink
-                      : context.appColors.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            if (models.isNotEmpty)
-              Tooltip(
-                message: allSelected ? 'Unselect all' : 'Select all',
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(7),
-                  onTap: onSelectAll,
-                  child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: Icon(
-                      allSelected
-                          ? Icons.deselect_rounded
-                          : Icons.select_all_rounded,
-                      size: 17,
-                      color: context.appColors.brandBlue,
+              SizedBox(height: 2),
+              SizedBox(
+                height: 20,
+                child: AnimatedOpacity(
+                  opacity: showStatus ? 1 : 0,
+                  duration: Durations.short2,
+                  child: Text(
+                    atCap
+                        ? 'Selection limit reached ($maxEnabled)'
+                        : 'Choose at least one',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: atCap
+                          ? theme.colorScheme.onSurfaceVariant
+                          : theme.colorScheme.tertiary,
                     ),
                   ),
                 ),
               ),
-          ],
-        ),
-        SizedBox(height: 4),
-        ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: 260),
-          child: AppScrollView(
-            builder: (BuildContext context, AppScrollController controller) =>
-                ListView.separated(
-                  controller: controller,
-                  shrinkWrap: true,
-                  itemCount: models.length,
-                  separatorBuilder: (BuildContext _, _) =>
-                      Divider(height: 1, color: context.appColors.divider),
-                  itemBuilder: (BuildContext context, int index) {
-                    final PricedModel m = models[index];
-                    final bool on = selected.contains(m.id);
-                    final bool free = m.cost?.isFree ?? false;
-                    final bool lockedOff = !on && atCap;
-                    return InkWell(
-                      onTap: lockedOff ? null : () => onToggle(m),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          vertical: 6,
-                          horizontal: 4,
-                        ),
-                        child: Row(
-                          children: <Widget>[
-                            Icon(
-                              on
-                                  ? Icons.check_box
-                                  : Icons.check_box_outline_blank,
-                              size: 18,
-                              color: on
-                                  ? context.appColors.brandViolet
-                                  : context.appColors.textSecondary,
-                            ),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    m.displayName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: context.appColors.textPrimary,
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Text(
-                                    m.id,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: context.appColors.textSecondary,
-                                      fontSize: 11.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (free)
-                              Tooltip(
-                                message: 'Free',
-                                child: Icon(
-                                  Icons.money_off_csred_outlined,
-                                  size: 16,
-                                  color: context.appColors.brandBlue,
-                                ),
-                              )
-                            else if (m.cost?.output != null)
-                              _Pill(
-                                label:
-                                    '${formatPricePerMillion(m.cost!.output)}/1M',
-                                color: context.appColors.textSecondary,
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+            ],
           ),
         ),
+        if (total > 0)
+          TextButton(
+            onPressed: onToggleAll,
+            child: Text(allSelected ? 'Clear' : 'Select all'),
+          ),
       ],
     );
   }
 }
 
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label, required this.color});
+class _SelectableModel extends StatelessWidget {
+  const _SelectableModel({
+    required this.model,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
 
-  final String label;
-  final Color color;
+  final PricedModel model;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final Color selectedColor = Color.alphaBlend(
+      colors.primary.withValues(alpha: 0.15),
+      colors.surfaceContainerHigh,
+    );
+    final bool free = model.cost?.isFree ?? false;
+    final String price = free
+        ? 'Free'
+        : model.cost?.output == null
+        ? ''
+        : '${formatPricePerMillion(model.cost?.output)} per million tokens';
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Semantics(
+        container: true,
+        label: <String>[
+          model.displayName,
+          model.id,
+          price,
+        ].where((value) => value.isNotEmpty).join(', '),
+        checked: selected,
+        enabled: enabled,
+        onTap: enabled ? onTap : null,
+        child: ExcludeSemantics(
+          child: Material(
+            color: selected ? selectedColor : colors.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(selected ? 18 : 13),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: enabled ? onTap : null,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: 58),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(4, 5, 10, 5),
+                  child: Row(
+                    children: <Widget>[
+                      Checkbox(
+                        value: selected,
+                        onChanged: enabled ? (_) => onTap() : null,
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              model.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(height: 1),
+                            Text(
+                              model.id,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (free || model.cost?.output != null) ...<Widget>[
+                        SizedBox(width: 8),
+                        _PriceBadge(
+                          label: free
+                              ? 'Free'
+                              : '${formatPricePerMillion(model.cost?.output)}/1M',
+                          emphasized: free,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceBadge extends StatelessWidget {
+  const _PriceBadge({required this.label, required this.emphasized});
+
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: ShapeDecoration(
+        color: emphasized
+            ? theme.colorScheme.tertiary
+            : theme.colorScheme.surfaceContainerHighest,
+        shape: StadiumBorder(),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: emphasized
+              ? theme.colorScheme.onTertiary
+              : theme.colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _EmptyModels extends StatelessWidget {
+  const _EmptyModels();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        'No models available',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionBar extends StatelessWidget {
+  const _ActionBar({
+    required this.selectedCount,
+    required this.saving,
+    required this.canSubmit,
+    required this.onCancel,
+    required this.onSubmit,
+  });
+
+  final int selectedCount;
+  final bool saving;
+  final bool canSubmit;
+  final VoidCallback onCancel;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool compact = constraints.maxWidth < 420;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(16, 11, 16, 13),
+            child: Row(
+              children: <Widget>[
+                if (!compact)
+                  Text(
+                    selectedCount == 1 ? '1 model' : '$selectedCount models',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                Spacer(),
+                TextButton(
+                  onPressed: saving ? null : onCancel,
+                  child: Text('Cancel'),
+                ),
+                SizedBox(width: 7),
+                FilledButton.icon(
+                  onPressed: canSubmit ? onSubmit : null,
+                  icon: saving
+                      ? SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.add_rounded, size: 18),
+                  label: Text(compact ? 'Add' : 'Add account'),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

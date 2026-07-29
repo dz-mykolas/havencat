@@ -29,9 +29,7 @@ enum PricingSort {
 ///                   now a first-class tab with its own dedicated search).
 ///   - [providers] -> hosting APIs (OpenRouter, OpenAI, Anthropic, Qiniu…).
 ///   - [accounts] -> configured provider accounts (API keys, subscriptions,
-///                   custom endpoints). Not a catalog view — shows the user's
-///                   own accounts for activation/removal, plus the "add
-///                   custom endpoint" affordance.
+///                   custom endpoints) and the unified connection flow.
 ///
 /// Each scope keeps its own search query (see [_queries]) so switching tabs
 /// preserves the text the user typed — "gpt" on Models, "open" on Providers,
@@ -77,10 +75,7 @@ enum PricingFilter {
 ///
 ///   - [overview]  -> the groups grid (step 1)
 ///   - [provider]  -> one group's models (step 2)
-///   - [all]       -> preserved for the standalone PricingScreen back-compat
-///                    (the Discover panel no longer uses this since the Models
-///                    tab replaced the "Browse all" affordance).
-enum PricingView { overview, provider, all }
+enum PricingView { overview, provider }
 
 /// UI state for the model-pricing browser (Discover).
 ///
@@ -265,10 +260,6 @@ class PricingViewModel extends ChangeNotifier {
     return stream.toList();
   }
 
-  /// Compatibility alias for the providers grouping (unfiltered by query).
-  /// Kept so the standalone PricingScreen's overview keeps working unchanged.
-  List<ProviderModels> get providers => _catalog?.providers ?? const [];
-
   /// Total model count across every provider, for the header.
   int get totalCount => _catalog?.models.length ?? 0;
 
@@ -292,9 +283,6 @@ class PricingViewModel extends ChangeNotifier {
     return null;
   }
 
-  /// Backwards-compat alias for [selectedGroup].
-  ProviderModels? get selectedProvider => selectedGroup;
-
   /// The model list for the current view, with search, filters, and sort
   /// applied.
   ///
@@ -302,7 +290,6 @@ class PricingViewModel extends ChangeNotifier {
   /// - [PricingView.provider] (providers/labs scope): the drilled-in group's
   ///   models.
   /// - [PricingView.overview]: empty (the grid shows [groups] instead).
-  /// - [PricingView.all] (standalone PricingScreen only): every model.
   List<PricedModel> get results {
     final ModelsCatalog? catalog = _catalog;
     if (catalog == null) return const <PricedModel>[];
@@ -317,9 +304,6 @@ class PricingViewModel extends ChangeNotifier {
           break;
         case PricingView.provider:
           pool = selectedGroup?.models ?? const <PricedModel>[];
-          break;
-        case PricingView.all:
-          pool = catalog.models;
           break;
       }
     }
@@ -427,6 +411,58 @@ class PricingViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void syncLocation(PricingScope scope, {String? groupId}) {
+    final PricingView view = groupId == null
+        ? PricingView.overview
+        : PricingView.provider;
+    if (_scope == scope && _view == view && _selectedGroupId == groupId) {
+      return;
+    }
+    _scope = scope;
+    _view = view;
+    _selectedGroupId = groupId;
+    notifyListeners();
+  }
+
+  PricedModel? modelAt({
+    required PricingScope scope,
+    required String modelId,
+    String? groupId,
+  }) {
+    final ModelsCatalog? catalog = _catalog;
+    if (catalog == null) return null;
+
+    final List<PricedModel> models;
+    switch (scope) {
+      case PricingScope.models:
+        models = catalog.models;
+        break;
+      case PricingScope.providers:
+        models = _modelsInGroup(catalog.providers, groupId);
+        break;
+      case PricingScope.labs:
+        models = _modelsInGroup(catalog.labs, groupId);
+        break;
+      case PricingScope.accounts:
+        return null;
+    }
+    for (final PricedModel model in models) {
+      if (model.id == modelId) return model;
+    }
+    return null;
+  }
+
+  static List<PricedModel> _modelsInGroup(
+    List<ProviderModels> groups,
+    String? groupId,
+  ) {
+    if (groupId == null) return const <PricedModel>[];
+    for (final ProviderModels group in groups) {
+      if (group.id == groupId) return group.models;
+    }
+    return const <PricedModel>[];
+  }
+
   /// Toggle a filter chip. Only affects the model list (not the overview grid).
   ///
   /// [PricingFilter.reasoning] and [PricingFilter.nonReasoning] are mutually
@@ -458,13 +494,6 @@ class PricingViewModel extends ChangeNotifier {
     _selectedGroupId = providerId;
     _view = PricingView.provider;
     _queries[_scope] = '';
-    notifyListeners();
-  }
-
-  /// Show every model across every provider (standalone PricingScreen only).
-  /// The Discover panel's Models tab replaces this affordance.
-  void showAll() {
-    _view = PricingView.all;
     notifyListeners();
   }
 

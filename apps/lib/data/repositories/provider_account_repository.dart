@@ -50,31 +50,10 @@ class ProviderAccountRepository extends ChangeNotifier {
 
   String? get activeAccountId => _activeAccountId;
 
-  /// All known provider definitions the user can add (subscription + API key).
-  List<ProviderDefinition> get catalog => ProviderCatalog.all;
-
-  /// Whether the user already has an account for [definitionId].
-  ///
-  /// Used to grey out duplicate subscription providers in the "Add account"
-  /// sheet — e.g. once a ChatGPT subscription is connected, the ChatGPT entry
-  /// is disabled with a "Already connected" hint. API-key providers are never
-  /// considered duplicates (the user can have many OpenAI-compatible keys).
-  bool hasAccountForDefinition(String definitionId) {
-    for (final ProviderAccount a in _accounts) {
-      if (a.config['definitionId'] == definitionId) return true;
-    }
-    return false;
-  }
-
   /// Restores persisted accounts + active id. Call once on startup before the
   /// first frame. If nothing is persisted yet (first run), the seeded mock
   /// account is persisted so its id stays stable across launches. A persisted
   /// empty list remains empty after the final account is removed.
-  ///
-  /// Also runs a one-time forward migration: any pre-existing account that
-  /// only has the legacy `config['model']` single-selection gets an
-  /// `enabledModels: [model]` entry written so it shows up as enabled in the
-  /// new multi-select world (no behaviour change for existing accounts).
   Future<void> load() async {
     final List<ProviderAccount>? persisted = _accountStore.loadAccounts();
     if (persisted == null) {
@@ -82,51 +61,32 @@ class ProviderAccountRepository extends ChangeNotifier {
       _loaded = true;
       return;
     }
-    final List<ProviderAccount> migrated = persisted
-        .map(_migrateEnabledModels)
-        .toList();
     _accounts
       ..clear()
-      ..addAll(migrated);
+      ..addAll(persisted);
     final String? storedActive = _accountStore.loadActiveAccountId();
-    _activeAccountId =
-        (storedActive != null && _accounts.any((a) => a.id == storedActive))
-        ? storedActive
-        : _accounts.firstOrNull?.id;
-    _loaded = true;
-    // If any account was migrated (config changed), persist the new shape so
-    // future loads skip the migration path.
-    final bool migratedAny =
-        List.generate(persisted.length, (i) => persisted[i]).any((p) {
-          final m = _migrateEnabledModels(p);
-          return m.config['enabledModels'] != null &&
-              p.config['enabledModels'] == null;
-        });
-    if (migratedAny) {
-      await _persist();
+    if (_accounts.isEmpty) {
+      if (storedActive != null) {
+        throw const FormatException(
+          'An active provider account is stored, but the account list is empty.',
+        );
+      }
+      _activeAccountId = null;
+    } else {
+      if (storedActive == null) {
+        throw const FormatException(
+          'Provider accounts are stored without an active account id.',
+        );
+      }
+      if (!_accounts.any((ProviderAccount a) => a.id == storedActive)) {
+        throw FormatException(
+          'Active provider account "$storedActive" does not exist.',
+        );
+      }
+      _activeAccountId = storedActive;
     }
+    _loaded = true;
     notifyListeners();
-  }
-
-  /// Returns `account` unchanged if its config already carries
-  /// `enabledModels`, or a copy with `enabledModels: [model]` written if only
-  /// the legacy `model` key is set. Accounts with neither key are returned
-  /// unchanged (the chat will grey them out — the user picks models in the
-  /// Quick-Add or via the chat model picker later).
-  ProviderAccount _migrateEnabledModels(ProviderAccount account) {
-    if (account.config['enabledModels'] != null) return account;
-    final Object? legacy = account.config['model'];
-    if (legacy is! String || legacy.isEmpty) return account;
-    return ProviderAccount(
-      id: account.id,
-      kind: account.kind,
-      displayName: account.displayName,
-      config: <String, Object?>{
-        ...account.config,
-        'enabledModels': <String>[legacy],
-      },
-      createdAt: account.createdAt,
-    );
   }
 
   /// Adds a new API-key-based account. The key is written to secure storage,
@@ -239,16 +199,15 @@ class ProviderAccountRepository extends ChangeNotifier {
   /// Sets the full set of allowed model ids for [accountId] (the multi-select
   /// that backs the Quick-Add flow + chat picker grey-out). Replaces any prior
   /// `enabledModels` list. An empty list disables the account in the chat
-  /// picker until the user enables at least one model. The legacy `model`
-  /// field is kept in sync to the first enabled entry (when non-empty) so the
-  /// existing single-select code paths keep working unchanged.
+  /// picker until the user enables at least one model. The selected `model`
+  /// is kept in sync with the first enabled entry when the list is non-empty.
   Future<void> setAllowedModels(String accountId, List<String> modelIds) async {
     final int index = _accounts.indexWhere((a) => a.id == accountId);
     if (index == -1) {
       throw ArgumentError.value(accountId, 'accountId', 'Unknown account.');
     }
     final ProviderAccount current = _accounts[index];
-    final List<String> deduped = <String>[...modelIds.whereType<String>()];
+    final List<String> deduped = modelIds.toSet().toList(growable: false);
     final Map<String, Object?> next = <String, Object?>{
       ...current.config,
       'enabledModels': deduped,
@@ -304,10 +263,7 @@ class ProviderAccountRepository extends ChangeNotifier {
       config: <String, Object?>{
         ...def.configTemplate,
         ...?config,
-        // Store the definition id so we can detect duplicate subscriptions
-        // (e.g. "ChatGPT already connected") and route model fetches. Old
-        // accounts loaded from disk before this field existed simply won't
-        // have it — they're treated as non-duplicates, which is safe.
+        // Keeps auth and model routing independent from the user-facing name.
         'definitionId': def.id,
       },
       createdAt: DateTime.now(),

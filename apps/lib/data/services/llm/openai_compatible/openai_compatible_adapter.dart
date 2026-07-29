@@ -344,10 +344,14 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   }
 
   String _readBaseUrl(ProviderAccount account) {
-    final String baseUrl =
-        (account.config['baseUrl'] as String?)?.trim().isNotEmpty == true
-        ? (account.config['baseUrl'] as String).trim()
-        : 'https://api.openai.com/v1';
+    final Object? configured = account.config['baseUrl'];
+    if (configured is! String || configured.trim().isEmpty) {
+      throw StateError(
+        'No base URL is configured for provider account '
+        '"${account.displayName}".',
+      );
+    }
+    final String baseUrl = configured.trim();
     // Strip a trailing slash so we always join with '/chat/completions'.
     return baseUrl.endsWith('/')
         ? baseUrl.substring(0, baseUrl.length - 1)
@@ -355,9 +359,12 @@ class OpenAiCompatibleAdapter implements LlmAdapter {
   }
 
   String _readModel(ProviderAccount account, LlmRequest request) {
-    return request.model.isNotEmpty
-        ? request.model
-        : (account.config['model'] as String?) ?? 'gpt-4o-mini';
+    if (request.model.isNotEmpty) return request.model;
+    final Object? configured = account.config['model'];
+    if (configured is String && configured.isNotEmpty) return configured;
+    throw StateError(
+      'No model is selected for provider account "${account.displayName}".',
+    );
   }
 
   Map<String, String> _readHeaders(ProviderAccount account, String? secret) {

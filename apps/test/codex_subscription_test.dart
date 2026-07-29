@@ -82,19 +82,23 @@ void main() {
   group('ChatGptSubscriptionAdapter.listModels', () {
     final ProviderAccount account = ProviderAccount(
       id: 'a',
-      kind: AdapterKind.subscription,
+      kind: AdapterKind.chatGptCodex,
       displayName: 'ChatGPT',
       config: const <String, Object?>{},
     );
-    // The npm registry lookup isn't mocked here, so the version resolver falls
-    // back to the default client version — the URL the adapter ends up hitting.
+    const String registryUrl =
+        'https://registry.npmjs.org/@openai/codex/latest';
+    const String clientVersion = '9.8.7';
     final String modelsUrl =
         'https://chatgpt.com/backend-api'
-        '${CodexProtocol.modelsPath(CodexProtocol.defaultClientVersion)}';
+        '${CodexProtocol.modelsPath(clientVersion)}';
 
     test('returns all models, flagging hidden internal ones', () async {
       final Dio dio = Dio();
       final DioAdapter mock = DioAdapter(dio: dio);
+      mock.onGet(registryUrl, (MockServer server) {
+        server.reply(200, <String, dynamic>{'version': clientVersion});
+      });
       mock.onGet(modelsUrl, (MockServer server) {
         server.reply(200, <String, dynamic>{
           'models': <Map<String, dynamic>>[
@@ -132,6 +136,9 @@ void main() {
     test('propagates upstream failures so the UI can retry', () async {
       final Dio dio = Dio();
       final DioAdapter mock = DioAdapter(dio: dio);
+      mock.onGet(registryUrl, (MockServer server) {
+        server.reply(200, <String, dynamic>{'version': clientVersion});
+      });
       mock.onGet(modelsUrl, (MockServer server) {
         server.reply(500, <String, dynamic>{'detail': 'boom'});
       });
@@ -160,7 +167,7 @@ void main() {
     );
     final ProviderAccount account = ProviderAccount(
       id: 'a',
-      kind: AdapterKind.subscription,
+      kind: AdapterKind.chatGptCodex,
       displayName: 'ChatGPT',
       config: const <String, Object?>{'model': 'gpt-5.5'},
     );

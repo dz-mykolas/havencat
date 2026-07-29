@@ -8,8 +8,7 @@ import 'message.dart';
 ///
 /// Messages form a tree (see [ChatMessage.parentId]). [currentLeafId] points
 /// at the tip of the currently-visible branch; [activePath] walks it back to
-/// the root. For conversations created before branching existed, the tree is a
-/// linear chain and [activePath] equals [messages].
+/// the root. A linear conversation is simply a tree with one child per message.
 class Conversation {
   Conversation({
     required this.id,
@@ -181,19 +180,15 @@ class Conversation {
     final conv =
         Conversation(
             id: json['id'] as String,
-            title: json['title'] as String? ?? 'New chat',
-            messages:
-                (json['messages'] as List<dynamic>?)
-                    ?.map(
-                      (e) => ChatMessage.fromJson(e as Map<String, dynamic>),
-                    )
-                    .toList() ??
-                <ChatMessage>[],
+            title: json['title'] as String,
+            messages: (json['messages'] as List<dynamic>)
+                .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+                .toList(),
             providerAccountId: json['providerAccountId'] as String?,
             createdAt: json['createdAt'] != null
                 ? DateTime.parse(json['createdAt'] as String)
                 : null,
-            isPinned: json['isPinned'] as bool? ?? false,
+            isPinned: json['isPinned'] as bool,
           )
           ..currentLeafId = json['currentLeafId'] as String?
           ..lastPromptTokens = json['lastPromptTokens'] as int?

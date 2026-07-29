@@ -100,7 +100,7 @@ class ChatMessage {
     }
   }
 
-  /// When the message was created. Null only for legacy/mock messages.
+  /// When the message was created. May be null for transient/mock messages.
   DateTime? createdAt;
 
   /// Tool calls the assistant emitted on this turn (OpenAI `tool_calls`).
@@ -187,7 +187,6 @@ class ChatMessage {
     'role': role.name,
     'text': text,
     'reasoning': reasoning,
-    'isStreaming': isStreaming,
     'generationStatus': generationStatus.name,
     'createdAt': createdAt?.toIso8601String(),
     'toolCalls': toolCalls.map((tc) => tc.toJson()).toList(),
@@ -213,53 +212,38 @@ class ChatMessage {
       ChatMessage(
           id: json['id'] as String,
           role: MessageRole.values.byName(json['role'] as String),
-          text: json['text'] as String? ?? '',
-          isStreaming: json['isStreaming'] as bool? ?? false,
-          generationStatus: _generationStatusFromJson(json),
+          text: json['text'] as String,
+          generationStatus: MessageGenerationStatus.values.byName(
+            json['generationStatus'] as String,
+          ),
           createdAt: json['createdAt'] != null
               ? DateTime.parse(json['createdAt'] as String)
               : null,
-          toolCalls:
-              (json['toolCalls'] as List<dynamic>?)
-                  ?.map((e) => ToolCall.fromJson(e as Map<String, dynamic>))
-                  .toList() ??
-              const <ToolCall>[],
+          toolCalls: (json['toolCalls'] as List<dynamic>)
+              .map((e) => ToolCall.fromJson(e as Map<String, dynamic>))
+              .toList(),
           toolCallId: json['toolCallId'] as String?,
           parentId: json['parentId'] as String?,
-          children: (json['childrenIds'] as List<dynamic>?)
-              ?.map((e) => e as String)
+          children: (json['childrenIds'] as List<dynamic>)
+              .map((e) => e as String)
               .toList(),
           originalContent: json['originalContent'] as String?,
-          attachments:
-              (json['attachments'] as List<dynamic>?)
-                  ?.map(
-                    (dynamic value) => MessageAttachment.fromJson(
-                      Map<String, Object?>.from(value as Map),
-                    ),
-                  )
-                  .toList() ??
-              const <MessageAttachment>[],
+          attachments: (json['attachments'] as List<dynamic>)
+              .map(
+                (dynamic value) => MessageAttachment.fromJson(
+                  Map<String, Object?>.from(value as Map),
+                ),
+              )
+              .toList(),
         )
-        ..hasError = json['hasError'] as bool? ?? false
+        ..hasError = json['hasError'] as bool
         ..activeChildId = json['activeChildId'] as String?
-        ..reasoning = json['reasoning'] as String? ?? ''
-        ..cleared = json['cleared'] as bool? ?? false
+        ..reasoning = json['reasoning'] as String
+        ..cleared = json['cleared'] as bool
         ..clearedSummary = json['clearedSummary'] as String?
         ..refetchArgs = json['refetchArgs'] as Map<String, Object?>?
-        ..isCompactionSummary = json['isCompactionSummary'] as bool? ?? false
+        ..isCompactionSummary = json['isCompactionSummary'] as bool
         ..promptTokens = json['promptTokens'] as int?
         ..completionTokens = json['completionTokens'] as int?
         ..totalTokens = json['totalTokens'] as int?;
-
-  static MessageGenerationStatus? _generationStatusFromJson(
-    Map<String, dynamic> json,
-  ) {
-    final String? name = json['generationStatus'] as String?;
-    if (name == null) return null;
-    for (final MessageGenerationStatus status
-        in MessageGenerationStatus.values) {
-      if (status.name == name) return status;
-    }
-    return null;
-  }
 }

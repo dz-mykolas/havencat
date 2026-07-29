@@ -7,9 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../data/services/auth/chatgpt_oauth_flow.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/gradient_text.dart';
-import '../../../domain/models/provider_definition.dart';
 import '../settings_viewmodel.dart';
-import 'add_account_dialog.dart';
 
 /// Dialog that runs the ChatGPT device-code OAuth flow.
 ///
@@ -350,32 +348,4 @@ class _StatusRow extends StatelessWidget {
       ],
     );
   }
-}
-
-/// Routes an "Add account" tap to the right dialog based on the provider
-/// definition's auth requirements.
-///
-/// - `requiresOAuth` → [ChatGptLoginDialog] (device code flow)
-/// - `requiresApiKey` → [AddAccountDialog] (API key form)
-///
-/// Called from the settings screen's "Add account" action.
-void showAddAccountDialog(
-  BuildContext context,
-  SettingsViewModel viewModel, {
-  ProviderDefinition? definition,
-}) {
-  if (definition != null && definition.requiresOAuth) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) =>
-          ChatGptLoginDialog(viewModel: viewModel),
-    );
-    return;
-  }
-  showDialog<void>(
-    context: context,
-    builder: (BuildContext context) =>
-        AddAccountDialog(viewModel: viewModel, initialDefinition: definition),
-  );
 }
