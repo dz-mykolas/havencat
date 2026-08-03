@@ -11,6 +11,7 @@ import 'package:app/data/services/auth/secret_store.dart';
 import 'package:app/data/services/storage/account_store.dart';
 import 'package:app/data/services/storage/app_settings.dart';
 import 'package:app/domain/models/app_theme_preferences.dart';
+import 'package:app/domain/models/code_theme_preferences.dart';
 import 'package:app/domain/models/provider_account.dart';
 import 'package:app/providers.dart';
 import 'package:app/ui/pricing/pricing_viewmodel.dart';
@@ -294,6 +295,14 @@ void main() {
     await tester.tap(find.text('Evergreen'));
     await tester.pumpAndSettle();
     expect(settings.darkTheme, AppThemePreset.evergreen);
+
+    await tester.tap(find.byKey(const ValueKey<String>('code-theme')));
+    await tester.pumpAndSettle();
+    expect(find.text('Atom One Dark'), findsOneWidget);
+    expect(find.text('GitHub'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('code-theme-nord')));
+    await tester.pumpAndSettle();
+    expect(settings.codeTheme, CodeThemeOption.nord);
   });
 
   testWidgets(

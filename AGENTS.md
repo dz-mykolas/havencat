@@ -1,5 +1,5 @@
 # Agent Instructions
-
+- The app has not launched and has no production users or production data. Build the cleanest current design. Remove obsolete code, schemas, APIs, and configuration directly. Do not add backward-compatibility shims, legacy aliases, transitional paths, or data-preserving migration logic. Regenerate the current database baseline when the schema changes. Keep only the files needed to create the current system from scratch. Prefer a small coherent implementation over preserving an earlier internal shape
 - Ask at most 1–3 clarifying questions only when missing information would change the implementation, API, data model, UX, security posture, or irreversible actions; otherwise proceed with stated assumptions.
 - Do not do manual installations inside lock files, use the tooling commands where possible.
 - Do not write unecessary comments in the code.

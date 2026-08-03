@@ -9,8 +9,9 @@ import 'branding.dart';
 import 'data/services/storage/app_settings.dart';
 import 'domain/models/app_theme_preferences.dart';
 import 'providers.dart';
-import 'ui/core/theme/app_theme.dart';
 import 'ui/core/notices/notice_host.dart';
+import 'ui/core/theme/app_theme.dart';
+import 'ui/core/theme/code_highlight_theme.dart';
 
 class _AppScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -89,8 +90,14 @@ class _AppState extends ConsumerState<App> {
       themeAnimationCurve: Curves.easeOutCubic,
       scrollBehavior: _AppScrollBehavior(),
       routerConfig: _router,
-      builder: (BuildContext context, Widget? child) =>
-          NoticeHost(child: child ?? const SizedBox.shrink()),
+      builder: (BuildContext context, Widget? child) => CodeHighlightTheme(
+        option: settings.codeTheme,
+        definition: CodeThemeCatalog.resolve(
+          settings.codeTheme,
+          Theme.of(context).brightness,
+        ),
+        child: NoticeHost(child: child ?? const SizedBox.shrink()),
+      ),
     );
   }
 }

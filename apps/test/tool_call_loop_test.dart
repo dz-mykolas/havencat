@@ -678,7 +678,7 @@ void main() {
     );
 
     final Finder actions = find.byKey(
-      const ValueKey<String>('user-message-actions'),
+      const ValueKey<String>('user-message-actions-user'),
     );
     expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
     final double heightBefore = tester
@@ -696,10 +696,10 @@ void main() {
     expect(tester.widget<AnimatedOpacity>(actions).opacity, 1);
     expect(tester.getSize(find.byType(MessageBubble)).height, heightBefore);
     final Rect copyRect = tester.getRect(
-      find.byKey(const ValueKey<String>('user-copy-control')),
+      find.byKey(const ValueKey<String>('user-copy-control-user')),
     );
     final Rect editRect = tester.getRect(
-      find.byKey(const ValueKey<String>('user-edit-control')),
+      find.byKey(const ValueKey<String>('user-edit-control-user')),
     );
     expect(copyRect.center.dx, lessThan(editRect.center.dx));
     expect(copyRect.width, greaterThanOrEqualTo(30));
@@ -711,10 +711,14 @@ void main() {
       greaterThan(tester.getRect(find.text('Editable message')).bottom),
     );
 
-    await tester.tap(find.byKey(const ValueKey<String>('user-copy-control')));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('user-copy-control-user')),
+    );
     expect(copiedText, 'Editable message');
 
-    await tester.tap(find.byKey(const ValueKey<String>('user-edit-control')));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('user-edit-control-user')),
+    );
     await tester.pump();
     expect(find.text('Cancel'), findsOneWidget);
   });
@@ -740,7 +744,7 @@ void main() {
     );
 
     final Finder actions = find.byKey(
-      const ValueKey<String>('user-message-actions'),
+      const ValueKey<String>('user-message-actions-user'),
     );
     expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
 
@@ -750,6 +754,90 @@ void main() {
     expect(tester.widget<AnimatedOpacity>(actions).opacity, 0);
     expect(find.text('Copy message'), findsOneWidget);
     expect(find.text('Edit message'), findsOneWidget);
+  });
+
+  testWidgets('latest assistant actions stay visible and older ones hover', (
+    WidgetTester tester,
+  ) async {
+    String? copiedText;
+    bool regenerated = false;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (MethodCall call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: <Widget>[
+              MessageBubble(
+                message: ChatMessage(
+                  id: 'older',
+                  role: MessageRole.assistant,
+                  text: 'Older reply',
+                ),
+                onRegenerate: ({String? suggestion}) {
+                  regenerated = true;
+                },
+              ),
+              MessageBubble(
+                message: ChatMessage(
+                  id: 'latest',
+                  role: MessageRole.assistant,
+                  text: 'Latest reply',
+                ),
+                isLatestAssistant: true,
+                onRegenerate: ({String? suggestion}) {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final Finder olderActions = find.byKey(
+      const ValueKey<String>('assistant-message-actions-older'),
+    );
+    final Finder latestActions = find.byKey(
+      const ValueKey<String>('assistant-message-actions-latest'),
+    );
+    expect(tester.widget<AnimatedOpacity>(olderActions).opacity, 0);
+    expect(tester.widget<AnimatedOpacity>(latestActions).opacity, 1);
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(find.text('Older reply')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AnimatedOpacity>(olderActions).opacity, 1);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('assistant-copy-control-older')),
+    );
+    expect(copiedText, 'Older reply');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('assistant-regenerate-control-older')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(PopupMenuItem<String>, 'Regenerate'));
+    await tester.pumpAndSettle();
+    expect(regenerated, isTrue);
   });
 
   testWidgets('message editor clearly separates saving from sending again', (
@@ -798,10 +886,13 @@ void main() {
     );
     expect(
       tester
-          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
-          .enabled,
-      isFalse,
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.done_all_rounded),
+          )
+          .onPressed,
+      isNull,
     );
+    expect(find.byType(PopupMenuButton<String>), findsNothing);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
@@ -813,9 +904,11 @@ void main() {
     await tester.pump();
     expect(
       tester
-          .widget<PopupMenuButton<String>>(find.byType(PopupMenuButton<String>))
-          .enabled,
-      isTrue,
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.done_all_rounded),
+          )
+          .onPressed,
+      isNotNull,
     );
     expect(
       tester
@@ -823,16 +916,6 @@ void main() {
           .onPressed,
       isNotNull,
     );
-
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
-    expect(find.text('Save without sending'), findsOneWidget);
-    expect(
-      tester.getSize(find.byType(PopupMenuItem<String>)).width,
-      greaterThan(100),
-    );
-    await tester.tapAt(Offset.zero);
-    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Send'));
     await tester.pump();

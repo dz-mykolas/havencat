@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app/app.dart';
 import 'package:app/data/services/storage/app_settings.dart';
 import 'package:app/domain/models/app_theme_preferences.dart';
+import 'package:app/domain/models/code_theme_preferences.dart';
 import 'package:app/providers.dart';
 import 'package:app/ui/core/theme/app_theme.dart';
 import 'package:app/ui/core/theme/card_visual_theme.dart';
@@ -19,6 +20,7 @@ void main() {
     await settings.setTheme(AppThemePreset.midnight);
     await settings.setLightTheme(AppThemePreset.coastal);
     await settings.setDarkTheme(AppThemePreset.evergreen);
+    await settings.setCodeTheme(CodeThemeOption.nord);
     await settings.setGradientHue(AppThemePreset.gradientLight, 185);
     await settings.setGradientHue(AppThemePreset.gradientDark, 338);
     await settings.setUseDeviceTheme(true);
@@ -27,6 +29,7 @@ void main() {
     expect(restored.theme, AppThemePreset.midnight);
     expect(restored.lightTheme, AppThemePreset.coastal);
     expect(restored.darkTheme, AppThemePreset.evergreen);
+    expect(restored.codeTheme, CodeThemeOption.nord);
     expect(restored.gradientLightHue, 185);
     expect(restored.gradientDarkHue, 338);
     expect(restored.useDeviceTheme, isTrue);

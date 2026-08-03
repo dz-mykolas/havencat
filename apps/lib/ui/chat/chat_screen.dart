@@ -370,6 +370,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (value != null) await vm.editQueuedGeneration(task.id, value);
   }
 
+  Widget _buildMessageBubble({
+    required ChatViewModel vm,
+    required Conversation conversation,
+    required List<ChatMessage> activePath,
+    required List<int> downstreamCounts,
+    required int latestAssistantIndex,
+    required int index,
+    required bool groupHovered,
+  }) {
+    final ChatMessage message = activePath[index];
+    return MessageBubble(
+      key: ValueKey<String>(message.id),
+      message: message,
+      messages: activePath,
+      siblings: conversation.siblingsOf(message.id),
+      isLatestAssistant: index == latestAssistantIndex,
+      isGenerating: vm.isGenerating,
+      groupHovered: groupHovered,
+      descendantCount: downstreamCounts[index],
+      actualTokens: message.promptTokens,
+      completionTokens: message.completionTokens,
+      totalTokens: message.totalTokens,
+      estimatedTokens: message.isAssistant && index == activePath.length - 1
+          ? vm.active.lastEstimatedTokens
+          : null,
+      estimatedCompletionTokens:
+          message.isAssistant && index == activePath.length - 1
+          ? estimateGeneratedTokens(message)
+          : null,
+      contextWindow: vm.activeContextWindow,
+      onEditUser: message.isUser
+          ? (newText, resend) =>
+                vm.editMessage(message.id, newText, resend: resend)
+          : null,
+      onRegenerate: message.isAssistant
+          ? ({String? suggestion}) =>
+                vm.regenerate(message.id, suggestionPrompt: suggestion)
+          : null,
+      onContinue:
+          message.isAssistant &&
+              (message.generationStatus ==
+                      MessageGenerationStatus.interrupted ||
+                  message.generationStatus == MessageGenerationStatus.failed)
+          ? () => vm.continueInterrupted(message.id)
+          : null,
+      onRevert: message.isEdited ? () => vm.revertEdit(message.id) : null,
+      onPrevSibling: () => vm.selectSibling(message.id, -1),
+      onNextSibling: () => vm.selectSibling(message.id, 1),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ChatViewModel vm = ref.read(chatViewModelProvider);
@@ -480,6 +531,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   downstreamCounts[i] = visibleAfter;
                   if (!activePath[i].isTool) visibleAfter++;
                 }
+                final int latestAssistantIndex = activePath.lastIndexWhere(
+                  (ChatMessage message) =>
+                      message.isAssistant && message.toolCalls.isEmpty,
+                );
+                final List<List<int>> turns = _groupTurnIndices(activePath);
                 return Stack(
                   children: <Widget>[
                     // ListView extends full height; text scrolls behind the
@@ -535,67 +591,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             16,
                             trailingSpace,
                           ),
-                          itemCount: activePath.length,
+                          itemCount: turns.length,
                           scrollCacheExtent: ScrollCacheExtent.pixels(1500),
-                          itemBuilder: (BuildContext context, int index) {
-                            final ChatMessage message = activePath[index];
+                          itemBuilder: (BuildContext context, int turnIndex) {
+                            final List<int> messageIndices = turns[turnIndex];
                             return Center(
                               child: ConstrainedBox(
                                 constraints: BoxConstraints(
                                   maxWidth: AppTheme.contentMaxWidth,
                                 ),
-                                child: MessageBubble(
-                                  key: ValueKey<String>(message.id),
-                                  message: message,
-                                  messages: activePath,
-                                  siblings: conversation.siblingsOf(message.id),
-                                  isLast: index == activePath.length - 1,
-                                  isGenerating: vm.isGenerating,
-                                  descendantCount: downstreamCounts[index],
-                                  actualTokens: message.promptTokens,
-                                  completionTokens: message.completionTokens,
-                                  totalTokens: message.totalTokens,
-                                  estimatedTokens:
-                                      message.isAssistant &&
-                                          index == activePath.length - 1
-                                      ? vm.active.lastEstimatedTokens
-                                      : null,
-                                  estimatedCompletionTokens:
-                                      message.isAssistant &&
-                                          index == activePath.length - 1
-                                      ? estimateGeneratedTokens(message)
-                                      : null,
-                                  contextWindow: vm.activeContextWindow,
-                                  onEditUser: message.isUser
-                                      ? (newText, resend) => vm.editMessage(
-                                          message.id,
-                                          newText,
-                                          resend: resend,
-                                        )
-                                      : null,
-                                  onRegenerate: message.isAssistant
-                                      ? ({String? suggestion}) => vm.regenerate(
-                                          message.id,
-                                          suggestionPrompt: suggestion,
-                                        )
-                                      : null,
-                                  onContinue:
-                                      message.isAssistant &&
-                                          (message.generationStatus ==
-                                                  MessageGenerationStatus
-                                                      .interrupted ||
-                                              message.generationStatus ==
-                                                  MessageGenerationStatus
-                                                      .failed)
-                                      ? () => vm.continueInterrupted(message.id)
-                                      : null,
-                                  onRevert: message.isEdited
-                                      ? () => vm.revertEdit(message.id)
-                                      : null,
-                                  onPrevSibling: () =>
-                                      vm.selectSibling(message.id, -1),
-                                  onNextSibling: () =>
-                                      vm.selectSibling(message.id, 1),
+                                child: _ChatTurnHoverRegion(
+                                  key: ValueKey<String>(
+                                    'chat-turn-${activePath[messageIndices.first].id}',
+                                  ),
+                                  builder:
+                                      (BuildContext context, bool hovered) =>
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: <Widget>[
+                                              for (final int index
+                                                  in messageIndices)
+                                                _buildMessageBubble(
+                                                  vm: vm,
+                                                  conversation: conversation,
+                                                  activePath: activePath,
+                                                  downstreamCounts:
+                                                      downstreamCounts,
+                                                  latestAssistantIndex:
+                                                      latestAssistantIndex,
+                                                  index: index,
+                                                  groupHovered: hovered,
+                                                ),
+                                            ],
+                                          ),
                                 ),
                               ),
                             );
@@ -678,6 +707,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
     return chatScaffold;
+  }
+}
+
+List<List<int>> _groupTurnIndices(List<ChatMessage> messages) {
+  final List<List<int>> turns = <List<int>>[];
+  for (int index = 0; index < messages.length; index++) {
+    if (turns.isEmpty || messages[index].isUser) {
+      turns.add(<int>[index]);
+    } else {
+      turns.last.add(index);
+    }
+  }
+  return turns;
+}
+
+class _ChatTurnHoverRegion extends StatefulWidget {
+  const _ChatTurnHoverRegion({required this.builder, super.key});
+
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  @override
+  State<_ChatTurnHoverRegion> createState() => _ChatTurnHoverRegionState();
+}
+
+class _ChatTurnHoverRegionState extends State<_ChatTurnHoverRegion> {
+  bool _hovered = false;
+
+  void _setHovered(bool value) {
+    if (_hovered == value) return;
+    setState(() => _hovered = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      child: widget.builder(context, _hovered),
+    );
   }
 }
 

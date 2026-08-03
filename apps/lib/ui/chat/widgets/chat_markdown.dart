@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
-import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/code_highlight_theme.dart';
 
 /// Renders an assistant (or user) message body as rich Markdown with a set of
 /// chat-quality-of-life features layered on top of `gpt_markdown`:
@@ -160,11 +160,17 @@ class _ChatCodeBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String lang = name.trim().isEmpty ? 'text' : name.trim();
+    final CodeThemeDefinition codeTheme = CodeHighlightTheme.of(context);
+    final Color secondary = codeTheme.foreground.withValues(alpha: 0.72);
+    final Color headerBackground = Color.alphaBlend(
+      codeTheme.foreground.withValues(alpha: 0.07),
+      codeTheme.background,
+    );
 
     return Container(
       margin: EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: context.appColors.surface,
+        color: codeTheme.background,
         borderRadius: BorderRadius.circular(12),
       ),
       clipBehavior: Clip.antiAlias,
@@ -172,50 +178,37 @@ class _ChatCodeBlock extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Container(
-            color: context.appColors.background,
+            color: headerBackground,
             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(
               children: <Widget>[
-                Icon(
-                  Icons.terminal_rounded,
-                  size: 14,
-                  color: context.appColors.textSecondary,
-                ),
+                Icon(Icons.terminal_rounded, size: 14, color: secondary),
                 SizedBox(width: 8),
                 Text(
                   lang,
                   style: TextStyle(
-                    color: context.appColors.textSecondary,
+                    color: secondary,
                     fontSize: 12,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Spacer(),
-                _CopyButton(text: code),
+                _CopyButton(text: code, foreground: secondary),
               ],
             ),
           ),
-          Container(
-            color: context.appColors.surfaceHigh,
-            padding: EdgeInsets.all(12),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: HighlightView(
-                code,
-                language: lang,
-                theme: atomOneDarkTheme.map(
-                  (key, value) => MapEntry(
-                    key,
-                    value.copyWith(backgroundColor: Colors.transparent),
-                  ),
-                ),
-                padding: EdgeInsets.zero,
-                textStyle: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                  height: 1.5,
-                ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: HighlightView(
+              code,
+              language: lang,
+              theme: codeTheme.styles,
+              padding: EdgeInsets.all(12),
+              textStyle: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 13,
+                height: 1.5,
               ),
             ),
           ),
@@ -296,9 +289,10 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
 
 /// A compact copy button with a "Copied!" confirmation state.
 class _CopyButton extends StatefulWidget {
-  const _CopyButton({required this.text});
+  const _CopyButton({required this.text, required this.foreground});
 
   final String text;
+  final Color foreground;
 
   @override
   State<_CopyButton> createState() => _CopyButtonState();
@@ -330,16 +324,14 @@ class _CopyButtonState extends State<_CopyButton> {
               Icon(
                 _copied ? Icons.check_rounded : Icons.copy_rounded,
                 size: 13,
-                color: _copied ? Colors.green : context.appColors.textSecondary,
+                color: _copied ? Colors.green : widget.foreground,
               ),
               SizedBox(width: 4),
               Text(
                 _copied ? 'Copied' : 'Copy',
                 style: TextStyle(
                   fontSize: 11,
-                  color: _copied
-                      ? Colors.green
-                      : context.appColors.textSecondary,
+                  color: _copied ? Colors.green : widget.foreground,
                   fontWeight: FontWeight.w500,
                 ),
               ),

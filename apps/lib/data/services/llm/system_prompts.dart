@@ -34,6 +34,10 @@ The chat renders your Markdown output with these features — use them deliberat
   Your redeem code is `ABCD-1234-EFGH` — enter it at checkout.
   Putting a value in inline code makes it a one-tap copy chip in the UI.
 
+  When returning several short copy-worthy values, use a Markdown list and wrap each value separately in inline code. A collection of keys, codes, tokens, IDs, paths, or other short values is not a code block. Never put the whole collection in one fenced block. Put labels or explanations outside the backticks. Example:
+  - Home: `MOCK1-WIN11-HOME0-DEMO0-XXXXX`
+  - Pro: `MOCK2-WIN11-PRO00-DEMO0-XXXXX`
+
 - **Bold** (`**text**`) only for real emphasis, not headings.
 
 - **Headings** (`#`, `##`, `###`) to structure longer answers; don't overuse them for short replies.

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/services/storage/app_settings.dart';
 import '../../domain/models/app_theme_preferences.dart';
+import '../../domain/models/code_theme_preferences.dart';
 import '../../providers.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/code_highlight_theme.dart';
 import '../core/widgets/app_scroll_view.dart';
 import '../core/widgets/fade_slide_in.dart';
 import '../pricing/discover_panel.dart';
@@ -400,7 +403,13 @@ class _CategoryContent extends StatelessWidget {
         ),
         SettingsSection.appearance => _ScrollableCategory(
           key: ValueKey<SettingsSection>(SettingsSection.appearance),
-          children: <Widget>[_AppearanceCard(settings: settings)],
+          children: <Widget>[
+            _AppearanceGroupLabel(label: 'APP THEME'),
+            _AppearanceCard(settings: settings),
+            SizedBox(height: 18),
+            _AppearanceGroupLabel(label: 'CODE THEME'),
+            _CodeThemeCard(settings: settings),
+          ],
         ),
         SettingsSection.general => _ScrollableCategory(
           key: ValueKey<SettingsSection>(SettingsSection.general),
@@ -549,6 +558,398 @@ class _AppearanceCard extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _AppearanceGroupLabel extends StatelessWidget {
+  const _AppearanceGroupLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 4, 12, 9),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: context.appColors.textSecondary,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.05,
+        ),
+      ),
+    );
+  }
+}
+
+class _CodeThemeCard extends StatelessWidget {
+  const _CodeThemeCard({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final CodeThemeDefinition definition = CodeThemeCatalog.resolve(
+      settings.codeTheme,
+      Theme.of(context).brightness,
+    );
+    final String subtitle = settings.codeTheme == CodeThemeOption.adaptive
+        ? 'Match app · ${definition.label}'
+        : definition.label;
+    return _Card(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ListTile(
+            key: const ValueKey<String>('code-theme'),
+            dense: true,
+            leading: Icon(
+              Icons.code_rounded,
+              size: 19,
+              color: context.appColors.brandViolet,
+            ),
+            title: Text(
+              'Code theme',
+              style: TextStyle(
+                color: context.appColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              subtitle,
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _CodeThemeSwatches(definition: definition),
+                SizedBox(width: 8),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: context.appColors.textSecondary,
+                ),
+              ],
+            ),
+            onTap: () => _showCodeThemePicker(context, settings),
+          ),
+          _CodeThemePreview(definition: definition),
+        ],
+      ),
+    );
+  }
+}
+
+class _CodeThemePreview extends StatelessWidget {
+  const _CodeThemePreview({required this.definition});
+
+  final CodeThemeDefinition definition;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+      child: HighlightView(
+        "final greeting = 'Hello';\nprint(greeting);",
+        language: 'dart',
+        theme: definition.styles,
+        padding: EdgeInsets.fromLTRB(14, 10, 14, 12),
+        textStyle: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 12,
+          height: 1.45,
+        ),
+      ),
+    );
+  }
+}
+
+class _CodeThemeThumbnail extends StatelessWidget {
+  const _CodeThemeThumbnail({required this.definition});
+
+  final CodeThemeDefinition definition;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 46,
+      height: 38,
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: definition.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: context.appColors.divider.withValues(alpha: 0.65),
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              _CodeColorStroke(
+                color: definition.colorFor('keyword'),
+                width: 12,
+              ),
+              SizedBox(width: 3),
+              _CodeColorStroke(color: definition.foreground, width: 9),
+            ],
+          ),
+          Padding(
+            padding: EdgeInsets.only(left: 5),
+            child: _CodeColorStroke(
+              color: definition.colorFor('string'),
+              width: 22,
+            ),
+          ),
+          Row(
+            children: <Widget>[
+              _CodeColorStroke(color: definition.colorFor('number'), width: 9),
+              SizedBox(width: 3),
+              _CodeColorStroke(
+                color: definition.colorFor('comment'),
+                width: 14,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CodeColorStroke extends StatelessWidget {
+  const _CodeColorStroke({required this.color, required this.width});
+
+  final Color color;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: 3,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(3),
+      ),
+    );
+  }
+}
+
+class _CodeThemeSwatches extends StatelessWidget {
+  const _CodeThemeSwatches({required this.definition});
+
+  final CodeThemeDefinition definition;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Color> colors = <Color>[
+      definition.colorFor('keyword'),
+      definition.colorFor('string'),
+      definition.colorFor('number'),
+    ];
+    return Container(
+      width: 50,
+      height: 24,
+      padding: EdgeInsets.symmetric(horizontal: 5),
+      decoration: BoxDecoration(
+        color: definition.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: context.appColors.divider.withValues(alpha: 0.7),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          for (final Color color in colors)
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showCodeThemePicker(BuildContext context, AppSettings settings) {
+  final Widget content = _CodeThemePicker(settings: settings);
+  if (MediaQuery.sizeOf(context).width >= AppTheme.wideBreakpoint) {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => Dialog(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 440, maxHeight: 640),
+          child: content,
+        ),
+      ),
+    );
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (BuildContext context) => SafeArea(top: false, child: content),
+  );
+}
+
+class _CodeThemePicker extends StatelessWidget {
+  const _CodeThemePicker({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final Brightness brightness = Theme.of(context).brightness;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 8, 8),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Code theme',
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: AppScrollView(
+            builder: (BuildContext context, AppScrollController controller) =>
+                ListView(
+                  controller: controller,
+                  shrinkWrap: true,
+                  padding: EdgeInsets.fromLTRB(8, 0, 8, 12),
+                  children: <Widget>[
+                    _CodeThemeOptionTile(
+                      option: CodeThemeOption.adaptive,
+                      definition: CodeThemeCatalog.resolve(
+                        CodeThemeOption.adaptive,
+                        brightness,
+                      ),
+                      selected: settings.codeTheme == CodeThemeOption.adaptive,
+                      subtitle: 'Follows the app theme',
+                      onTap: () => _selectCodeTheme(
+                        context,
+                        settings,
+                        CodeThemeOption.adaptive,
+                      ),
+                    ),
+                    _CodeThemePickerLabel(label: 'DARK'),
+                    for (final CodeThemeOption option in CodeThemeCatalog.dark)
+                      _CodeThemeOptionTile(
+                        option: option,
+                        definition: CodeThemeCatalog.definition(option),
+                        selected: settings.codeTheme == option,
+                        onTap: () =>
+                            _selectCodeTheme(context, settings, option),
+                      ),
+                    _CodeThemePickerLabel(label: 'LIGHT'),
+                    for (final CodeThemeOption option in CodeThemeCatalog.light)
+                      _CodeThemeOptionTile(
+                        option: option,
+                        definition: CodeThemeCatalog.definition(option),
+                        selected: settings.codeTheme == option,
+                        onTap: () =>
+                            _selectCodeTheme(context, settings, option),
+                      ),
+                  ],
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _selectCodeTheme(
+    BuildContext context,
+    AppSettings settings,
+    CodeThemeOption option,
+  ) {
+    settings.setCodeTheme(option);
+    Navigator.of(context).pop();
+  }
+}
+
+class _CodeThemePickerLabel extends StatelessWidget {
+  const _CodeThemePickerLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 14, 12, 5),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: context.appColors.textSecondary,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _CodeThemeOptionTile extends StatelessWidget {
+  const _CodeThemeOptionTile({
+    required this.option,
+    required this.definition,
+    required this.selected,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final CodeThemeOption option;
+  final CodeThemeDefinition definition;
+  final bool selected;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      key: ValueKey<String>('code-theme-${option.name}'),
+      leading: _CodeThemeThumbnail(definition: definition),
+      title: Text(
+        option == CodeThemeOption.adaptive ? 'Match app' : definition.label,
+      ),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+      trailing: selected
+          ? Icon(
+              Icons.check_circle_rounded,
+              color: context.appColors.brandViolet,
+            )
+          : null,
+      selected: selected,
+      selectedTileColor: context.appColors.brandViolet.withValues(alpha: 0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      onTap: onTap,
     );
   }
 }

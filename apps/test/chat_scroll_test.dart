@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,6 +78,73 @@ void main() {
       closeTo(controller.position.maxScrollExtent, 0.5),
     );
   });
+
+  testWidgets('hovering either side reveals actions for the whole turn', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final Conversation conversation = _hoverConversation();
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[
+        conversationStoreProvider.overrideWithValue(
+          _SeededConversationStore(conversation),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final repository = container.read(conversationRepositoryProvider);
+    await repository.ready;
+    repository.selectConversation(conversation.id);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: App(initialLocation: chatRouteFor(conversation.id)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder firstUserActions = find.byKey(
+      const ValueKey<String>('user-message-actions-user-1'),
+    );
+    final Finder firstReplyActions = find.byKey(
+      const ValueKey<String>('assistant-message-actions-reply-1'),
+    );
+    final Finder latestReplyActions = find.byKey(
+      const ValueKey<String>('assistant-message-actions-reply-2'),
+    );
+    expect(tester.widget<AnimatedOpacity>(firstUserActions).opacity, 0);
+    expect(tester.widget<AnimatedOpacity>(firstReplyActions).opacity, 0);
+    expect(tester.widget<AnimatedOpacity>(latestReplyActions).opacity, 1);
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(find.text('First user message')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<AnimatedOpacity>(firstUserActions).opacity, 1);
+    expect(tester.widget<AnimatedOpacity>(firstReplyActions).opacity, 1);
+
+    await mouse.moveTo(tester.getCenter(find.text('Unanswered user message')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedOpacity>(firstUserActions).opacity, 0);
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey<String>('user-message-actions-user-3')),
+          )
+          .opacity,
+      1,
+    );
+    expect(tester.widget<AnimatedOpacity>(latestReplyActions).opacity, 1);
+  });
 }
 
 Conversation _conversation() {
@@ -94,6 +162,48 @@ Conversation _conversation() {
   return Conversation(
     id: 'scroll-test',
     title: 'Scroll test',
+    messages: messages,
+  );
+}
+
+Conversation _hoverConversation() {
+  final List<ChatMessage> messages = <ChatMessage>[
+    ChatMessage(
+      id: 'user-1',
+      role: MessageRole.user,
+      text: 'First user message',
+    ),
+    ChatMessage(
+      id: 'reply-1',
+      role: MessageRole.assistant,
+      text: 'First assistant reply',
+      parentId: 'user-1',
+    ),
+    ChatMessage(
+      id: 'user-2',
+      role: MessageRole.user,
+      text: 'Second user message',
+      parentId: 'reply-1',
+    ),
+    ChatMessage(
+      id: 'reply-2',
+      role: MessageRole.assistant,
+      text: 'Second assistant reply',
+      parentId: 'user-2',
+    ),
+    ChatMessage(
+      id: 'user-3',
+      role: MessageRole.user,
+      text: 'Unanswered user message',
+      parentId: 'reply-2',
+    ),
+  ];
+  for (int index = 1; index < messages.length; index++) {
+    messages[index - 1].childrenIds.add(messages[index].id);
+  }
+  return Conversation(
+    id: 'hover-test',
+    title: 'Hover test',
     messages: messages,
   );
 }

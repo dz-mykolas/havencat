@@ -38,8 +38,9 @@ class MessageBubble extends StatefulWidget {
     required this.message,
     this.messages = const <ChatMessage>[],
     this.siblings = const <String>[],
-    this.isLast = false,
+    this.isLatestAssistant = false,
     this.isGenerating = false,
+    this.groupHovered = false,
     this.descendantCount = 0,
     this.actualTokens,
     this.completionTokens,
@@ -62,13 +63,14 @@ class MessageBubble extends StatefulWidget {
   /// or a message with no alternate versions.
   final List<String> siblings;
 
-  /// True when this is the last message on the active path. Used to decide
-  /// whether to show the regenerate affordance (only on the last assistant).
-  final bool isLast;
+  final bool isLatestAssistant;
 
   /// True while the repository is streaming a reply. Disables edit/regenerate
   /// actions to avoid racing the stream.
   final bool isGenerating;
+
+  /// Whether another message in the same conversation turn is hovered.
+  final bool groupHovered;
 
   /// Number of messages downstream of this one. Used to show a cache-cost
   /// hint when editing a message that has descendants.
@@ -168,7 +170,7 @@ class _MessageBubbleState extends State<MessageBubble>
     _setEditing(false);
   }
 
-  void _copyUserMessage() {
+  void _copyMessage() {
     Clipboard.setData(ClipboardData(text: widget.message.text));
   }
 
@@ -192,7 +194,7 @@ class _MessageBubbleState extends State<MessageBubble>
                   title: Text('Copy message'),
                   onTap: () {
                     Navigator.of(sheetContext).pop();
-                    _copyUserMessage();
+                    _copyMessage();
                   },
                 ),
               if (canEdit)
@@ -224,6 +226,7 @@ class _MessageBubbleState extends State<MessageBubble>
     if (_editing) return _buildUserEditor(context);
     final bool canCopy = widget.message.text.isNotEmpty;
     final bool canEdit = widget.onEditUser != null && !widget.isGenerating;
+    final bool actionsVisible = _hovered || widget.groupHovered;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double maxBubbleWidth = math.min(
@@ -285,23 +288,25 @@ class _MessageBubbleState extends State<MessageBubble>
                     SizedBox(
                       height: 38,
                       child: AnimatedOpacity(
-                        key: const ValueKey<String>('user-message-actions'),
-                        opacity: _hovered ? 1 : 0,
+                        key: ValueKey<String>(
+                          'user-message-actions-${widget.message.id}',
+                        ),
+                        opacity: actionsVisible ? 1 : 0,
                         duration: const Duration(milliseconds: 100),
                         child: IgnorePointer(
-                          ignoring: !_hovered,
+                          ignoring: !actionsVisible,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
                               if (canCopy)
                                 KeyedSubtree(
-                                  key: const ValueKey<String>(
-                                    'user-copy-control',
+                                  key: ValueKey<String>(
+                                    'user-copy-control-${widget.message.id}',
                                   ),
                                   child: _IconButton(
                                     icon: Icons.copy_outlined,
                                     tooltip: 'Copy',
-                                    onTap: _copyUserMessage,
+                                    onTap: _copyMessage,
                                     iconSize: 18,
                                     padding: 6,
                                   ),
@@ -309,8 +314,8 @@ class _MessageBubbleState extends State<MessageBubble>
                               if (canCopy && canEdit) SizedBox(width: 4),
                               if (canEdit)
                                 KeyedSubtree(
-                                  key: const ValueKey<String>(
-                                    'user-edit-control',
+                                  key: ValueKey<String>(
+                                    'user-edit-control-${widget.message.id}',
                                   ),
                                   child: _IconButton(
                                     icon: Icons.edit_outlined,
@@ -444,25 +449,14 @@ class _MessageBubbleState extends State<MessageBubble>
                         ),
                       ),
                     Spacer(),
-                    PopupMenuButton<String>(
-                      enabled: canCommit,
-                      tooltip: 'More edit options',
-                      icon: Icon(Icons.more_horiz_rounded, size: 18),
-                      padding: EdgeInsets.zero,
+                    IconButton(
+                      tooltip: 'Save without sending',
+                      icon: Icon(Icons.done_all_rounded, size: 19),
+                      onPressed: canCommit ? () => _save(false) : null,
                       style: IconButton.styleFrom(
                         fixedSize: Size.square(36),
                         padding: EdgeInsets.zero,
                       ),
-                      onSelected: (String action) {
-                        if (action == 'save') _save(false);
-                      },
-                      itemBuilder: (BuildContext context) =>
-                          <PopupMenuEntry<String>>[
-                            PopupMenuItem<String>(
-                              value: 'save',
-                              child: Text('Save without sending'),
-                            ),
-                          ],
                     ),
                     SizedBox(width: 2),
                     TextButton(
@@ -542,13 +536,13 @@ class _MessageBubbleState extends State<MessageBubble>
     );
   }
 
-  /// Row of message actions: sibling counter, regenerate, revert, and usage.
+  /// Row of message actions: copy, regenerate, branches, revert, and usage.
   Widget _buildActionsRow(BuildContext context, {required bool isUser}) {
-    final bool canRegenerate =
-        !isUser &&
-        widget.isLast &&
-        widget.onRegenerate != null &&
-        !widget.isGenerating;
+    final bool canCopy = !isUser && widget.message.text.isNotEmpty;
+    final bool hasRegenerate = !isUser && widget.onRegenerate != null;
+    final bool turnHovered = _hovered || widget.groupHovered;
+    final bool assistantActionsVisible =
+        widget.isLatestAssistant || turnHovered;
     final bool canRevert =
         isUser && widget.message.isEdited && widget.onRevert != null;
     final bool hasSiblings = widget.siblings.length > 1;
@@ -564,9 +558,10 @@ class _MessageBubbleState extends State<MessageBubble>
             widget.actualTokens != null ||
             widget.estimatedTokens != null ||
             widget.estimatedCompletionTokens != null);
-    final bool chipVisible = hasUsage && (widget.isLast || _hovered);
+    final bool chipVisible =
+        hasUsage && (widget.isLatestAssistant || turnHovered);
 
-    if (!canRegenerate && !hasSiblings && !canRevert && !hasUsage) {
+    if (!canCopy && !hasRegenerate && !hasSiblings && !canRevert && !hasUsage) {
       return SizedBox.shrink();
     }
 
@@ -585,7 +580,44 @@ class _MessageBubbleState extends State<MessageBubble>
               tooltip: 'Revert edit',
               onTap: widget.onRevert,
             ),
-          if (canRegenerate) _buildRegenerateMenu(context),
+          if (canCopy || hasRegenerate)
+            AnimatedOpacity(
+              key: ValueKey<String>(
+                'assistant-message-actions-${widget.message.id}',
+              ),
+              opacity: assistantActionsVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 80),
+              child: IgnorePointer(
+                ignoring: !assistantActionsVisible,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (canCopy)
+                      KeyedSubtree(
+                        key: ValueKey<String>(
+                          'assistant-copy-control-${widget.message.id}',
+                        ),
+                        child: _IconButton(
+                          icon: Icons.copy_outlined,
+                          tooltip: 'Copy',
+                          onTap: _copyMessage,
+                        ),
+                      ),
+                    if (canCopy && hasRegenerate) SizedBox(width: 2),
+                    if (hasRegenerate)
+                      KeyedSubtree(
+                        key: ValueKey<String>(
+                          'assistant-regenerate-control-${widget.message.id}',
+                        ),
+                        child: _buildRegenerateMenu(
+                          context,
+                          enabled: !widget.isGenerating,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           if (hasUsage)
             Visibility(
               visible: chipVisible,
@@ -608,13 +640,16 @@ class _MessageBubbleState extends State<MessageBubble>
   }
 
   /// Regenerate button with a dropdown menu of suggestion prompts.
-  Widget _buildRegenerateMenu(BuildContext context) {
+  Widget _buildRegenerateMenu(BuildContext context, {required bool enabled}) {
     return PopupMenuButton<String>(
+      enabled: enabled,
       tooltip: 'Regenerate',
       icon: Icon(
         Icons.refresh,
         size: 16,
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+        color: Theme.of(
+          context,
+        ).colorScheme.onSurface.withValues(alpha: enabled ? 0.55 : 0.25),
       ),
       padding: EdgeInsets.zero,
       constraints: BoxConstraints(),

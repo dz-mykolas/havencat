@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../domain/models/app_theme_preferences.dart';
+import '../../../domain/models/code_theme_preferences.dart';
 
 /// Global, app-wide user preferences (not tied to any single account).
 ///
@@ -24,6 +25,11 @@ class AppSettings extends ChangeNotifier {
       _theme = _loadManualTheme(prefs),
       _lightTheme = _loadLightTheme(prefs),
       _darkTheme = _loadDarkTheme(prefs),
+      _codeTheme = enumByNameOrDefault(
+        CodeThemeOption.values,
+        prefs?.getString(_codeThemeKey),
+        CodeThemeOption.adaptive,
+      ),
       _gradientLightHue = _loadGradientHue(prefs, _gradientLightHueKey),
       _gradientDarkHue = _loadGradientHue(prefs, _gradientDarkHueKey);
 
@@ -43,6 +49,7 @@ class AppSettings extends ChangeNotifier {
   static const String _themeKey = 'appearance.theme::v2';
   static const String _lightThemeKey = 'appearance.light_theme::v1';
   static const String _darkThemeKey = 'appearance.dark_theme::v1';
+  static const String _codeThemeKey = 'appearance.code_theme::v1';
   static const String _gradientLightHueKey =
       'appearance.gradient_light_hue::v2';
   static const String _gradientDarkHueKey = 'appearance.gradient_dark_hue::v2';
@@ -51,6 +58,7 @@ class AppSettings extends ChangeNotifier {
   AppThemePreset _theme;
   AppThemePreset _lightTheme;
   AppThemePreset _darkTheme;
+  CodeThemeOption _codeTheme;
   int _gradientLightHue;
   int _gradientDarkHue;
 
@@ -58,6 +66,7 @@ class AppSettings extends ChangeNotifier {
   AppThemePreset get theme => _theme;
   AppThemePreset get lightTheme => _lightTheme;
   AppThemePreset get darkTheme => _darkTheme;
+  CodeThemeOption get codeTheme => _codeTheme;
   int get gradientLightHue => _gradientLightHue;
   int get gradientDarkHue => _gradientDarkHue;
 
@@ -171,6 +180,13 @@ class AppSettings extends ChangeNotifier {
     _darkTheme = value;
     notifyListeners();
     await _prefs?.setString(_darkThemeKey, value.name);
+  }
+
+  Future<void> setCodeTheme(CodeThemeOption value) async {
+    if (value == _codeTheme) return;
+    _codeTheme = value;
+    notifyListeners();
+    await _prefs?.setString(_codeThemeKey, value.name);
   }
 
   bool _showHiddenModels;
