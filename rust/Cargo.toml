@@ -26,3 +26,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "=0.22.4"
+rustls-platform-verifier = "=0.7.0"
