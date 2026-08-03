@@ -97,6 +97,7 @@ class RustWebRetrievalAdapter
             (rust_types.ProviderIssue issue) => WebProviderIssue(
               provider: issue.provider,
               kind: issue.kind,
+              detail: issue.detail,
               retryAfter: issue.retryAfterSecs == null
                   ? null
                   : Duration(seconds: issue.retryAfterSecs!.toInt()),

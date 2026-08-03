@@ -39,17 +39,22 @@ class FetchedPage {
 class ProviderIssue {
   final String provider;
   final String kind;
+  final String detail;
   final BigInt? retryAfterSecs;
 
   const ProviderIssue({
     required this.provider,
     required this.kind,
+    required this.detail,
     this.retryAfterSecs,
   });
 
   @override
   int get hashCode =>
-      provider.hashCode ^ kind.hashCode ^ retryAfterSecs.hashCode;
+      provider.hashCode ^
+      kind.hashCode ^
+      detail.hashCode ^
+      retryAfterSecs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -58,6 +63,7 @@ class ProviderIssue {
           runtimeType == other.runtimeType &&
           provider == other.provider &&
           kind == other.kind &&
+          detail == other.detail &&
           retryAfterSecs == other.retryAfterSecs;
 }
 

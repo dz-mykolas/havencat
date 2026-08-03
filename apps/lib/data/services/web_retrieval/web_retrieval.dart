@@ -30,11 +30,13 @@ class WebProviderIssue {
   const WebProviderIssue({
     required this.provider,
     required this.kind,
+    required this.detail,
     this.retryAfter,
   });
 
   final String provider;
   final String kind;
+  final String detail;
   final Duration? retryAfter;
 }
 

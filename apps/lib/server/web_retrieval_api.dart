@@ -245,6 +245,7 @@ Map<String, Object?> _searchResultToJson(WebSearchResult r) => {
 Map<String, Object?> _providerIssueToJson(WebProviderIssue issue) => {
   'provider': issue.provider,
   'kind': issue.kind,
+  'detail': issue.detail,
   if (issue.retryAfter != null)
     'retry_after_seconds': issue.retryAfter!.inSeconds,
 };
@@ -268,6 +269,7 @@ Response _failureResponse(AppFailure failure) {
       'message': failure.message,
       if (failure.source.providerId != null)
         'provider': failure.source.providerId,
+      if (failure.safeDetail != null) 'detail': failure.safeDetail,
       if (failure.requestId != null) 'request_id': failure.requestId,
     },
   });

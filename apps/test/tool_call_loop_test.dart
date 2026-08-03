@@ -112,7 +112,11 @@ class _FailingWebRetrieval extends _FakeWebRetrieval {
     return const WebSearchResponse(
       results: <WebSearchResult>[],
       issues: <WebProviderIssue>[
-        WebProviderIssue(provider: 'searxng', kind: 'authentication'),
+        WebProviderIssue(
+          provider: 'searxng',
+          kind: 'authentication',
+          detail: 'auth error: searxng instance rejected the request',
+        ),
       ],
     );
   }

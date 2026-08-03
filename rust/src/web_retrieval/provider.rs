@@ -21,6 +21,7 @@ pub struct SearchResult {
 pub struct ProviderIssue {
     pub provider: String,
     pub kind: String,
+    pub detail: String,
     #[serde(default)]
     pub retry_after_secs: Option<u64>,
 }

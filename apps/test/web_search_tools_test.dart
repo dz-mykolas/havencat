@@ -200,7 +200,11 @@ void main() {
           ),
         ],
         searchIssues: const <WebProviderIssue>[
-          WebProviderIssue(provider: 'brave', kind: 'rate_limited'),
+          WebProviderIssue(
+            provider: 'brave',
+            kind: 'rate_limited',
+            detail: 'rate limited by provider brave',
+          ),
         ],
       );
 
@@ -217,7 +221,11 @@ void main() {
     test('throws when every configured provider failed', () async {
       final adapter = _FakeAdapter(
         searchIssues: const <WebProviderIssue>[
-          WebProviderIssue(provider: 'exa', kind: 'rate_limited'),
+          WebProviderIssue(
+            provider: 'exa',
+            kind: 'rate_limited',
+            detail: 'rate limited by provider exa',
+          ),
         ],
       );
 
@@ -228,11 +236,17 @@ void main() {
           adapter: adapter,
         ),
         throwsA(
-          isA<AppFailure>().having(
-            (AppFailure failure) => failure.kind,
-            'kind',
-            FailureKind.rateLimited,
-          ),
+          isA<AppFailure>()
+              .having(
+                (AppFailure failure) => failure.kind,
+                'kind',
+                FailureKind.rateLimited,
+              )
+              .having(
+                (AppFailure failure) => failure.message,
+                'message',
+                contains('rate limited by provider exa'),
+              ),
         ),
       );
     });
@@ -241,7 +255,11 @@ void main() {
       final adapter = _FakeAdapter(
         successfulProviders: <String>['exa'],
         searchIssues: const <WebProviderIssue>[
-          WebProviderIssue(provider: 'brave', kind: 'rate_limited'),
+          WebProviderIssue(
+            provider: 'brave',
+            kind: 'rate_limited',
+            detail: 'rate limited by provider brave',
+          ),
         ],
       );
 

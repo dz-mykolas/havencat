@@ -91,6 +91,7 @@ pub async fn search_all(
             result.err().map(|error| ProviderIssue {
                 provider: provider.to_string(),
                 kind: error.kind().to_string(),
+                detail: error.to_string(),
                 retry_after_secs: error.retry_after_secs(),
             })
         })
@@ -213,6 +214,7 @@ mod tests {
         assert_eq!(batch.issues.len(), 1);
         assert_eq!(batch.issues[0].provider, "brave");
         assert_eq!(batch.issues[0].kind, "rate_limited");
+        assert!(batch.issues[0].detail.contains("rate limited"));
         assert_eq!(batch.issues[0].retry_after_secs, Some(30));
     }
 }

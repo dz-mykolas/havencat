@@ -13,6 +13,8 @@ class WebRetrievalFailureMapper {
     bool degraded = false,
   }) {
     final FailureKind kind = _kindFromCode(issue.kind);
+    final String detail = _safeDetail(issue.detail);
+    final String summary = _message(kind, issue.provider, operation);
     return AppFailure(
       kind: kind,
       source: FailureSource(
@@ -24,12 +26,13 @@ class WebRetrievalFailureMapper {
       ),
       message: degraded
           ? '${_displayName(issue.provider)} was unavailable, but other search providers returned results.'
-          : _message(kind, issue.provider, operation),
+          : _withDetail(summary, detail),
       retryAt: issue.retryAfter == null
           ? null
           : DateTime.now().add(issue.retryAfter!),
       isRetryable: _isRetryable(kind),
       impact: degraded ? FailureImpact.degraded : FailureImpact.operationFailed,
+      safeDetail: detail,
     );
   }
 
@@ -40,7 +43,7 @@ class WebRetrievalFailureMapper {
     String? provider,
   }) {
     if (error is AppFailure) return error;
-    final String detail = redactSecrets(error.toString());
+    final String detail = _safeDetail(error.toString());
     final String normalized = detail.toLowerCase();
     final FailureKind kind = normalized.contains('rate limit')
         ? FailureKind.rateLimited
@@ -63,11 +66,9 @@ class WebRetrievalFailureMapper {
         operation: operation,
         providerId: provider,
       ),
-      message: _message(kind, provider, operation),
+      message: _withDetail(_message(kind, provider, operation), detail),
       isRetryable: _isRetryable(kind),
-      safeDetail: detail.length <= 600
-          ? detail
-          : '${detail.substring(0, 600)}…',
+      safeDetail: detail,
     );
   }
 
@@ -79,6 +80,8 @@ class WebRetrievalFailureMapper {
   }) {
     String? code;
     String? provider;
+    String? message;
+    String? detail;
     try {
       final Object? decoded = jsonDecode(body);
       if (decoded is Map) {
@@ -86,6 +89,8 @@ class WebRetrievalFailureMapper {
         if (error is Map) {
           code = error['code']?.toString();
           provider = error['provider']?.toString();
+          message = error['message']?.toString();
+          detail = error['detail']?.toString();
         }
       }
     } on FormatException {
@@ -94,6 +99,8 @@ class WebRetrievalFailureMapper {
     final FailureKind kind = code == null
         ? _kindFromStatus(status)
         : _kindFromCode(code);
+    final String safeDetail = detail == null ? '' : _safeDetail(detail);
+    final String safeMessage = message == null ? '' : _safeDetail(message);
     return AppFailure(
       kind: kind,
       source: FailureSource(
@@ -101,10 +108,13 @@ class WebRetrievalFailureMapper {
         operation: operation,
         providerId: provider,
       ),
-      message: _message(kind, provider, operation),
+      message: safeMessage.isEmpty
+          ? _withDetail(_message(kind, provider, operation), safeDetail)
+          : safeMessage,
       httpStatus: status,
       providerCode: code,
       isRetryable: _isRetryable(kind),
+      safeDetail: safeDetail.isEmpty ? null : safeDetail,
     );
   }
 
@@ -163,5 +173,15 @@ class WebRetrievalFailureMapper {
       'searxng' => 'SearXNG',
       _ => provider,
     };
+  }
+
+  static String _safeDetail(String value) {
+    final String detail = redactSecrets(value).trim();
+    return detail.length <= 600 ? detail : '${detail.substring(0, 600)}…';
+  }
+
+  static String _withDetail(String summary, String detail) {
+    if (detail.isEmpty) return summary;
+    return '$summary\n$detail';
   }
 }

@@ -113,12 +113,43 @@ void main() {
 
     test('search throws AppFailure on non-200', () async {
       final client = MockClient((_) async {
-        return http.Response('Internal error', 500);
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'error': <String, Object?>{
+              'code': 'network',
+              'message': 'SearXNG could not search the web.',
+              'provider': 'searxng',
+              'detail': 'connection refused',
+            },
+          }),
+          503,
+        );
       });
 
       final adapter = HttpWebRetrievalAdapter(client: client);
+      final Future<WebSearchResponse> search = adapter.search('test');
 
-      expect(() => adapter.search('test'), throwsA(isA<AppFailure>()));
+      await expectLater(
+        search,
+        throwsA(
+          isA<AppFailure>()
+              .having(
+                (AppFailure failure) => failure.message,
+                'message',
+                'SearXNG could not search the web.',
+              )
+              .having(
+                (AppFailure failure) => failure.safeDetail,
+                'safeDetail',
+                'connection refused',
+              )
+              .having(
+                (AppFailure failure) => failure.source.providerId,
+                'provider',
+                'searxng',
+              ),
+        ),
+      );
     });
 
     test('search handles empty result list', () async {
@@ -141,6 +172,7 @@ void main() {
               <String, Object?>{
                 'provider': 'brave',
                 'kind': 'rate_limited',
+                'detail': 'rate limited by provider brave',
                 'retry_after_seconds': 30,
               },
             ],
@@ -156,6 +188,7 @@ void main() {
 
       expect(response.successfulProviders, <String>['exa']);
       expect(response.issues.single.provider, 'brave');
+      expect(response.issues.single.detail, 'rate limited by provider brave');
       expect(response.issues.single.retryAfter, const Duration(seconds: 30));
     });
 

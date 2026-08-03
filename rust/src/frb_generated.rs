@@ -1858,10 +1858,12 @@ impl SseDecode for crate::web_retrieval::provider::ProviderIssue {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_provider = <String>::sse_decode(deserializer);
         let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_detail = <String>::sse_decode(deserializer);
         let mut var_retryAfterSecs = <Option<u64>>::sse_decode(deserializer);
         return crate::web_retrieval::provider::ProviderIssue {
             provider: var_provider,
             kind: var_kind,
+            detail: var_detail,
             retry_after_secs: var_retryAfterSecs,
         };
     }
@@ -2587,6 +2589,7 @@ impl flutter_rust_bridge::IntoDart for crate::web_retrieval::provider::ProviderI
         [
             self.provider.into_into_dart().into_dart(),
             self.kind.into_into_dart().into_dart(),
+            self.detail.into_into_dart().into_dart(),
             self.retry_after_secs.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -3138,6 +3141,7 @@ impl SseEncode for crate::web_retrieval::provider::ProviderIssue {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.provider, serializer);
         <String>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.detail, serializer);
         <Option<u64>>::sse_encode(self.retry_after_secs, serializer);
     }
 }

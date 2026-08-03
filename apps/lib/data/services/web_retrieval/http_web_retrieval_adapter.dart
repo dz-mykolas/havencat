@@ -201,8 +201,9 @@ class HttpWebRetrievalAdapter
     final int? retryAfterSeconds = (json['retry_after_seconds'] as num?)
         ?.toInt();
     return WebProviderIssue(
-      provider: json['provider'] as String? ?? '',
-      kind: json['kind'] as String? ?? 'unknown',
+      provider: json['provider'] as String,
+      kind: json['kind'] as String,
+      detail: json['detail'] as String,
       retryAfter: retryAfterSeconds == null
           ? null
           : Duration(seconds: retryAfterSeconds),
