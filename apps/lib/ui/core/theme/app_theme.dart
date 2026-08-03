@@ -81,9 +81,17 @@ abstract final class AppTheme {
       extensions: <ThemeExtension<dynamic>>[appColors, cardVisuals],
       appBarTheme: resolved.appBarTheme.copyWith(
         backgroundColor: Colors.transparent,
+        foregroundColor: appColors.textPrimary,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: appColors.brandViolet, size: 23),
+        actionsIconTheme: IconThemeData(color: appColors.brandViolet, size: 23),
+        titleTextStyle: resolved.textTheme.titleLarge?.copyWith(
+          color: appColors.textPrimary,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.25,
+        ),
       ),
       dividerTheme: DividerThemeData(
         color: appColors.divider,
@@ -406,4 +414,17 @@ extension AppThemeContext on BuildContext {
     return theme.extension<AppThemeColors>() ??
         AppThemeColors.fromScheme(theme.colorScheme);
   }
+
+  ButtonStyle get navigationButtonStyle => IconButton.styleFrom(
+    foregroundColor: appColors.brandViolet,
+    disabledForegroundColor: appColors.textSecondary.withValues(alpha: 0.45),
+    backgroundColor: appColors.surface.withValues(alpha: 0.82),
+    disabledBackgroundColor: appColors.surface.withValues(alpha: 0.5),
+    fixedSize: const Size.square(40),
+    padding: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: appColors.divider.withValues(alpha: 0.65)),
+    ),
+  );
 }

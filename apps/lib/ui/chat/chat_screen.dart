@@ -482,6 +482,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         context,
       ).colorScheme.scrim.withValues(alpha: 0.42),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: persistentSidebar
+            ? null
+            : DrawerButton(style: context.navigationButtonStyle),
         titleSpacing: persistentSidebar ? 16 : 8,
         title: persistentSidebar ? null : _buildLogo(fontSize: 17),
         actions: <Widget>[
@@ -489,6 +493,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             tooltip: 'New chat',
             icon: Icon(Icons.add_comment_outlined),
             onPressed: _goHome,
+            style: context.navigationButtonStyle,
           ),
           SizedBox(width: 4),
         ],

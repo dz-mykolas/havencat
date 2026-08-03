@@ -11,11 +11,31 @@ void main() {
   testWidgets('shows greeting empty state on launch', (
     WidgetTester tester,
   ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const ProviderScope(child: App()));
 
-    // The empty-state greeting should be visible.
     expect(find.text('Hello there'), findsOneWidget);
     expect(find.text('How can I help you today?'), findsOneWidget);
+
+    final Offset logoCenter = tester.getCenter(find.byIcon(Icons.auto_awesome));
+    final Offset titleCenter = tester.getCenter(find.text('Hello there'));
+    final Offset subtitleCenter = tester.getCenter(
+      find.text('How can I help you today?'),
+    );
+    expect(logoCenter.dx, closeTo(titleCenter.dx, 1));
+    expect(titleCenter.dx, closeTo(subtitleCenter.dx, 1));
+
+    final Rect logo = tester.getRect(find.byIcon(Icons.auto_awesome));
+    final Rect subtitle = tester.getRect(
+      find.text('How can I help you today?'),
+    );
+    final Rect input = tester.getRect(find.byType(TextField));
+    final double greetingCenter = (logo.top + subtitle.bottom) / 2;
+    final double availableCenter = (kToolbarHeight + input.top) / 2;
+    expect(greetingCenter, closeTo(availableCenter, 20));
   });
 
   testWidgets('opens the sidebar from a center-screen swipe', (

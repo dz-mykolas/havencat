@@ -10,6 +10,7 @@ import '../core/theme/app_theme.dart';
 import '../core/theme/code_highlight_theme.dart';
 import '../core/widgets/app_scroll_view.dart';
 import '../core/widgets/fade_slide_in.dart';
+import '../core/widgets/gradient_text.dart';
 import '../pricing/discover_panel.dart';
 import 'widgets/web_search_settings_panel.dart';
 
@@ -86,6 +87,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final bool showingMobileDetail = !wide && _mobileCategory != null;
     final bool showingRoutedSection =
         widget.onSectionChanged != null && widget.initialSection != null;
+    final bool canLeaveSettings = Navigator.of(context).canPop();
+    final bool showBackButton =
+        showingMobileDetail || showingRoutedSection || canLeaveSettings;
 
     return PopScope(
       canPop: !showingMobileDetail,
@@ -94,11 +98,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          leading: showingMobileDetail || showingRoutedSection
-              ? BackButton(onPressed: _closeMobileCategory)
+          automaticallyImplyLeading: false,
+          leading: showBackButton
+              ? BackButton(
+                  onPressed: showingMobileDetail || showingRoutedSection
+                      ? _closeMobileCategory
+                      : () => Navigator.of(context).maybePop(),
+                  style: context.navigationButtonStyle,
+                )
               : null,
-          title: Text(
+          title: GradientText(
             showingMobileDetail ? _mobileCategory!.label : 'Settings',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
         ),
         body: SafeArea(

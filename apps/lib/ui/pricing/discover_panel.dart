@@ -621,7 +621,7 @@ class _WorkspaceToolbar extends StatelessWidget {
               tooltip: 'Back',
               onPressed: onBack,
               icon: Icon(Icons.arrow_back_rounded),
-              color: context.appColors.textSecondary,
+              style: context.navigationButtonStyle,
             )
           else
             SizedBox(width: 6),

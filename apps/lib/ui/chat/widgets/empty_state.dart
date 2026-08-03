@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/gradient_text.dart';
 
-/// The home layout shown when the active conversation has no messages: a
-/// gradient greeting sitting above center with the message [input] placed
-/// just below center.
+/// The home layout shown when the active conversation has no messages.
 class EmptyState extends StatelessWidget {
   const EmptyState({super.key, required this.input});
 
@@ -46,33 +44,27 @@ class EmptyState extends StatelessWidget {
     );
   }
 
-  /// Mobile: "Hello there" greeting centered in the middle of the screen,
-  /// input bar pinned to the bottom. No suggestion chips.
   Widget _buildMobile(BuildContext context) {
     final MediaQueryData mediaQuery = MediaQuery.of(context);
     final double bottomSafeInset = mediaQuery.viewInsets.bottom > 0
         ? 0
         : mediaQuery.viewPadding.bottom;
-    return Stack(
-      fit: StackFit.expand,
+    return Column(
       children: <Widget>[
-        Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24),
-            child: _Greeting(),
+        Expanded(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: _Greeting(),
+            ),
           ),
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(12, 0, 12, 27 + bottomSafeInset),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
-                child: input,
-              ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(12, 0, 12, 27 + bottomSafeInset),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: AppTheme.contentMaxWidth),
+              child: input,
             ),
           ),
         ),
@@ -118,7 +110,7 @@ class _Greeting extends StatelessWidget {
             size: 28,
           ),
         ),
-        SizedBox(height: 24),
+        SizedBox(height: 18),
         GradientText(
           'Hello there',
           textAlign: TextAlign.center,
@@ -128,7 +120,7 @@ class _Greeting extends StatelessWidget {
             letterSpacing: -0.5,
           ),
         ),
-        SizedBox(height: 6),
+        SizedBox(height: 10),
         Text(
           'How can I help you today?',
           textAlign: TextAlign.center,
