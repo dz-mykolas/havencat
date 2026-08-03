@@ -351,7 +351,7 @@ SettingsScreen _buildSettingsScreen(
             scope: pricingScope,
             groupId: pricingGroupId,
             onSelectScope: (PricingScope scope) =>
-                context.go(modelsCatalogRouteFor(scope)),
+                context.replace(modelsCatalogRouteFor(scope)),
             onOpenGroup: (PricingScope scope, String groupId) =>
                 context.push(modelsCatalogRouteFor(scope, groupId: groupId)),
             onCloseGroup: () {

@@ -258,6 +258,54 @@ void main() {
     expect(router.state.uri.path, '/settings/models/models');
   });
 
+  testWidgets('mobile catalog tabs replace the current settings route', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GoRouter router = createAppRouter();
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          modelsDevServiceProvider.overrideWithValue(_FakeModelsDevService()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    unawaited(router.push<void>(settingsRoute));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Models & providers'));
+    await tester.pumpAndSettle();
+    expect(router.state.uri.path, '/settings/models/providers');
+
+    final State<StatefulWidget> settingsState = tester.state(
+      find.byType(SettingsScreen),
+    );
+    await tester.tap(find.text('Models'));
+    await tester.pumpAndSettle();
+
+    expect(router.state.uri.path, '/settings/models/models');
+    expect(
+      tester.state<State<StatefulWidget>>(find.byType(SettingsScreen)),
+      same(settingsState),
+    );
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(router.state.uri.path, settingsRoute);
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(router.state.uri.path, homeRoute);
+    expect(find.byType(ChatScreen), findsOneWidget);
+  });
+
   testWidgets('a direct model route restores the mobile detail sheet', (
     WidgetTester tester,
   ) async {
