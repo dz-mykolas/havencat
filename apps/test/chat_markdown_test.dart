@@ -38,4 +38,27 @@ void main() {
     expect(find.byIcon(Icons.check_rounded), findsOneWidget);
     await tester.pump(const Duration(seconds: 2));
   });
+
+  testWidgets('long inline copy code wraps on narrow messages', (
+    WidgetTester tester,
+  ) async {
+    const String code =
+        'MOCK1-WIN11-HOME0-DEMO0-XXXXX-EXTRA-LONG-COPYABLE-VALUE';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 180,
+            child: ChatMarkdown(text: 'Code: `$code`', selectable: true),
+          ),
+        ),
+      ),
+    );
+
+    final Size codeSize = tester.getSize(find.text(code));
+    expect(codeSize.width, lessThanOrEqualTo(160));
+    expect(codeSize.height, greaterThan(20));
+    expect(tester.takeException(), isNull);
+  });
 }

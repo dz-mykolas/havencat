@@ -259,15 +259,19 @@ class _InlineCodeChipState extends State<_InlineCodeChip> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(
-                  widget.text,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: (widget.style.fontSize ?? 15) * 0.88,
-                    color: _copied
-                        ? Colors.green
-                        : (widget.style.color ?? context.appColors.textPrimary),
-                    height: 1.4,
+                Flexible(
+                  child: Text(
+                    widget.text,
+                    softWrap: true,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: (widget.style.fontSize ?? 15) * 0.88,
+                      color: _copied
+                          ? Colors.green
+                          : (widget.style.color ??
+                                context.appColors.textPrimary),
+                      height: 1.4,
+                    ),
                   ),
                 ),
                 SizedBox(width: 3),
