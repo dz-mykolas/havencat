@@ -1,3 +1,5 @@
+use std::error::Error as _;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -71,12 +73,26 @@ impl From<tokio_rusqlite::rusqlite::Error> for WebRetrievalError {
 
 impl From<reqwest::Error> for WebRetrievalError {
     fn from(e: reqwest::Error) -> Self {
+        let detail = reqwest_error_detail(&e);
         if e.status() == Some(reqwest::StatusCode::UNAUTHORIZED) {
-            WebRetrievalError::Auth(e.to_string())
+            WebRetrievalError::Auth(detail)
         } else {
-            WebRetrievalError::Network(e.to_string())
+            WebRetrievalError::Network(detail)
         }
     }
+}
+
+fn reqwest_error_detail(error: &reqwest::Error) -> String {
+    let mut details = vec![error.to_string()];
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !details.contains(&detail) {
+            details.push(detail);
+        }
+        source = cause.source();
+    }
+    details.join(": ")
 }
 
 impl From<serde_json::Error> for WebRetrievalError {

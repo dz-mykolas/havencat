@@ -165,9 +165,22 @@ Useful build commands:
 | `make run DEVICE=<id>` | Run on a selected Flutter device |
 | `make server` | Start the local API used by the web app |
 | `make build-apk` | Build a release Android APK |
+| `make build-apk-arm64` | Build a smaller APK for modern ARM64 Android devices |
 | `make build-play` | Build an Android App Bundle |
 | `make build-ios` | Build an iOS IPA on macOS |
 | `make build-desktop` | Build for the current desktop platform |
+
+### Android test releases
+
+The ARM64 APK is suitable for GitHub test releases. Before wider distribution:
+
+- replace the debug signing key with a stable release key so APK updates work;
+- replace `com.example.havencat` with the final application ID before users
+  accumulate local data;
+- remove or development-gate the seeded mock account and mock provider; and
+- configure `POE_CLIENT_ID` when Poe sign-in is included in the build.
+
+Use `make build-apk-all` when testers need architectures other than ARM64.
 
 ---
 
